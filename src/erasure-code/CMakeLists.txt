@@ -2,9 +2,9 @@
 
 set(erasure_plugin_dir ${CEPH_INSTALL_PKGLIBDIR}/erasure-code)
 
-set(WITH_JERASURE TRUE CACHE BOOL "Enable JErasure EC library")
+set(WITH_EC_JERASURE_PLUGIN TRUE CACHE BOOL "Enable JErasure EC library")
 
-if(WITH_JERASURE)
+if(WITH_EC_JERASURE_PLUGIN)
   #jerasure subdir must be before shec so jerasure & neon obj libs are declared
   include_directories(SYSTEM jerasure/jerasure/include)
   include_directories(SYSTEM jerasure/gf-complete/include)
@@ -19,16 +19,16 @@ if(WITH_JERASURE)
   if(HAVE_INTEL)
   list(APPEND jerasure_l∑egacy_flavors sse3 sse4)
   endif()
-endif(WITH_JERASURE)
+endif(WITH_EC_JERASURE_PLUGIN)
 
-if(WITH_JERASURE)
+if(WITH_EC_JERASURE_PLUGIN)
   add_subdirectory(jerasure)
   set(EC_JERASURE_LIB ec_jerasure)
   add_subdirectory(shec) # shec depends on jerasure
   set(EC_SHEC_LIB ec_shec)
   add_subdirectory(lrc) # lrc depends on jerasure
   set(EC_LRC_LIB ec_lrc)
-endif(WITH_JERASURE)
+endif(WITH_EC_JERASURE_PLUGIN)
 add_subdirectory(clay)
 
 if(HAVE_NASM_X64_AVX2 OR HAVE_ARMV8_SIMD)

@@ -62,7 +62,7 @@ target_link_libraries(unittest_erasure_code
   ceph-common
   )
 
-if(WITH_JERASURE)
+if(WITH_EC_JERASURE_PLUGIN)
   # unittest_erasure_code_plugin_jerasure
   add_executable(unittest_erasure_code_plugin_jerasure
     TestErasureCodePluginJerasure.cc
@@ -74,7 +74,7 @@ if(WITH_JERASURE)
     ceph-common)
   add_dependencies(unittest_erasure_code_plugin_jerasure
     ec_jerasure)
-endif(WITH_JERASURE)
+endif(WITH_EC_JERASURE_PLUGIN)
 
 if(WITH_EC_ISA_PLUGIN)
 
@@ -109,7 +109,7 @@ add_dependencies(unittest_erasure_code_plugin_isa
   ec_isa)
 endif(WITH_EC_ISA_PLUGIN)
 
-if (WITH_JERASURE)
+if (WITH_EC_JERASURE_PLUGIN)
   # unittest_erasure_code_lrc
   add_executable(unittest_erasure_code_lrc
     TestErasureCodeLrc.cc
@@ -135,9 +135,9 @@ if (WITH_JERASURE)
     global
     ${CMAKE_DL_LIBS}
     ceph-common)
-endif(WITH_JERASURE)
+endif(WITH_EC_JERASURE_PLUGIN)
 
-if(WITH_JERASURE)
+if(WITH_EC_JERASURE_PLUGIN)
   # unittest_erasure_code_plugin_shec
   add_executable(unittest_erasure_code_plugin_shec
     TestErasureCodePluginShec.cc
@@ -150,7 +150,7 @@ if(WITH_JERASURE)
     ceph-common)
   add_dependencies(unittest_erasure_code_plugin_shec
     ec_shec)
-endif(WITH_JERASURE)
+endif(WITH_EC_JERASURE_PLUGIN)
 
 # unittest_erasure_code_example
 add_executable(unittest_erasure_code_example
@@ -170,7 +170,7 @@ target_link_libraries(unittest_erasure_code_example
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/erasure-code/jerasure/jerasure/include)
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/erasure-code//jerasure/gf-complete/include)
 
-if(WITH_JERASURE)
+if(WITH_EC_JERASURE_PLUGIN)
   # unittest_erasure_code_jerasure
   add_executable(unittest_erasure_code_jerasure
     TestErasureCodeJerasure.cc
@@ -236,7 +236,7 @@ if(WITH_JERASURE)
     ceph-common
     ec_shec
     )
-endif(WITH_JERASURE)
+endif(WITH_EC_JERASURE_PLUGIN)
 
 #unitest_erasure_code_clay
 add_executable(unittest_erasure_code_clay
