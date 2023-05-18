@@ -2025,7 +2025,7 @@ function test_erasure_code_plugin_exists() {
     setup $dir || return 1
     run_mon $dir a || return 1
     run_mgr $dir x || return 1
-    erasure_code_plugin_exists jerasure || return 1
+    erasure_code_plugin_exists clay || return 1
     ! erasure_code_plugin_exists FAKE || return 1
     teardown $dir || return 1
 }
