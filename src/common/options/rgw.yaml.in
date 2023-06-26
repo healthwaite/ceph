@@ -888,6 +888,21 @@ options:
   services:
   - rgw
   with_legacy: true
+- name: rgw_s3_auth_use_handoff
+  type: bool
+  level: advanced
+  desc: Should S3 authentication use handoff (external program).
+  default: false
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_handoff_uri
+  type: str
+  level: advanced
+  desc: URI for the S3 authentication handoff service.
+  default: http://127.0.0.1:8001
+  services:
+  - rgw
 - name: rgw_opa_url
   type: str
   level: advanced
