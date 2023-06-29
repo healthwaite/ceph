@@ -1,4 +1,4 @@
-// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*- 
+// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
 // vim: ts=8 sw=2 smarttab ft=cpp
 
 /*
@@ -9,9 +9,9 @@
  *
  * This is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
- * License version 2.1, as published by the Free Software 
+ * License version 2.1, as published by the Free Software
  * Foundation.  See file COPYING.
- * 
+ *
  */
 
 #pragma once
@@ -581,6 +581,7 @@ enum RGWIdentityType
   TYPE_LDAP=3,
   TYPE_ROLE=4,
   TYPE_WEB=5,
+  TYPE_HANDOFF=6,
 };
 
 static std::string RGW_STORAGE_CLASS_STANDARD = "STANDARD";
@@ -632,7 +633,7 @@ struct rgw_placement_rule {
   const std::string& get_storage_class() const {
     return get_canonical_storage_class(storage_class);
   }
-  
+
   int compare(const rgw_placement_rule& r) const {
     int c = name.compare(r.name);
     if (c != 0) {
@@ -660,7 +661,7 @@ struct rgw_placement_rule {
     std::string s;
     ceph::decode(s, bl);
     from_str(s);
-  } 
+  }
 
   std::string to_str() const {
     if (standard_storage_class()) {

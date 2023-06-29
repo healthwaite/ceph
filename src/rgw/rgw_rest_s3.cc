@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <array>
+#include <mutex>
 #include <string.h>
 #include <string_view>
 
@@ -51,6 +52,7 @@
 
 #include <typeinfo> // for 'typeid'
 
+#include "rgw_handoff.h"
 #include "rgw_ldap.h"
 #include "rgw_token.h"
 #include "rgw_rest_role.h"
@@ -589,7 +591,7 @@ int RGWGetObj_ObjStore_S3::get_decrypt_filter(std::unique_ptr<RGWGetObj_Filter> 
   }
   return res;
 }
-int RGWGetObj_ObjStore_S3::verify_requester(const rgw::auth::StrategyRegistry& auth_registry, optional_yield y) 
+int RGWGetObj_ObjStore_S3::verify_requester(const rgw::auth::StrategyRegistry& auth_registry, optional_yield y)
 {
   int ret = -EINVAL;
   ret = RGWOp::verify_requester(auth_registry, y);
@@ -4746,7 +4748,7 @@ RGWOp *RGWHandler_REST_Obj_S3::op_post()
 
   if (s->info.args.exists("uploads"))
     return new RGWInitMultipart_ObjStore_S3;
-  
+
   if (is_select_op())
     return rgw::s3select::create_s3select_op();
 
@@ -5035,7 +5037,8 @@ int RGW_Auth_S3::authorize(const DoutPrefixProvider *dpp,
   /* neither keystone and rados enabled; warn and exit! */
   if (!store->ctx()->_conf->rgw_s3_auth_use_rados &&
       !store->ctx()->_conf->rgw_s3_auth_use_keystone &&
-      !store->ctx()->_conf->rgw_s3_auth_use_ldap) {
+      !store->ctx()->_conf->rgw_s3_auth_use_ldap &&
+      !store->ctx()->_conf->rgw_s3_auth_use_handoff) {
     ldpp_dout(dpp, 0) << "WARNING: no authorization backend enabled! Users will never authenticate." << dendl;
     return -EPERM;
   }
@@ -6046,6 +6049,113 @@ void rgw::auth::s3::LDAPEngine::shutdown() {
     ldh = nullptr;
   }
 }
+
+
+rgw::HandoffHelper* rgw::auth::s3::HandoffEngine::handoff_helper = nullptr;
+std::mutex rgw::auth::s3::HandoffEngine::mtx;
+
+void rgw::auth::s3::HandoffEngine::init(CephContext* const cct)
+{
+  if (! cct->_conf->rgw_s3_auth_use_handoff ||
+      cct->_conf->rgw_handoff_uri.empty()) {
+    return;
+  }
+
+  // NOTE: This is not a thread-safe initialisation.
+  if (! handoff_helper) {
+    std::lock_guard<std::mutex> lck(mtx);
+    if (! handoff_helper) {
+      const string& Handoff_uri = cct->_conf->rgw_handoff_uri;
+      handoff_helper = new rgw::HandoffHelper(Handoff_uri);
+      handoff_helper->init(cct);
+    }
+  }
+}
+
+bool rgw::auth::s3::HandoffEngine::valid() {
+  std::lock_guard<std::mutex> lck(mtx);
+  return (!!handoff_helper);
+}
+
+rgw::auth::RemoteApplier::acl_strategy_t
+rgw::auth::s3::HandoffEngine::get_acl_strategy() const
+{
+  //This is based on the assumption that the default acl strategy in
+  // get_perms_from_aclspec, will take care. Extra acl spec is not required.
+  return nullptr;
+}
+
+rgw::auth::RemoteApplier::AuthInfo
+rgw::auth::s3::HandoffEngine::get_creds_info(const rgw::RGWToken& token) const noexcept
+{
+  /* The short form of "using" can't be used here -- we're aliasing a class'
+   * member. */
+  using acct_privilege_t = \
+    rgw::auth::RemoteApplier::AuthInfo::acct_privilege_t;
+
+  return rgw::auth::RemoteApplier::AuthInfo {
+    rgw_user(token.id),
+    token.id,
+    RGW_PERM_FULL_CONTROL,
+    acct_privilege_t::IS_PLAIN_ACCT,
+    rgw::auth::RemoteApplier::AuthInfo::NO_ACCESS_KEY,
+    rgw::auth::RemoteApplier::AuthInfo::NO_SUBUSER,
+    TYPE_HANDOFF
+  };
+}
+
+rgw::auth::Engine::result_t
+rgw::auth::s3::HandoffEngine::authenticate(
+  const DoutPrefixProvider* dpp,
+  const std::string_view& access_key_id,
+  const std::string_view& signature,
+  const std::string_view& session_token,
+  const string_to_sign_t& string_to_sign,
+  const signature_factory_t&,
+  const completer_factory_t& completer_factory,
+  const req_state* const s,
+  optional_yield y) const
+{
+  /* boost filters and/or string_ref may throw on invalid input */
+  rgw::RGWToken base64_token;
+  try {
+    base64_token = rgw::from_base64(access_key_id);
+  } catch (...) {
+    base64_token = std::string("");
+  }
+
+  if (! base64_token.valid()) {
+    return result_t::deny();
+  }
+
+  //TODO: Uncomment, when we have a migration plan in place.
+  //Check if a user of type other than 'Handoff' is already present, if yes, then
+  //return error.
+  /*RGWUserInfo user_info;
+  user_info.user_id = base64_token.id;
+  if (rgw_get_user_info_by_uid(store, user_info.user_id, user_info) >= 0) {
+    if (user_info.type != TYPE_Handoff) {
+      ldpp_dout(dpp, 10) << "ERROR: User id of type: " << user_info.type << " is already present" << dendl;
+      return nullptr;
+    }
+  }*/
+
+  if (handoff_helper->auth(dpp, base64_token.id, base64_token.key) != 0) {
+    return result_t::deny(-ERR_INVALID_ACCESS_KEY);
+  }
+
+  auto apl = apl_factory->create_apl_remote(cct, s, get_acl_strategy(),
+                                            get_creds_info(base64_token));
+  return result_t::grant(std::move(apl), completer_factory(boost::none));
+} /* rgw::auth::s3::HandoffEngine::authenticate */
+
+void rgw::auth::s3::HandoffEngine::shutdown() {
+  if (handoff_helper) {
+    delete handoff_helper;
+    handoff_helper = nullptr;
+  }
+}
+
 
 /* LocalEngine */
 rgw::auth::Engine::result_t

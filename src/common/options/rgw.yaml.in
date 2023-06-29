@@ -903,6 +903,7 @@ options:
   default: http://127.0.0.1:8001
   services:
   - rgw
+  with_legacy: true
 - name: rgw_opa_url
   type: str
   level: advanced

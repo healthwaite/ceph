@@ -9,7 +9,7 @@
 #include <string_view>
 
 #include <boost/container/static_vector.hpp>
-#include <boost/crc.hpp> 
+#include <boost/crc.hpp>
 
 #include "common/sstring.hh"
 #include "rgw_op.h"
@@ -21,6 +21,7 @@
 #include "rgw_keystone.h"
 #include "rgw_rest_conn.h"
 #include "rgw_ldap.h"
+#include "rgw_handoff.h"
 
 #include "rgw_token.h"
 #include "include/ceph_assert.h"
@@ -1127,6 +1128,60 @@ public:
   static void shutdown();
 };
 
+/**
+ * @brief S3 authentication handoff engine.
+ *
+ * Supports the delegation of S3 authentication to an external program.
+ *
+ * Based initially on the LDAP engine.
+ */
+class HandoffEngine : public AWSEngine {
+  static rgw::HandoffHelper* handoff_helper;
+  static std::mutex mtx;
+
+  static void init(CephContext* const cct);
+
+  using acl_strategy_t = rgw::auth::RemoteApplier::acl_strategy_t;
+  using auth_info_t = rgw::auth::RemoteApplier::AuthInfo;
+  using result_t = rgw::auth::Engine::result_t;
+
+protected:
+  rgw::sal::Store* store;
+  const rgw::auth::RemoteApplier::Factory* const apl_factory;
+
+  acl_strategy_t get_acl_strategy() const;
+  auth_info_t get_creds_info(const rgw::RGWToken& token) const noexcept;
+
+  result_t authenticate(const DoutPrefixProvider* dpp,
+                        const std::string_view& access_key_id,
+                        const std::string_view& signature,
+                        const std::string_view& session_token,
+                        const string_to_sign_t& string_to_sign,
+                        const signature_factory_t&,
+                        const completer_factory_t& completer_factory,
+                        const req_state* s,
+			optional_yield y) const override;
+public:
+  HandoffEngine(CephContext* const cct,
+             rgw::sal::Store* store,
+             const VersionAbstractor& ver_abstractor,
+             const rgw::auth::RemoteApplier::Factory* const apl_factory)
+    : AWSEngine(cct, ver_abstractor),
+      store(store),
+      apl_factory(apl_factory) {
+    init(cct);
+  }
+
+  using AWSEngine::authenticate;
+
+  const char* get_name() const noexcept override {
+    return "rgw::auth::s3::HandoffEngine";
+  }
+
+  static bool valid();
+  static void shutdown();
+};
+
 class LocalEngine : public AWSEngine {
   rgw::sal::Store* store;
   const rgw::auth::LocalApplier::Factory* const apl_factory;
@@ -1172,7 +1227,7 @@ class STSEngine : public AWSEngine {
   int get_session_token(const DoutPrefixProvider* dpp, const std::string_view& session_token,
                         STS::SessionToken& token) const;
 
-  result_t authenticate(const DoutPrefixProvider* dpp, 
+  result_t authenticate(const DoutPrefixProvider* dpp,
                         const std::string_view& access_key_id,
                         const std::string_view& signature,
                         const std::string_view& session_token,
