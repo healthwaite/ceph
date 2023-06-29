@@ -6116,17 +6116,20 @@ rgw::auth::s3::HandoffEngine::authenticate(
   const req_state* const s,
   optional_yield y) const
 {
-  /* boost filters and/or string_ref may throw on invalid input */
-  rgw::RGWToken base64_token;
-  try {
-    base64_token = rgw::from_base64(access_key_id);
-  } catch (...) {
-    base64_token = std::string("");
-  }
+  ldpp_dout(dpp, 20) << "HandoffEngine: authenticate()" << dendl;
 
-  if (! base64_token.valid()) {
-    return result_t::deny();
-  }
+  /// XXX This is the odd access_key json object.
+  // /* boost filters and/or string_ref may throw on invalid input */
+  // rgw::RGWToken base64_token;
+  // try {
+  //   base64_token = rgw::from_base64(access_key_id);
+  // } catch (...) {
+  //   base64_token = std::string("");
+  // }
+
+  // if (! base64_token.valid()) {
+  //   return result_t::deny();
+  // }
 
   //TODO: Uncomment, when we have a migration plan in place.
   //Check if a user of type other than 'Handoff' is already present, if yes, then
@@ -6140,12 +6143,20 @@ rgw::auth::s3::HandoffEngine::authenticate(
     }
   }*/
 
-  if (handoff_helper->auth(dpp, base64_token.id, base64_token.key) != 0) {
-    return result_t::deny(-ERR_INVALID_ACCESS_KEY);
+  auto auth_result = handoff_helper->auth(dpp,
+  	std::string(session_token),
+	std::string(access_key_id),
+	std::string(string_to_sign),
+	std::string(signature), s, y);
+  if (auth_result.is_err()) {
+    return result_t::deny(-auth_result.code());
   }
 
+  // Pass a placeholder secret in the token. We don't need the actual secret key.
+  auto access_key_token = RGWToken(RGWToken::TOKEN_HANDOFF, auth_result.userid(), "NOTSPECIFIED");
+
   auto apl = apl_factory->create_apl_remote(cct, s, get_acl_strategy(),
-                                            get_creds_info(base64_token));
+                                            get_creds_info(access_key_token));
   return result_t::grant(std::move(apl), completer_factory(boost::none));
 } /* rgw::auth::s3::HandoffEngine::authenticate */
 

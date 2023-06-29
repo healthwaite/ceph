@@ -37,6 +37,7 @@ namespace rgw {
 	TOKEN_AD,
 	TOKEN_KEYSTONE,
 	TOKEN_LDAP,
+	TOKEN_HANDOFF,
     };
 
     static enum token_type to_type(const string& s) {
@@ -46,6 +47,8 @@ namespace rgw {
 	return TOKEN_LDAP;
       if (boost::iequals(s, "keystone"))
 	return TOKEN_KEYSTONE;
+      if (boost::iequals(s, "handoff"))
+	return TOKEN_HANDOFF;
       return TOKEN_NONE;
     }
 
@@ -57,6 +60,8 @@ namespace rgw {
 	return "ldap";
       case TOKEN_KEYSTONE:
 	return "keystone";
+      case TOKEN_HANDOFF:
+	return "handoff";
       default:
 	return "none";
       };
