@@ -6118,20 +6118,7 @@ rgw::auth::s3::HandoffEngine::authenticate(
 {
   ldpp_dout(dpp, 20) << "HandoffEngine: authenticate()" << dendl;
 
-  /// XXX This is the odd access_key json object.
-  // /* boost filters and/or string_ref may throw on invalid input */
-  // rgw::RGWToken base64_token;
-  // try {
-  //   base64_token = rgw::from_base64(access_key_id);
-  // } catch (...) {
-  //   base64_token = std::string("");
-  // }
-
-  // if (! base64_token.valid()) {
-  //   return result_t::deny();
-  // }
-
-  //TODO: Uncomment, when we have a migration plan in place.
+  //LDAP TODO: Uncomment, when we have a migration plan in place.
   //Check if a user of type other than 'Handoff' is already present, if yes, then
   //return error.
   /*RGWUserInfo user_info;
