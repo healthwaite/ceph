@@ -6065,8 +6065,7 @@ void rgw::auth::s3::HandoffEngine::init(CephContext* const cct)
   if (! handoff_helper) {
     std::lock_guard<std::mutex> lck(mtx);
     if (! handoff_helper) {
-      const string& Handoff_uri = cct->_conf->rgw_handoff_uri;
-      handoff_helper = new rgw::HandoffHelper(Handoff_uri);
+      handoff_helper = new rgw::HandoffHelper();
       handoff_helper->init(cct);
     }
   }
