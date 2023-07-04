@@ -1,9 +1,23 @@
 // -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
 // vim: ts=8 sw=2 smarttab ft=cpp
 
+/**
+ * @file rgw_handoff.cc
+ * @author André Lucas (andre.lucas@storageos.com)
+ * @brief 'Handoff' S3 authentication engine.
+ * @version 0.1
+ * @date 2023-07-04
+ */
+
+/* References are to the AWS Signature Version 4 documentation:
+ *   https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html
+ */
+
+
 #include "rgw_handoff.h"
 
 #include <boost/algorithm/string.hpp>
+#include <optional>
 #include <string>
 #include <fmt/format.h>
 
@@ -38,7 +52,7 @@ int HandoffHelper::init(CephContext *const cct) {
  *
  * ```json
  * {
- *   "stringToSign": ...,  // The string to sign field provided by rgw.
+ *   "stringToSign": ...,  // The string_to_sign field provided by rgw, from doc Step 2.
  *   "accessKeyId": ...,   // The access key, provided by rgw.
  *   "authorization": ...  // The Authorization: header of the HTTP message, verbatim.
  * }
@@ -56,6 +70,37 @@ static std::string PrepareHandoffRequest(const req_state *s, const std::string_v
 	return oss.str();
 }
 
+struct HandoffResponse {
+	bool success;
+	std::string uid;
+	std::string message;
+};
+
+/**
+ * @brief Parse the response JSON.
+ */
+HandoffResponse ParseHandoffResponse(const DoutPrefixProvider *dpp, ceph::bufferlist &resp_bl) {
+	HandoffResponse resp{ success: false,  uid: "notset", message: "none" };
+
+	JSONParser parser;
+
+	if (! parser.parse(resp_bl.c_str(), resp_bl.length())) {
+		ldpp_dout(dpp, 0) << "Handoff response parser error: malformed JSON" << dendl;
+		resp.message = "malformed response JSON";
+		return resp;
+	}
+
+	try {
+		JSONDecoder::decode_json("message", resp.message, &parser, true);
+		JSONDecoder::decode_json("uid", resp.uid, &parser, true);
+	} catch (const JSONDecoder::err& err) {
+		ldpp_dout(dpp, 0) << fmt::format("Handoff response parser error: {}", err.what()) << dendl;
+		return resp;
+	}
+	ldpp_dout(dpp, 20) << fmt::format("Handoff parser response: uid='{}' message='{}'", resp.uid, resp.message) << dendl;
+	resp.success = true;
+	return resp;
+}
 
 HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider *dpp,
 	const std::string_view& session_token,
@@ -103,27 +148,15 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider *dpp,
 		return HandoffAuthResult(-EACCES, fmt::format("Handoff query failed with code {}", ret));
 	}
 
-	// Parse useful information out of the response JSON.
-	JSONParser parser;
-
-	if (! parser.parse(resp_bl.c_str(), resp_bl.length())) {
+	// Parse the JSON response.
+	auto resp = ParseHandoffResponse(dpp, resp_bl);
+	if (!resp.success) {
 		// Neutral error, the authentication system itself is failing.
-		ldpp_dout(dpp, 0) << "Handoff response parser error: malformed JSON" << dendl;
-		return HandoffAuthResult(-ERR_INTERNAL_ERROR, "malformed response JSON");
+		return HandoffAuthResult(-ERR_INTERNAL_ERROR, resp.message);
 	}
 
-	std::string message{"none"}; // Human-readable error message.
-	std::string uid{"notset"}; // User id associated with the access key.
-
-	try {
-		JSONDecoder::decode_json("message", message, &parser, true);
-		JSONDecoder::decode_json("uid", uid, &parser, true);
-	} catch (const JSONDecoder::err& err) {
-		ldpp_dout(dpp, 0) << fmt::format("Handoff response parser error: {}", err.what()) << dendl;
-		return HandoffAuthResult(-ERR_INTERNAL_ERROR, message);
-	}
-	ldpp_dout(dpp, 20) << fmt::format("Handoff parser response: uid='{}' message='{}'", uid, message) << dendl;
-
+	// Return an error, but only after attempting to parse the response
+	// for a useful error message.
 	auto status = verify.get_http_status();
 	ldpp_dout(dpp, 20) << fmt::format("fetch '{}' status {}", query_url, status) << dendl;
 
@@ -133,15 +166,15 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider *dpp,
 		// Happy path.
 		break;
 	case 401:
-		return HandoffAuthResult(-ERR_SIGNATURE_NO_MATCH, message);
+		return HandoffAuthResult(-ERR_SIGNATURE_NO_MATCH, resp.message);
 	case 404:
-		return HandoffAuthResult(-ERR_INVALID_ACCESS_KEY, message);
+		return HandoffAuthResult(-ERR_INVALID_ACCESS_KEY, resp.message);
 	case RGWHTTPClient::HTTP_STATUS_NOSTATUS:
 		ldpp_dout(dpp, 5) << fmt::format("Handoff fetch '{}' unknown status {}", query_url, status) << dendl;
-		return HandoffAuthResult(-EACCES, message);
+		return HandoffAuthResult(-EACCES, resp.message);
 	}
 
-	return HandoffAuthResult(uid, message);
+	return HandoffAuthResult(resp.uid, resp.message);
 };
 
 } /* namespace rgw */
