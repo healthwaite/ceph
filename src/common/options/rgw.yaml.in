@@ -904,6 +904,14 @@ options:
   services:
   - rgw
   with_legacy: true
+- name: rgw_handoff_verify_ssl
+  type: bool
+  level: advanced
+  desc: Should RGW verify the authentication handoff service SSL certificate.
+  default: true
+  services:
+  - rgw
+  with_legacy: true
 - name: rgw_opa_url
   type: str
   level: advanced

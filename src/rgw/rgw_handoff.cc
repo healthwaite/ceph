@@ -136,6 +136,7 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider *dpp,
 
 	ceph::bufferlist resp_bl;
 	RGWHTTPTransceiver verify{cct, "POST", query_url, &resp_bl};
+	verify.set_verify_ssl(cct->_conf->rgw_handoff_verify_ssl);
 	verify.append_header("Content-Type", "application/json");
 	verify.set_post_data(request_json);
 	verify.set_send_length(request_json.length());
