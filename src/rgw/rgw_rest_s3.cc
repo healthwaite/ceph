@@ -6130,10 +6130,11 @@ rgw::auth::s3::HandoffEngine::authenticate(
   }*/
 
   auto auth_result = handoff_helper->auth(dpp,
-  	std::string(session_token),
-	std::string(access_key_id),
-	std::string(string_to_sign),
-	std::string(signature), s, y);
+  	session_token,
+	access_key_id,
+	string_to_sign,
+	signature,
+	s, y);
   if (auth_result.is_err()) {
     return result_t::deny(-auth_result.code());
   }
