@@ -65,10 +65,8 @@ public:
 /**
  * @brief Support class for 'handoff' authentication.
  *
- * Currently only serves as a shell to call out to the external authenticator.
- *
- * If we're going to implement session caching or other more advanced
- * functions, they'll probably be attached here.
+ * Used by rgw::auth::s3::HandoffEngine to implement authentication via an
+ * external REST service.
  */
 class HandoffHelper {
 
@@ -78,9 +76,11 @@ public:
 	~HandoffHelper() {}
 
 	/**
-	 * @brief
+	 * @brief Initialise any long-lived state for this engine.
 	 * @param cct Pointer to the Ceph context
 	 * @return 0 on success, otherwise failure.
+	 *
+	 * Currently a placeholder, there's no long-lived state at this time.
 	 */
 	int init(CephContext *const cct);
 
@@ -93,11 +93,46 @@ public:
 	 * @param signature The transaction signature provided by the user.
 	 * @param s Pointer to the req_state.
 	 * @param y An optional yield token.
-	 * @return A HandofAuthResult encapsulating a return error code and any
-	 * parameters necessary to continue processing the request, e.g. the uid
-	 * associated with the access key.
+	 * @return A HandofAuthResult encapsulating a return error code and
+	 * any parameters necessary to continue processing the request, e.g.
+	 * the uid associated with the access key.
 	 *
-	 * XXX more
+	 * Perform request authentication via the external authenticator.
+	 *
+	 * - Extract the Authorization header from the environment. This will
+	 *   be necessary to validate a v4 signature because we need some
+	 *   fields (date, region, service, request type) for step 2 of the
+	 *   signature process.
+	 *
+	 *
+	 * - Construct a JSON payload for the authenticator in the prescribed
+	 *   format.
+	 *
+	 * - Fetch the authenticator URI from the context. This can't be
+	 *   trivially cached, as we want to support changing it at runtime.
+	 *   However, future enhancements may perform some time-based caching
+	 *   if performance profiling shows this is a problem.
+	 *
+	 * - Append '/verify' to the authenticator URI.
+	 *
+	 * - Send the request to the authenticator using an
+	 *   RGWHTTPTransceiver. We need the transceiver version as we'll be
+	 *   both sending a POST request and reading the response body. (This
+	 *   is cribbed from the Keystone code.)
+	 *
+	 * - If the request send itself fails (we'll handle failure return
+	 *   codes presently), return EACCES immediately.
+	 *
+	 * - Parse the JSON response to obtain the human-readable message
+	 *   field, even if the authentication response is a failure.
+	 *
+	 * - If the request returned 200, return success.
+	 *
+	 * - If the request returned 401, return ERR_SIGNATURE_NO_MATCH.
+	 *
+	 * - If the request returned 404, return ERR_INVALID_ACCESS_KEY.
+	 *
+	 * - If the request returned any other code, return EACCES.
 	 */
 	HandoffAuthResult auth(const DoutPrefixProvider *dpp,
 		const std::string_view& session_token,

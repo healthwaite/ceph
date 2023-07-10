@@ -1133,12 +1133,28 @@ public:
  *
  * Supports the delegation of S3 authentication to an external program.
  *
- * Based initially on the LDAP engine.
+ * Based initially on LDAPEngine.
+ *
+ * Note that unlike the LDAP engine we don't perform base64 decoding of the
+ * access key. As far as handoff is concerned, the access key is an opaque
+ * string parsed out of the Authorization header and sent verbatim to the
+ * external authenticator.
+ *
+ * The HandoffHelper class is somewhat redundant and could be folded into
+ * HandoffEngine. However, it makes it easier to read and easier to unit test
+ * in a separate class as it stands.
  */
 class HandoffEngine : public AWSEngine {
   static rgw::HandoffHelper* handoff_helper;
   static std::mutex mtx;
 
+  /**
+   * @brief One-time initialisation of the Handoff engine.
+   *
+   * @param cct The context.
+   *
+   * Simply a passthrough the the HandoffHelper initialisation.
+   */
   static void init(CephContext* const cct);
 
   using acl_strategy_t = rgw::auth::RemoteApplier::acl_strategy_t;
@@ -1152,6 +1168,25 @@ protected:
   acl_strategy_t get_acl_strategy() const;
   auth_info_t get_creds_info(const rgw::RGWToken& token) const noexcept;
 
+  /**
+   * @brief Authenticate the request via the external authenticator.
+   *
+   * @param dpp Debug prefix provider.
+   * @param access_key_id The access key. An opaque string from the
+   * Authorization header.
+   * @param signature The signature as found in the Authorization header.
+   * @param session_token The session token. An opaque string to this engine.
+   * @param string_to_sign The StringToSign as described in the AWS signature
+   * documentation.
+   * @param completer_factory Completion interface (see docs in rgw_auth.h).
+   * Currently Unused by this engine, as it is unused by LDAP.
+   * @param s The request state.
+   * @param y An optional_yield, we'll use it with our callout HTTP client.
+   * @return result_t The result of the external authentication.
+   *
+   * This is simply a passthrough to rgw::HandoffHelper::auth(), parsing that
+   * method's authentication result into AWSEngine's expected form.
+   */
   result_t authenticate(const DoutPrefixProvider* dpp,
                         const std::string_view& access_key_id,
                         const std::string_view& signature,

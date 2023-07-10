@@ -40,23 +40,18 @@ int HandoffHelper::init(CephContext *const cct) {
 /**
  * @brief Prepare a JSON document to send to the authenticator.
  *
- * @param s Pointer to the req_state
- * @param full_url The generated request URL (XXX necessary?)
- * @param jf Ref to a JSONFormatter object that will receive the document.
- * @return int
+ * @param s Pointer to the req_state struct.
+ * @param string_to_sign The pre-generated StringToSign field required by the
+ * signature process.
+ * @param access_key_id The access key ID. This is the Credential= field of
+ * the Authorization header, but RGW has already parsed it out for us.
+ * @param auth The full Authorization header in the HTTP request.
+ * @return std::string The JSON request as a (pretty-printed) string.
  *
  * Construct a JSON string to send to the authenticator. With this we have
  * just enough information at this point to send to the authenticator so we
  * can securely construct and so validate an S3 v4 signature. We don't need
  * the access secret key, but the authenticator process does.
- *
- * ```json
- * {
- *   "stringToSign": ...,  // The string_to_sign field provided by rgw, from doc Step 2.
- *   "accessKeyId": ...,   // The access key, provided by rgw.
- *   "authorization": ...  // The Authorization: header of the HTTP message, verbatim.
- * }
- * ```
  */
 static std::string PrepareHandoffRequest(const req_state *s, const std::string_view& string_to_sign, const std::string_view& access_key_id, const std::string_view& auth) {
 	JSONFormatter jf{true};
@@ -70,6 +65,15 @@ static std::string PrepareHandoffRequest(const req_state *s, const std::string_v
 	return oss.str();
 }
 
+/**
+ * @brief Bundle the results form parsing the authenticator's JSON response.
+ *
+ * \p uid has meaning only when \p success is true. If success is false, \p
+ * uid's value must not be used.
+ *
+ * In all cases, \p message may contain human-readable information to help
+ * explain the result.
+ */
 struct HandoffResponse {
 	bool success;
 	std::string uid;
@@ -77,7 +81,15 @@ struct HandoffResponse {
 };
 
 /**
- * @brief Parse the response JSON.
+ * @brief Parse the authenticator's JSON response.
+ *
+ * @param dpp The *DoutPrefixProvider passed to the engine.
+ * @param resp_bl The ceph::bufferlist used by the RGWHTTPClient subclass.
+ * @return HandoffResponse A structure with results from the JSON parser.
+ *
+ * This merely attempts to parse the JSON response from the authenticator.
+ * Field \p success of the return struct is set last, and if it's false the
+ * caller MUST assume authentication failure.
  */
 HandoffResponse ParseHandoffResponse(const DoutPrefixProvider *dpp, ceph::bufferlist &resp_bl) {
 	HandoffResponse resp{ success: false,  uid: "notset", message: "none" };
@@ -102,6 +114,7 @@ HandoffResponse ParseHandoffResponse(const DoutPrefixProvider *dpp, ceph::buffer
 	return resp;
 }
 
+// Documentation in .h.
 HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider *dpp,
 	const std::string_view& session_token,
 	const std::string_view& access_key_id,
