@@ -13,13 +13,12 @@
  *   https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html
  */
 
-
 #include "rgw_handoff.h"
 
 #include <boost/algorithm/string.hpp>
+#include <fmt/format.h>
 #include <optional>
 #include <string>
-#include <fmt/format.h>
 
 #include "include/ceph_assert.h"
 
@@ -32,9 +31,10 @@ namespace ba = boost::algorithm;
 
 namespace rgw {
 
-int HandoffHelper::init(CephContext *const cct) {
-	ldout(cct, 20) << "HandoffHelper::init" << dendl;
-	return 0;
+int HandoffHelper::init(CephContext* const cct)
+{
+  ldout(cct, 20) << "HandoffHelper::init" << dendl;
+  return 0;
 };
 
 /**
@@ -53,16 +53,17 @@ int HandoffHelper::init(CephContext *const cct) {
  * can securely construct and so validate an S3 v4 signature. We don't need
  * the access secret key, but the authenticator process does.
  */
-static std::string PrepareHandoffRequest(const req_state *s, const std::string_view& string_to_sign, const std::string_view& access_key_id, const std::string_view& auth) {
-	JSONFormatter jf{true};
-	jf.open_object_section(""); // root
-	encode_json("stringToSign", rgw::to_base64(string_to_sign), &jf);
-	encode_json("accessKeyId", std::string(access_key_id), &jf);
-	encode_json("authorization", std::string(auth), &jf);
-	jf.close_section(); // root
-	std::ostringstream oss;
-	jf.flush(oss);
-	return oss.str();
+static std::string PrepareHandoffRequest(const req_state* s, const std::string_view& string_to_sign, const std::string_view& access_key_id, const std::string_view& auth)
+{
+  JSONFormatter jf { true };
+  jf.open_object_section(""); // root
+  encode_json("stringToSign", rgw::to_base64(string_to_sign), &jf);
+  encode_json("accessKeyId", std::string(access_key_id), &jf);
+  encode_json("authorization", std::string(auth), &jf);
+  jf.close_section(); // root
+  std::ostringstream oss;
+  jf.flush(oss);
+  return oss.str();
 }
 
 /**
@@ -75,9 +76,9 @@ static std::string PrepareHandoffRequest(const req_state *s, const std::string_v
  * explain the result.
  */
 struct HandoffResponse {
-	bool success;
-	std::string uid;
-	std::string message;
+  bool success;
+  std::string uid;
+  std::string message;
 };
 
 /**
@@ -91,104 +92,140 @@ struct HandoffResponse {
  * Field \p success of the return struct is set last, and if it's false the
  * caller MUST assume authentication failure.
  */
-HandoffResponse ParseHandoffResponse(const DoutPrefixProvider *dpp, ceph::bufferlist &resp_bl) {
-	HandoffResponse resp{ success: false,  uid: "notset", message: "none" };
+static HandoffResponse ParseHandoffResponse(const DoutPrefixProvider* dpp, ceph::bufferlist& resp_bl)
+{
+  HandoffResponse resp { success : false, uid : "notset", message : "none" };
 
-	JSONParser parser;
+  JSONParser parser;
 
-	if (! parser.parse(resp_bl.c_str(), resp_bl.length())) {
-		ldpp_dout(dpp, 0) << "Handoff response parser error: malformed JSON" << dendl;
-		resp.message = "malformed response JSON";
-		return resp;
-	}
+  if (!parser.parse(resp_bl.c_str(), resp_bl.length())) {
+    ldpp_dout(dpp, 0) << "Handoff response parser error: malformed JSON" << dendl;
+    resp.message = "malformed response JSON";
+    return resp;
+  }
 
-	try {
-		JSONDecoder::decode_json("message", resp.message, &parser, true);
-		JSONDecoder::decode_json("uid", resp.uid, &parser, true);
-	} catch (const JSONDecoder::err& err) {
-		ldpp_dout(dpp, 0) << fmt::format("Handoff response parser error: {}", err.what()) << dendl;
-		return resp;
-	}
-	ldpp_dout(dpp, 20) << fmt::format("Handoff parser response: uid='{}' message='{}'", resp.uid, resp.message) << dendl;
-	resp.success = true;
-	return resp;
+  try {
+    JSONDecoder::decode_json("message", resp.message, &parser, true);
+    JSONDecoder::decode_json("uid", resp.uid, &parser, true);
+  } catch (const JSONDecoder::err& err) {
+    ldpp_dout(dpp, 0) << fmt::format("Handoff response parser error: {}", err.what()) << dendl;
+    return resp;
+  }
+  ldpp_dout(dpp, 20) << fmt::format("Handoff parser response: uid='{}' message='{}'", resp.uid, resp.message) << dendl;
+  resp.success = true;
+  return resp;
+}
+
+static HandoffVerifyResult verify_standard(const DoutPrefixProvider* dpp, const std::string& request_json, bufferlist* resp_bl, optional_yield y)
+{
+  auto cct = dpp->get_cct();
+
+  auto query_url = cct->_conf->rgw_handoff_uri;
+  if (!ba::ends_with(query_url, "/")) {
+    query_url += "/";
+  }
+  // The authentication verifier is a POST to /verify.
+  query_url += "verify";
+
+  RGWHTTPTransceiver verify { cct, "POST", query_url, resp_bl };
+  verify.set_verify_ssl(cct->_conf->rgw_handoff_verify_ssl);
+  verify.append_header("Content-Type", "application/json");
+  verify.set_post_data(request_json);
+  verify.set_send_length(request_json.length());
+
+  ldpp_dout(dpp, 20) << fmt::format("fetch '{}': POST '{}'", query_url, request_json) << dendl;
+  auto ret = verify.process(y);
+
+  return HandoffVerifyResult { ret, verify.get_http_status(), query_url };
 }
 
 // Documentation in .h.
-HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider *dpp,
-	const std::string_view& session_token,
-	const std::string_view& access_key_id,
-	const std::string_view& string_to_sign,
-	const std::string_view& signature,
-	const req_state* const s,
-	optional_yield y) {
+HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
+    const std::string_view& session_token,
+    const std::string_view& access_key_id,
+    const std::string_view& string_to_sign,
+    const std::string_view& signature,
+    const req_state* const s,
+    optional_yield y)
+{
 
-	ldpp_dout(dpp, 10) << "HandoffHelper::auth()" << dendl;
+  ldpp_dout(dpp, 10) << "HandoffHelper::auth()" << dendl;
 
-	// The 'environment' of the request includes, amongst other things,
-	// all the headers, prefixed with 'HTTP_'. They also have header names
-	// uppercased and with underscores instead of hyphens.
-	auto env = s->cio->get_env();
+  if (!s->cio) {
+    return HandoffAuthResult(-EACCES, "Internal error (cio)");
+  }
+  // The 'environment' of the request includes, amongst other things,
+  // all the headers, prefixed with 'HTTP_'. They also have header names
+  // uppercased and with underscores instead of hyphens.
+  auto env = s->cio->get_env();
 
-	// Retrieve the Authorization header which has a lot of fields we need.
-	auto srch = env.get_map().find("HTTP_AUTHORIZATION");
-	if (srch == env.get_map().end()) {
-		ldpp_dout(dpp, 0) << "Handoff: Missing Authorization header, cannot continue" << dendl;
-	}
-	auto auth = srch->second;
-	auto request_json = PrepareHandoffRequest(s, string_to_sign, access_key_id, auth);
+  // Retrieve the Authorization header which has a lot of fields we need.
+  auto srch = env.get_map().find("HTTP_AUTHORIZATION");
+  if (srch == env.get_map().end()) {
+    ldpp_dout(dpp, 0) << "Handoff: Missing Authorization header" << dendl;
+    return HandoffAuthResult(-EACCES, "Internal error (missing Authorization)");
+  }
+  auto auth = srch->second;
 
-	// Fetch the URI for the authentication REST endpoint.
-	auto cct = dpp->get_cct();
-	auto query_url = cct->_conf->rgw_handoff_uri;
-	if (!ba::ends_with(query_url, "/")) {
-		query_url += "/";
-	}
-	// The authentication verifier is a POST to /verify.
-	query_url += "verify";
+  // Check the Authorization header for the signature version.
+  if (ba::starts_with(auth, "AWS ")) {
+    return HandoffAuthResult(-EACCES, "Internal error (AWS Signature V2 not supported)");
+  }
+  // Build our JSON request for the authenticator.
+  auto request_json = PrepareHandoffRequest(s, string_to_sign, access_key_id, auth);
 
-	ceph::bufferlist resp_bl;
-	RGWHTTPTransceiver verify{cct, "POST", query_url, &resp_bl};
-	verify.set_verify_ssl(cct->_conf->rgw_handoff_verify_ssl);
-	verify.append_header("Content-Type", "application/json");
-	verify.set_post_data(request_json);
-	verify.set_send_length(request_json.length());
+  ceph::bufferlist resp_bl;
 
-	ldpp_dout(dpp, 20) << fmt::format("fetch '{}': POST '{}'", query_url, request_json) << dendl;
-	auto ret = verify.process(y);
+  //   RGWHTTPTransceiver verify { cct, "POST", query_url, &resp_bl };
+  //   verify.set_verify_ssl(cct->_conf->rgw_handoff_verify_ssl);
+  //   verify.append_header("Content-Type", "application/json");
+  //   verify.set_post_data(request_json);
+  //   verify.set_send_length(request_json.length());
 
-	if (ret < 0) {
-		ldpp_dout(dpp, 5) << fmt::format("fetch '{}' exit code {}", query_url, ret) << dendl;
-		return HandoffAuthResult(-EACCES, fmt::format("Handoff query failed with code {}", ret));
-	}
+  //   ldpp_dout(dpp, 20) << fmt::format("fetch '{}': POST '{}'", query_url, request_json) << dendl;
+  //   auto ret = verify.process(y);
 
-	// Parse the JSON response.
-	auto resp = ParseHandoffResponse(dpp, resp_bl);
-	if (!resp.success) {
-		// Neutral error, the authentication system itself is failing.
-		return HandoffAuthResult(-ERR_INTERNAL_ERROR, resp.message);
-	}
+  HandoffVerifyResult vres;
+  // verify_func_ is initialised at construction time and is const, we *do
+  // not* need to synchronise access.
+  if (verify_func_) {
+    vres = (*verify_func_)(dpp, request_json, &resp_bl, y);
+  } else {
+    vres = verify_standard(dpp, request_json, &resp_bl, y);
+  }
 
-	// Return an error, but only after attempting to parse the response
-	// for a useful error message.
-	auto status = verify.get_http_status();
-	ldpp_dout(dpp, 20) << fmt::format("fetch '{}' status {}", query_url, status) << dendl;
+  if (vres.result() < 0) {
+    ldpp_dout(dpp, 5) << fmt::format("handoff verify query exit code {}", vres.result()) << dendl;
+    return HandoffAuthResult(-EACCES, fmt::format("Handoff query failed with code {}", vres.result()));
+  }
 
-	// These error code responses mimic rgw_auth_keystone.cc.
-	switch (status) {
-	case 200:
-		// Happy path.
-		break;
-	case 401:
-		return HandoffAuthResult(-ERR_SIGNATURE_NO_MATCH, resp.message);
-	case 404:
-		return HandoffAuthResult(-ERR_INVALID_ACCESS_KEY, resp.message);
-	case RGWHTTPClient::HTTP_STATUS_NOSTATUS:
-		ldpp_dout(dpp, 5) << fmt::format("Handoff fetch '{}' unknown status {}", query_url, status) << dendl;
-		return HandoffAuthResult(-EACCES, resp.message);
-	}
+  // Parse the JSON response.
+  auto resp = ParseHandoffResponse(dpp, resp_bl);
+  if (!resp.success) {
+    // Neutral error, the authentication system itself is failing.
+    return HandoffAuthResult(-ERR_INTERNAL_ERROR, resp.message);
+  }
 
-	return HandoffAuthResult(resp.uid, resp.message);
+  // Return an error, but only after attempting to parse the response
+  // for a useful error message.
+  auto status = vres.http_code();
+  ldpp_dout(dpp, 20) << fmt::format("fetch '{}' status {}", vres.query_url(), status) << dendl;
+
+  // These error code responses mimic rgw_auth_keystone.cc.
+  switch (status) {
+  case 200:
+    // Happy path.
+    break;
+  case 401:
+    return HandoffAuthResult(-ERR_SIGNATURE_NO_MATCH, resp.message);
+  case 404:
+    return HandoffAuthResult(-ERR_INVALID_ACCESS_KEY, resp.message);
+  case RGWHTTPClient::HTTP_STATUS_NOSTATUS:
+    ldpp_dout(dpp, 5) << fmt::format("Handoff fetch '{}' unknown status {}", vres.query_url(), status) << dendl;
+    return HandoffAuthResult(-EACCES, resp.message);
+  }
+
+  return HandoffAuthResult(resp.uid, resp.message);
 };
 
 } /* namespace rgw */
