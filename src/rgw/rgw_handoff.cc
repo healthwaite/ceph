@@ -166,11 +166,8 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
     return HandoffAuthResult(-EACCES, "Internal error (missing Authorization)");
   }
   auto auth = srch->second;
+  ldpp_dout(dpp, 20) << "HandoffHelper::auth(): Authorization=" << auth << dendl;
 
-  // Check the Authorization header for the signature version.
-  if (ba::starts_with(auth, "AWS ")) {
-    return HandoffAuthResult(-EACCES, "Internal error (AWS Signature V2 not supported)");
-  }
   // Build our JSON request for the authenticator.
   auto request_json = PrepareHandoffRequest(s, string_to_sign, access_key_id, auth);
 

@@ -274,6 +274,7 @@ using namespace rgw;
  * File-local framework tests.
  */
 
+// Test the local signature implementation with known-good signature data.
 TEST(HandoffMeta, Sig)
 {
   for (const auto& t : tests) {
