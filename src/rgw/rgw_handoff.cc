@@ -86,7 +86,7 @@ struct HandoffResponse {
  *
  * @param dpp The *DoutPrefixProvider passed to the engine.
  * @param resp_bl The ceph::bufferlist used by the RGWHTTPClient subclass.
- * @return HandoffResponse A structure with results from the JSON parser.
+ * @return HandoffResponse Parser result.
  *
  * This merely attempts to parse the JSON response from the authenticator.
  * Field \p success of the return struct is set last, and if it's false the
@@ -168,19 +168,18 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
   auto auth = srch->second;
   ldpp_dout(dpp, 20) << "HandoffHelper::auth(): Authorization=" << auth << dendl;
 
+  // We might have disabled V2 signatures.
+  if (!dpp->get_cct()->_conf->rgw_handoff_enable_signature_v2) {
+    if (ba::starts_with(auth, "AWS ")) {
+      ldpp_dout(dpp, 0) << "Handoff: V2 signatures are disabled, returning failure" << dendl;
+      return HandoffAuthResult(-EACCES, "Access denied (V2 signatures disabled)");
+    }
+  }
+
   // Build our JSON request for the authenticator.
   auto request_json = PrepareHandoffRequest(s, string_to_sign, access_key_id, auth);
 
   ceph::bufferlist resp_bl;
-
-  //   RGWHTTPTransceiver verify { cct, "POST", query_url, &resp_bl };
-  //   verify.set_verify_ssl(cct->_conf->rgw_handoff_verify_ssl);
-  //   verify.append_header("Content-Type", "application/json");
-  //   verify.set_post_data(request_json);
-  //   verify.set_send_length(request_json.length());
-
-  //   ldpp_dout(dpp, 20) << fmt::format("fetch '{}': POST '{}'", query_url, request_json) << dendl;
-  //   auto ret = verify.process(y);
 
   HandoffVerifyResult vres;
   // verify_func_ is initialised at construction time and is const, we *do

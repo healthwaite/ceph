@@ -896,6 +896,14 @@ options:
   services:
   - rgw
   with_legacy: true
+- name: rgw_handoff_enable_signature_v2
+  type: bool
+  level: advanced
+  desc: Should S3 AWS Signature V2 verification be allowed.
+  default: enable
+  services:
+  - rgw
+  with_legacy: true
 - name: rgw_handoff_uri
   type: str
   level: advanced

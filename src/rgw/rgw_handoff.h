@@ -118,6 +118,13 @@ private:
 
 public:
   HandoffHelper() { }
+  /**
+   * @brief Construct a new Handoff Helper object with an alternative callout
+   * mechanism. Used by test harnesses.
+   *
+   * @param v A function to replace the HTTP client callout. This must mimic
+   * the inputs and outputs of the \p verify_standard() function.
+   */
   HandoffHelper(VerifyFunc v)
       : verify_func_ { v }
   {
@@ -142,38 +149,46 @@ public:
    * @param signature The transaction signature provided by the user.
    * @param s Pointer to the req_state.
    * @param y An optional yield token.
-   * @return A HandofAuthResult encapsulating a return error code and
-   * any parameters necessary to continue processing the request, e.g.
-   * the uid associated with the access key.
+   * @return A HandofAuthResult encapsulating a return error code and any
+   * parameters necessary to continue processing the request, e.g. the uid
+   * associated with the access key.
    *
    * Perform request authentication via the external authenticator.
    *
-   * - Extract the Authorization header from the environment. This will
-   *   be necessary to validate a v4 signature because we need some
-   *   fields (date, region, service, request type) for step 2 of the
-   *   signature process.
+   * There is a mechanism for a test harness to replace the HTTP client
+   * portion of this function. Here we'll assume we're using the HTTP client
+   * to authenticate.
    *
+   * - Extract the Authorization header from the environment. This will be
+   *   necessary to validate a v4 signature because we need some fields (date,
+   *   region, service, request type) for step 2 of the signature process.
+   *
+   * - If the header indicates AWS Signature V2 authentication, but V2 is
+   *   disabled via configuration, return a failure immediately.
    *
    * - Construct a JSON payload for the authenticator in the prescribed
    *   format.
    *
-   * - Fetch the authenticator URI from the context. This can't be
-   *   trivially cached, as we want to support changing it at runtime.
-   *   However, future enhancements may perform some time-based caching
-   *   if performance profiling shows this is a problem.
+   * - At this point, call a test harness to perform authentication if one is
+   *   configured. Otherwise...
+   *
+   * - Fetch the authenticator URI from the context. This can't be trivially
+   *   cached, as we want to support changing it at runtime. However, future
+   *   enhancements may perform some time-based caching if performance
+   *   profiling shows this is a problem.
    *
    * - Append '/verify' to the authenticator URI.
    *
-   * - Send the request to the authenticator using an
-   *   RGWHTTPTransceiver. We need the transceiver version as we'll be
-   *   both sending a POST request and reading the response body. (This
-   *   is cribbed from the Keystone code.)
+   * - Send the request to the authenticator using an RGWHTTPTransceiver. We
+   *   need the transceiver version as we'll be both sending a POST request
+   *   and reading the response body. (This is cribbed from the Keystone
+   *   code.)
    *
-   * - If the request send itself fails (we'll handle failure return
-   *   codes presently), return EACCES immediately.
+   * - If the request send itself fails (we'll handle failure return codes
+   *   presently), return EACCES immediately.
    *
-   * - Parse the JSON response to obtain the human-readable message
-   *   field, even if the authentication response is a failure.
+   * - Parse the JSON response to obtain the human-readable message field,
+   *   even if the authentication response is a failure.
    *
    * - If the request returned 200, return success.
    *
