@@ -6123,7 +6123,7 @@ rgw::auth::s3::HandoffEngine::authenticate(
   /*RGWUserInfo user_info;
   user_info.user_id = base64_token.id;
   if (rgw_get_user_info_by_uid(store, user_info.user_id, user_info) >= 0) {
-    if (user_info.type != TYPE_Handoff) {
+    if (user_info.type != TYPE_HANDOFF) {
       ldpp_dout(dpp, 10) << "ERROR: User id of type: " << user_info.type << " is already present" << dendl;
       return nullptr;
     }
@@ -6376,7 +6376,7 @@ rgw::auth::s3::STSEngine::authenticate(
     }
   }
 
-  if (token.acct_type == TYPE_KEYSTONE || token.acct_type == TYPE_LDAP) {
+  if (token.acct_type == TYPE_KEYSTONE || token.acct_type == TYPE_LDAP || token.acct_type == TYPE_HANDOFF) {
     auto apl = remote_apl_factory->create_apl_remote(cct, s, get_acl_strategy(),
                                             get_creds_info(token));
     return result_t::grant(std::move(apl), completer_factory(token.secret_access_key));

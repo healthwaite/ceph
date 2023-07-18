@@ -284,6 +284,8 @@ static void dump_user_info(Formatter *f, RGWUserInfo &info,
   case TYPE_LDAP:
     user_source_type = "ldap";
     break;
+  case TYPE_HANDOFF:
+    user_source_type = "handoff";
   case TYPE_NONE:
     user_source_type = "none";
     break;

@@ -2746,6 +2746,9 @@ void RGWUserInfo::dump(Formatter *f) const
   case TYPE_LDAP:
     user_source_type = "ldap";
     break;
+  case TYPE_HANDOFF:
+    user_source_type = "handoff";
+    break;
   case TYPE_NONE:
     user_source_type = "none";
     break;
@@ -2802,6 +2805,8 @@ void RGWUserInfo::decode_json(JSONObj *obj)
     type = TYPE_KEYSTONE;
   } else if (user_source_type == "ldap") {
     type = TYPE_LDAP;
+  } else if (user_source_type == "handoff") {
+    type = TYPE_HANDOFF;
   } else if (user_source_type == "none") {
     type = TYPE_NONE;
   }
