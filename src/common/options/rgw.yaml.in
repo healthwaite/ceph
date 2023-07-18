@@ -896,6 +896,14 @@ options:
   services:
   - rgw
   with_legacy: true
+- name: rgw_handoff_enable_user_autocreation
+  type: bool
+  level: advanced
+  desc: Enable automatic creation of new users authenticated via the handoff engine.
+  default: true
+  services:
+  - rgw
+  with_legacy: true
 - name: rgw_handoff_enable_signature_v2
   type: bool
   level: advanced

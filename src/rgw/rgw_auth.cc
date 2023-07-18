@@ -652,6 +652,22 @@ void rgw::auth::RemoteApplier::create_account(const DoutPrefixProvider* dpp,
     //ldap/keystone for s3 users
     user->get_info().type = info.acct_type;
   }
+
+  // Handoff can be configured to disallow implicit user creation.
+  if (info.acct_type == TYPE_HANDOFF) {
+    if (cct->_conf->rgw_handoff_enable_user_autocreation) {
+      // Log user creation at a higher priority.
+      ldpp_dout(dpp, 0) << fmt::format("RemoteApplier::create_account: create user '{}'",
+                                       new_acct_user.id) << dendl;
+
+    } else {
+      ldpp_dout(dpp, 0) << fmt::format("WARNING: handoff engine configuration "
+                                       "prevented implicit creation of user '{}'",
+                                       new_acct_user.id) << dendl;
+      throw -ERR_NO_SUCH_USER; // Return a 404.
+    }
+  }
+
   user->get_info().max_buckets =
     cct->_conf.get_val<int64_t>("rgw_user_max_buckets");
   rgw_apply_default_bucket_quota(user->get_info().bucket_quota, cct->_conf);
