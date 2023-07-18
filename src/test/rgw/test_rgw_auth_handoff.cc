@@ -365,13 +365,25 @@ using namespace rgw;
  */
 
 // Test the local signature implementation with known-good signature data.
-TEST(HandoffMeta, Sig)
+TEST(HandoffMeta, SigPositive)
 {
   for (const auto& t : tests) {
     auto info = info_for_credential(t.access_key);
     ASSERT_TRUE(info) << "No secret found for " << t.access_key;
     auto sig = verify_aws_signature(t.ss_base64, t.access_key, (*info).secret, t.authorization);
     ASSERT_TRUE(sig);
+  }
+}
+
+TEST(HandoffMeta, SigNegative)
+{
+  for (const auto& t : tests) {
+    auto info = info_for_credential(t.access_key);
+    ASSERT_TRUE(info) << "No secret found for " << t.access_key;
+    auto sig = verify_aws_signature("0" + t.ss_base64, t.access_key, (*info).secret, t.authorization);
+    ASSERT_FALSE(sig);
+    sig = verify_aws_signature(t.ss_base64, t.access_key, (*info).secret + "0", t.authorization);
+    ASSERT_FALSE(sig);
   }
 }
 
