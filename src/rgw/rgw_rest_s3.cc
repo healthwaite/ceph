@@ -4433,9 +4433,16 @@ void RGWGetBucketPublicAccessBlock_ObjStore_S3::send_response()
 
 RGWOp *RGWHandler_REST_Service_S3::op_get()
 {
-  if (s->info.args.sub_resource_exists("storequery")) {
-    return new RGWStoreQueryPing;
-  } else if (is_usage_op()) {
+  if (isSQEnabled) {
+    // Check for StoreQuery GET commands.
+    RGWHandler_REST_StoreQuery_S3 sq_handler(auth_registry);
+    sq_handler.init(store, s, s->cio);
+    auto op = sq_handler.get_op();
+    if (op) {
+      return op;
+    }
+  }
+  if (is_usage_op()) {
     return new RGWGetUsage_ObjStore_S3;
   } else {
     return new RGWListBuckets_ObjStore_S3;
@@ -4459,6 +4466,17 @@ RGWOp *RGWHandler_REST_Service_S3::op_post()
   }
 
   const auto post_body = data.to_str();
+
+
+  if (isSQEnabled) {
+    // Check for StoreQuery POST commands.
+    RGWHandler_REST_StoreQuery_S3 sq_handler(auth_registry, post_body);
+    sq_handler.init(store, s, s->cio);
+    auto op = sq_handler.get_op();
+    if (op) {
+      return op;
+    }
+  }
 
   if (isSTSEnabled) {
     RGWHandler_REST_STS sts_handler(auth_registry, post_body);

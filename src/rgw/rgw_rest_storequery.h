@@ -7,6 +7,9 @@
 
 // s3 compliant notification handler factory
 class RGWHandler_REST_StoreQuery_S3 : public RGWHandler_REST_S3 {
+private:
+  const std::string& post_body_;
+
 protected:
   int init_permissions(RGWOp* op, optional_yield y) override {return 0;}
   int read_permissions(RGWOp* op, optional_yield y) override {return 0;}
@@ -16,18 +19,21 @@ protected:
   RGWOp* op_delete() override;
 public:
   using RGWHandler_REST_S3::RGWHandler_REST_S3;
+  RGWHandler_REST_StoreQuery_S3(const rgw::auth::StrategyRegistry& auth_registry, const std::string& _post_body="")
+    : RGWHandler_REST_S3(auth_registry),
+      post_body_(_post_body) {}
   virtual ~RGWHandler_REST_StoreQuery_S3() = default;
 
-  /**
-   * @brief StoreQuery custom authorization.
-   *
-   * XXX
-   *
-   * @param dpp debug prefix.
-   * @param y optional yield object.
-   * @return int zero on success, otherwise failure.
-   */
-  int authorize(const DoutPrefixProvider *dpp, optional_yield y) override;
+  // /**
+  //  * @brief StoreQuery custom authorization.
+  //  *
+  //  * XXX
+  //  *
+  //  * @param dpp debug prefix.
+  //  * @param y optional yield object.
+  //  * @return int zero on success, otherwise failure.
+  //  */
+  // int authorize(const DoutPrefixProvider *dpp, optional_yield y) override;
 };
 
 
