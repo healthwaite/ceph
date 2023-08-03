@@ -339,7 +339,7 @@ int radosgw_Main(int argc, const char **argv)
   rgw::curl::setup_curl(fe_map);
   rgw_http_client_init(g_ceph_context);
   rgw_kmip_client_init(*new RGWKMIPManagerImpl(g_ceph_context));
-  
+
   lsubdout(cct, rgw, 1) << "rgw_d3n: rgw_d3n_l1_local_datacache_enabled=" << cct->_conf->rgw_d3n_l1_local_datacache_enabled << dendl;
   if (cct->_conf->rgw_d3n_l1_local_datacache_enabled) {
     lsubdout(cct, rgw, 1) << "rgw_d3n: rgw_d3n_l1_datacache_persistent_path='" << cct->_conf->rgw_d3n_l1_datacache_persistent_path << "'" << dendl;
@@ -423,12 +423,13 @@ int radosgw_Main(int argc, const char **argv)
   const bool sts_enabled = apis_map.count("sts") > 0;
   const bool iam_enabled = apis_map.count("iam") > 0;
   const bool pubsub_enabled = apis_map.count("pubsub") > 0 || apis_map.count("notifications") > 0;
+  const bool storequery_enabled = apis_map.count("storequery") > 0;
   // Swift API entrypoint could placed in the root instead of S3
   const bool swift_at_root = g_conf()->rgw_swift_url_prefix == "/";
   if (apis_map.count("s3") > 0 || s3website_enabled) {
     if (! swift_at_root) {
       rest.register_default_mgr(set_logging(rest_filter(store, RGW_REST_S3,
-                                                        new RGWRESTMgr_S3(s3website_enabled, sts_enabled, iam_enabled, pubsub_enabled))));
+                                                        new RGWRESTMgr_S3(s3website_enabled, sts_enabled, iam_enabled, pubsub_enabled, storequery_enabled))));
     } else {
       derr << "Cannot have the S3 or S3 Website enabled together with "
            << "Swift API placed in the root of hierarchy" << dendl;
@@ -465,7 +466,7 @@ int radosgw_Main(int argc, const char **argv)
       dout(1) << "ERROR: failed to install lua packages from allowlist" << dendl;
     }
     if (!output.empty()) {
-      dout(10) << "INFO: lua packages installation output: \n" << output << dendl; 
+      dout(10) << "INFO: lua packages installation output: \n" << output << dendl;
     }
     for (const auto& p : failed_packages) {
       dout(5) << "WARNING: failed to install lua package: " << p << " from allowlist" << dendl;
@@ -514,7 +515,7 @@ int radosgw_Main(int argc, const char **argv)
     admin_resource->register_resource("user", new RGWRESTMgr_User);
     /* XXX dang part of this is RADOS specific */
     admin_resource->register_resource("bucket", new RGWRESTMgr_Bucket);
-  
+
     /*Registering resource for /admin/metadata */
     admin_resource->register_resource("metadata", new RGWRESTMgr_Metadata);
     /* XXX dang ifdef these RADOS ? */

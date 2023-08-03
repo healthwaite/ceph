@@ -9,7 +9,7 @@
 #include <string_view>
 
 #include <boost/container/static_vector.hpp>
-#include <boost/crc.hpp> 
+#include <boost/crc.hpp>
 
 #include "common/sstring.hh"
 #include "rgw_op.h"
@@ -669,6 +669,7 @@ protected:
   const bool isSTSEnabled;
   const bool isIAMEnabled;
   const bool isPSEnabled;
+  const bool isSQEnabled;
   bool is_usage_op() const {
     return s->info.args.exists("usage");
   }
@@ -677,8 +678,8 @@ protected:
   RGWOp *op_post() override;
 public:
    RGWHandler_REST_Service_S3(const rgw::auth::StrategyRegistry& auth_registry,
-                              bool _isSTSEnabled, bool _isIAMEnabled, bool _isPSEnabled) :
-      RGWHandler_REST_S3(auth_registry), isSTSEnabled(_isSTSEnabled), isIAMEnabled(_isIAMEnabled), isPSEnabled(_isPSEnabled) {}
+                              bool _isSTSEnabled, bool _isIAMEnabled, bool _isPSEnabled, bool _isSQEnabled) :
+      RGWHandler_REST_S3(auth_registry), isSTSEnabled(_isSTSEnabled), isIAMEnabled(_isIAMEnabled), isPSEnabled(_isPSEnabled), isSQEnabled(_isSQEnabled) {}
   ~RGWHandler_REST_Service_S3() override = default;
 };
 
@@ -782,12 +783,14 @@ private:
   const bool enable_sts;
   const bool enable_iam;
   const bool enable_pubsub;
+  const bool enable_storequery;
 public:
-  explicit RGWRESTMgr_S3(bool _enable_s3website=false, bool _enable_sts=false, bool _enable_iam=false, bool _enable_pubsub=false)
+  explicit RGWRESTMgr_S3(bool _enable_s3website=false, bool _enable_sts=false, bool _enable_iam=false, bool _enable_pubsub=false, bool _enable_storequery=false)
     : enable_s3website(_enable_s3website),
       enable_sts(_enable_sts),
       enable_iam(_enable_iam),
-      enable_pubsub(_enable_pubsub) {
+      enable_pubsub(_enable_pubsub),
+      enable_storequery(_enable_storequery) {
   }
 
   ~RGWRESTMgr_S3() override = default;
@@ -1172,7 +1175,7 @@ class STSEngine : public AWSEngine {
   int get_session_token(const DoutPrefixProvider* dpp, const std::string_view& session_token,
                         STS::SessionToken& token) const;
 
-  result_t authenticate(const DoutPrefixProvider* dpp, 
+  result_t authenticate(const DoutPrefixProvider* dpp,
                         const std::string_view& access_key_id,
                         const std::string_view& signature,
                         const std::string_view& session_token,
