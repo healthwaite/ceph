@@ -4437,9 +4437,14 @@ RGWOp *RGWHandler_REST_Service_S3::op_get()
     // Check for StoreQuery GET commands.
     RGWHandler_REST_StoreQuery_S3 sq_handler(auth_registry);
     sq_handler.init(store, s, s->cio);
-    auto op = sq_handler.get_op();
-    if (op) {
-      return op;
+    try {
+      auto op = sq_handler.get_op();
+      if (op != nullptr) {
+        return op;
+      }
+    } catch (int) {
+      // If we threw an exception, we want processing to stop.
+      return nullptr;
     }
   }
   if (is_usage_op()) {

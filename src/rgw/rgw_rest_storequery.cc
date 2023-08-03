@@ -23,8 +23,15 @@ namespace ba = boost::algorithm;
  * XXX more
  */
 class RGWStoreQueryPing : public RGWOp {
+private:
+  std::string request_id_;
+
 public:
-  RGWStoreQueryPing() { }
+  RGWStoreQueryPing(const std::string& _request_id)
+      : request_id_ { _request_id }
+  {
+  }
+
   /**
    * @brief Bypass permission checks for storequery commands.
    *
@@ -41,7 +48,12 @@ public:
 
 void RGWStoreQueryPing::execute(optional_yield y)
 {
-  ldpp_dout(this, 20) << fmt::format("{}: {}()", typeid(this).name(), __func__) << dendl;
+  ldpp_dout(this, 20) << fmt::format("{}: {}({})", typeid(this).name(), __func__, request_id_) << dendl;
+  /// XXX return the request ID in some XML.
+  /// XXX format the response properly.
+
+  // // This can't fail.
+  // op_ret = 0;
 }
 
 static const char* SQ_HEADER = "HTTP_X_RGW_STOREQUERY";
@@ -95,35 +107,38 @@ bool RGWSQHeaderParser::parse(const DoutPrefixProvider* dpp, const std::string& 
     return false;
   }
   if (command_.empty()) {
-    ldpp_dout(dpp, 0) << fmt::format("No command found in {}", HEADER_LC) << dendl;
+    ldpp_dout(dpp, 0) << fmt::format("{}: no command found", HEADER_LC) << dendl;
     return false;
   }
   auto cmd = ba::to_lower_copy(command_);
   if (cmd == "ping") {
-    if (param_.size() > 0) {
-      ldpp_dout(dpp, 0) << fmt::format("{}: Malformed ping command", HEADER_LC) << dendl;
+    if (param_.size() != 1) {
+      ldpp_dout(dpp, 0) << fmt::format("{}: malformed ping command (expected one arg)", HEADER_LC) << dendl;
       return false;
     }
-    op_ = new RGWStoreQueryPing();
+    op_ = new RGWStoreQueryPing(param_[0]);
     return true;
   }
-  ldpp_dout(dpp, 0)
-      << fmt::format("Failed to parse a command from {}", HEADER_LC) << dendl;
   return false;
 }
 
 RGWOp* RGWHandler_REST_StoreQuery_S3::op_get()
 {
-
+  DoutPrefix dpp { g_ceph_context, ceph_subsys_rgw, "storequery_parse " };
   auto hdr = s->info.env->get(SQ_HEADER, nullptr);
   if (!hdr) {
     // Nothing to do if the x-rgw-storequery header is absent.
     return nullptr;
   }
-  if (s->info.args.exists("ping")) {
-    return new RGWStoreQueryPing;
+  ldpp_dout(&dpp, 20) << fmt::format("header {}: '{}'", HEADER_LC, hdr) << dendl;
+
+  auto p = RGWSQHeaderParser();
+  if (!p.parse(&dpp, hdr)) {
+    // XXX must return a failure, not a 'continue'.
+    ldpp_dout(&dpp, 20) << fmt::format("{}: parser failure", HEADER_LC) << dendl;
+    throw -ERR_NOT_FOUND;
   }
-  return nullptr;
+  return p.op();
 }
 
 RGWOp* RGWHandler_REST_StoreQuery_S3::op_put() { return nullptr; }
