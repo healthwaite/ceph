@@ -685,6 +685,7 @@ public:
 
 class RGWHandler_REST_Bucket_S3 : public RGWHandler_REST_S3 {
   const bool enable_pubsub;
+  const bool enable_storequery;
 protected:
   bool is_acl_op() const {
     return s->info.args.exists("acl");
@@ -737,12 +738,13 @@ protected:
   RGWOp *op_post() override;
   RGWOp *op_options() override;
 public:
-  RGWHandler_REST_Bucket_S3(const rgw::auth::StrategyRegistry& auth_registry, bool _enable_pubsub) :
-      RGWHandler_REST_S3(auth_registry), enable_pubsub(_enable_pubsub) {}
+  RGWHandler_REST_Bucket_S3(const rgw::auth::StrategyRegistry& auth_registry, bool _enable_pubsub, bool _enable_storequery) :
+      RGWHandler_REST_S3(auth_registry), enable_pubsub(_enable_pubsub), enable_storequery{_enable_storequery} {}
   ~RGWHandler_REST_Bucket_S3() override = default;
 };
 
 class RGWHandler_REST_Obj_S3 : public RGWHandler_REST_S3 {
+  bool enable_storequery_;
 protected:
   bool is_acl_op() const {
     return s->info.args.exists("acl");
@@ -773,6 +775,8 @@ protected:
   RGWOp *op_post() override;
   RGWOp *op_options() override;
 public:
+  RGWHandler_REST_Obj_S3(const rgw::auth::StrategyRegistry& auth_registry, bool _enable_storequery) :
+      RGWHandler_REST_S3(auth_registry), enable_storequery_{_enable_storequery} {}
   using RGWHandler_REST_S3::RGWHandler_REST_S3;
   ~RGWHandler_REST_Obj_S3() override = default;
 };

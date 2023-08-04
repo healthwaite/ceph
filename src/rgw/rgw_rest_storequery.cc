@@ -107,12 +107,12 @@ bool RGWSQHeaderParser::parse(const DoutPrefixProvider* dpp, const std::string& 
 
 RGWOp* RGWHandler_REST_StoreQuery_S3::op_get()
 {
-  DoutPrefix dpp { g_ceph_context, ceph_subsys_rgw, "storequery_parse " };
   auto hdr = s->info.env->get(SQ_HEADER, nullptr);
   if (!hdr) {
     // Nothing to do if the x-rgw-storequery header is absent.
     return nullptr;
   }
+  DoutPrefix dpp { g_ceph_context, ceph_subsys_rgw, "storequery_parse " };
   ldpp_dout(&dpp, 20) << fmt::format("header {}: '{}'", HEADER_LC, hdr) << dendl;
 
   // Our x- header is present - if we fail to parse now, we need to signal an
