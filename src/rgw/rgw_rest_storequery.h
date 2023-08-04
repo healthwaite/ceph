@@ -8,6 +8,9 @@
 /**
  * @brief Handler for StoreQuery REST commands (we only support S3).
  *
+ * This handler requires the presence of the HTTP header x-rgw-storequery,
+ * with specifically-formatted contents.
+ *
  * XXX more.
  */
 class RGWHandler_REST_StoreQuery_S3 : public RGWHandler_REST_S3 {
@@ -24,13 +27,31 @@ protected:
    *
    * If the x-rgw-storequery HTTP header is absent, return nullptr.
    *
-   * XXX more.
+   * If the x- header is present but its contents fail to pass, throw
+   * -ERR_INTERNAL_ERROR to stop further processing of the request.
    *
-   * @return RGWOp* nullptr if no SQ GET operation, otherwise an RGWOp object to
-   * process the operation.
+   * Otherwise return an object of the appropriate RGWOp subclass to handle
+   * the request.
+   *
+   * @return RGWOp* nullptr if no SQ GET operation, otherwise an RGWOp object
+   * to process the operation.
+   * @throws -ERR_INTERNAL_ERROR if the x-header is present, but the contents
+   * fail to properly parse.
    */
   RGWOp* op_get() override;
+
+  /**
+   * @brief No-op - we don't handle PUT requests yet.
+   *
+   * @return RGWOp* nullptr.
+   */
   RGWOp* op_put() override;
+
+  /**
+   * @brief No-op - we don't handle DELETE requests yet.
+   *
+   * @return RGWOp* nullptr.
+   */
   RGWOp* op_delete() override;
 
 public:
@@ -81,4 +102,34 @@ public:
   RGWOp* op() { return op_; }
   std::string command() { return command_; }
   std::vector<std::string> param() { return param_; }
+};
+
+/**
+ * @brief StoreQuery ping command implementation.
+ *
+ * XXX more
+ */
+class RGWStoreQueryPing : public RGWOp {
+private:
+  std::string request_id_;
+
+public:
+  RGWStoreQueryPing(const std::string& _request_id)
+      : request_id_ { _request_id }
+  {
+  }
+
+  /**
+   * @brief Bypass permission checks for storequery commands.
+   *
+   * @param y optional yield.
+   * @return int zero (success).
+   */
+  int verify_permission(optional_yield y) override { return 0; }
+
+  void execute(optional_yield y) override;
+  void send_response() override;
+
+  const char* name() const override { return "storequery_ping"; }
+  uint32_t op_mask() override { return RGW_OP_TYPE_READ; }
 };

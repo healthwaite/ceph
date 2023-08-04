@@ -13,7 +13,7 @@ protected:
   RGWSQHeaderParser p;
 };
 
-TEST_F(StoreQueryHeaderParserTest, EmptyXFail)
+TEST_F(StoreQueryHeaderParserTest, EmptyFail)
 {
   ASSERT_FALSE(p.parse(&dpp, ""));
 }
@@ -22,11 +22,11 @@ TEST_F(StoreQueryHeaderParserTest, TooLongFail)
   auto s = std::string(RGWSQMaxHeaderLength + 1, ' ');
   ASSERT_FALSE(p.parse(&dpp, s));
 }
-TEST_F(StoreQueryHeaderParserTest, EmptyBogusXFail)
+TEST_F(StoreQueryHeaderParserTest, EmptyBogusFail)
 {
   ASSERT_FALSE(p.parse(&dpp, "nope"));
 }
-TEST_F(StoreQueryHeaderParserTest, BogonCharXFail)
+TEST_F(StoreQueryHeaderParserTest, BogonCharFail)
 {
   // Control character.
   ASSERT_FALSE(p.parse(&dpp, "ping\007"));
@@ -69,11 +69,17 @@ TEST_F(StoreQueryHeaderParserTest, Tokenizer)
 }
 TEST_F(StoreQueryHeaderParserTest, Ping)
 {
-  ASSERT_TRUE(p.parse(&dpp, "ping"));
+  // Successful parse.
+  ASSERT_TRUE(p.parse(&dpp, "ping foo"));
   ASSERT_EQ(p.command(), "ping");
-  ASSERT_TRUE(p.param().empty());
+  ASSERT_EQ(p.param().size(), 1);
   ASSERT_TRUE(p.op() != nullptr);
   ASSERT_STREQ(p.op()->name(), "storequery_ping");
+  // Fail parse.
+  p.reset();
+  ASSERT_FALSE(p.parse(&dpp, "ping"));
+  p.reset();
+  ASSERT_FALSE(p.parse(&dpp, "ping foo bar"));
 }
 
 int main(int argc, char** argv)
@@ -81,7 +87,7 @@ int main(int argc, char** argv)
   auto args = argv_to_vec(argc, argv);
   auto cct = global_init(NULL, args, CEPH_ENTITY_TYPE_CLIENT, CODE_ENVIRONMENT_UTILITY, CINIT_FLAG_NO_DEFAULT_CONFIG_FILE);
   common_init_finish(g_ceph_context);
-  //   g_ceph_context->_conf->subsys.set_log_level(ceph_subsys_rgw, 20);
+  // g_ceph_context->_conf->subsys.set_log_level(ceph_subsys_rgw, 20);
   ::testing::InitGoogleTest(&argc, argv);
   int r = RUN_ALL_TESTS();
   return r;

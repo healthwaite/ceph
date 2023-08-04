@@ -17,43 +17,26 @@
 
 namespace ba = boost::algorithm;
 
-/**
- * @brief StoreQuery ping command implementation.
- *
- * XXX more
- */
-class RGWStoreQueryPing : public RGWOp {
-private:
-  std::string request_id_;
-
-public:
-  RGWStoreQueryPing(const std::string& _request_id)
-      : request_id_ { _request_id }
-  {
-  }
-
-  /**
-   * @brief Bypass permission checks for storequery commands.
-   *
-   * @param y optional yield.
-   * @return int zero (success).
-   */
-  int verify_permission(optional_yield y) override { return 0; }
-
-  void execute(optional_yield y) override;
-
-  const char* name() const override { return "storequery_ping"; }
-  uint32_t op_mask() override { return RGW_OP_TYPE_READ; }
-};
-
 void RGWStoreQueryPing::execute(optional_yield y)
 {
   ldpp_dout(this, 20) << fmt::format("{}: {}({})", typeid(this).name(), __func__, request_id_) << dendl;
-  /// XXX return the request ID in some XML.
-  /// XXX format the response properly.
+  // This can't fail.
+  op_ret = 0;
+}
 
-  // // This can't fail.
-  // op_ret = 0;
+void RGWStoreQueryPing::send_response()
+{
+  if (op_ret) {
+    set_req_state_err(s, op_ret);
+  }
+  dump_errno(s);
+  end_header(s, this, "application/xml");
+  dump_start(s);
+
+  s->formatter->open_object_section("StoreQueryPingResult");
+  s->formatter->dump_string("request_id", request_id_);
+  s->formatter->close_section();
+  rgw_flush_formatter_and_reset(s, s->formatter);
 }
 
 static const char* SQ_HEADER = "HTTP_X_RGW_STOREQUERY";
@@ -132,14 +115,21 @@ RGWOp* RGWHandler_REST_StoreQuery_S3::op_get()
   }
   ldpp_dout(&dpp, 20) << fmt::format("header {}: '{}'", HEADER_LC, hdr) << dendl;
 
+  // Our x- header is present - if we fail to parse now, we need to signal an
+  // error up the stack and not continue processing.
   auto p = RGWSQHeaderParser();
   if (!p.parse(&dpp, hdr)) {
-    // XXX must return a failure, not a 'continue'.
     ldpp_dout(&dpp, 20) << fmt::format("{}: parser failure", HEADER_LC) << dendl;
-    throw -ERR_NOT_FOUND;
+    throw -ERR_INTERNAL_ERROR;
   }
   return p.op();
 }
 
-RGWOp* RGWHandler_REST_StoreQuery_S3::op_put() { return nullptr; }
-RGWOp* RGWHandler_REST_StoreQuery_S3::op_delete() { return nullptr; }
+RGWOp* RGWHandler_REST_StoreQuery_S3::op_put() {
+  // We don't handle PUT requests yet.
+  return nullptr;
+}
+RGWOp* RGWHandler_REST_StoreQuery_S3::op_delete() {
+  // We don't handle DELETE requests yet.
+  return nullptr;
+}
