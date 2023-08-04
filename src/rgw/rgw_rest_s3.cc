@@ -4435,7 +4435,7 @@ RGWOp *RGWHandler_REST_Service_S3::op_get()
 {
   if (isSQEnabled) {
     // Check for StoreQuery GET commands.
-    RGWHandler_REST_StoreQuery_S3 sq_handler(auth_registry);
+    RGWHandler_REST_StoreQuery_S3 sq_handler(auth_registry, RGWSQHandlerType::Service);
     sq_handler.init(store, s, s->cio);
     try {
       auto op = sq_handler.get_op();
@@ -4549,7 +4549,7 @@ RGWOp *RGWHandler_REST_Bucket_S3::op_get()
 
   if (enable_storequery) {
     // Check for StoreQuery GET commands.
-    RGWHandler_REST_StoreQuery_S3 sq_handler(auth_registry);
+    RGWHandler_REST_StoreQuery_S3 sq_handler(auth_registry, RGWSQHandlerType::Bucket);
     sq_handler.init(store, s, s->cio);
     try {
       auto op = sq_handler.get_op();
@@ -4712,7 +4712,7 @@ RGWOp *RGWHandler_REST_Obj_S3::op_get()
 {
   if (enable_storequery_) {
     // Check for StoreQuery GET commands.
-    RGWHandler_REST_StoreQuery_S3 sq_handler(auth_registry);
+    RGWHandler_REST_StoreQuery_S3 sq_handler(auth_registry, RGWSQHandlerType::Obj);
     sq_handler.init(store, s, s->cio);
     try {
       auto op = sq_handler.get_op();

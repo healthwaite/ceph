@@ -17,14 +17,14 @@
 
 namespace ba = boost::algorithm;
 
-void RGWStoreQueryPing::execute(optional_yield y)
+void RGWStoreQueryOp_Ping::execute(optional_yield y)
 {
   ldpp_dout(this, 20) << fmt::format("{}: {}({})", typeid(this).name(), __func__, request_id_) << dendl;
   // This can't fail.
   op_ret = 0;
 }
 
-void RGWStoreQueryPing::send_response()
+void RGWStoreQueryOp_Ping::send_response()
 {
   if (op_ret) {
     set_req_state_err(s, op_ret);
@@ -41,6 +41,28 @@ void RGWStoreQueryPing::send_response()
 
 static const char* SQ_HEADER = "HTTP_X_RGW_STOREQUERY";
 static const char* HEADER_LC = "x-rgw-storequery";
+
+
+void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
+{
+  ldpp_dout(this, 20) << fmt::format("{}: {}", typeid(this).name(), __func__) << dendl;
+  op_ret = 0; // XXX
+}
+
+void RGWStoreQueryOp_ObjectStatus::send_response()
+{
+  if (op_ret) {
+    set_req_state_err(s, op_ret);
+  }
+  dump_errno(s);
+  end_header(s, this, "application/xml");
+
+  dump_start(s);
+  s->formatter->open_object_section("StoreQueryObjectStatusResult");
+  // XXX !!!
+  s->formatter->close_section();
+  rgw_flush_formatter_and_reset(s, s->formatter);
+}
 
 void RGWSQHeaderParser::reset()
 {
@@ -75,7 +97,8 @@ bool RGWSQHeaderParser::tokenize(const DoutPrefixProvider* dpp, const std::strin
   bool first = true;
   for (const auto& t : tok) {
     if (first) {
-      command_ = std::string { t };
+      // Always lowercase the command name.
+      command_ = ba::to_lower_copy(t);
       first = false;
       continue;
     }
@@ -84,7 +107,7 @@ bool RGWSQHeaderParser::tokenize(const DoutPrefixProvider* dpp, const std::strin
   return true;
 }
 
-bool RGWSQHeaderParser::parse(const DoutPrefixProvider* dpp, const std::string& input)
+bool RGWSQHeaderParser::parse(const DoutPrefixProvider* dpp, const std::string& input, RGWSQHandlerType handler_type)
 {
   if (!tokenize(dpp, input)) {
     return false;
@@ -93,13 +116,29 @@ bool RGWSQHeaderParser::parse(const DoutPrefixProvider* dpp, const std::string& 
     ldpp_dout(dpp, 0) << fmt::format("{}: no command found", HEADER_LC) << dendl;
     return false;
   }
-  auto cmd = ba::to_lower_copy(command_);
-  if (cmd == "ping") {
-    if (param_.size() != 1) {
-      ldpp_dout(dpp, 0) << fmt::format("{}: malformed ping command (expected one arg)", HEADER_LC) << dendl;
+  // ObjectStatus command.
+  //
+  if (command_ == "objectstatus") {
+    if (handler_type != RGWSQHandlerType::Obj) {
+      ldpp_dout(dpp, 0) << fmt::format("{}: ObjectStatus only applies in an Object context", HEADER_LC) << dendl;
       return false;
     }
-    op_ = new RGWStoreQueryPing(param_[0]);
+    if (param_.size() != 0) {
+      ldpp_dout(dpp, 0) << fmt::format("{}: malformed ObjectStatus command (expected zero args)", HEADER_LC) << dendl;
+      return false;
+    }
+    op_ = new RGWStoreQueryOp_ObjectStatus();
+    return true;
+  }
+  // Ping command.
+  //
+  else if (command_ == "ping") {
+    // Allow ping from any handler type - it doesn't matter!
+    if (param_.size() != 1) {
+      ldpp_dout(dpp, 0) << fmt::format("{}: malformed Ping command (expected one arg)", HEADER_LC) << dendl;
+      return false;
+    }
+    op_ = new RGWStoreQueryOp_Ping(param_[0]);
     return true;
   }
   return false;
@@ -118,7 +157,7 @@ RGWOp* RGWHandler_REST_StoreQuery_S3::op_get()
   // Our x- header is present - if we fail to parse now, we need to signal an
   // error up the stack and not continue processing.
   auto p = RGWSQHeaderParser();
-  if (!p.parse(&dpp, hdr)) {
+  if (!p.parse(&dpp, hdr, handler_type_)) {
     ldpp_dout(&dpp, 20) << fmt::format("{}: parser failure", HEADER_LC) << dendl;
     throw -ERR_INTERNAL_ERROR;
   }

@@ -15,23 +15,23 @@ protected:
 
 TEST_F(StoreQueryHeaderParserTest, EmptyFail)
 {
-  ASSERT_FALSE(p.parse(&dpp, ""));
+  ASSERT_FALSE(p.parse(&dpp, "", RGWSQHandlerType::Service));
 }
 TEST_F(StoreQueryHeaderParserTest, TooLongFail)
 {
   auto s = std::string(RGWSQMaxHeaderLength + 1, ' ');
-  ASSERT_FALSE(p.parse(&dpp, s));
+  ASSERT_FALSE(p.parse(&dpp, s, RGWSQHandlerType::Service));
 }
 TEST_F(StoreQueryHeaderParserTest, EmptyBogusFail)
 {
-  ASSERT_FALSE(p.parse(&dpp, "nope"));
+  ASSERT_FALSE(p.parse(&dpp, "nope", RGWSQHandlerType::Service));
 }
 TEST_F(StoreQueryHeaderParserTest, BogonCharFail)
 {
   // Control character.
-  ASSERT_FALSE(p.parse(&dpp, "ping\007"));
+  ASSERT_FALSE(p.parse(&dpp, "ping\007", RGWSQHandlerType::Service));
   // >127.
-  ASSERT_FALSE(p.parse(&dpp, "ping\xff"));
+  ASSERT_FALSE(p.parse(&dpp, "ping\xff", RGWSQHandlerType::Service));
 }
 TEST_F(StoreQueryHeaderParserTest, Tokenizer)
 {
@@ -70,16 +70,33 @@ TEST_F(StoreQueryHeaderParserTest, Tokenizer)
 TEST_F(StoreQueryHeaderParserTest, Ping)
 {
   // Successful parse.
-  ASSERT_TRUE(p.parse(&dpp, "ping foo"));
+  ASSERT_TRUE(p.parse(&dpp, "Ping foo", RGWSQHandlerType::Service));
   ASSERT_EQ(p.command(), "ping");
   ASSERT_EQ(p.param().size(), 1);
   ASSERT_TRUE(p.op() != nullptr);
   ASSERT_STREQ(p.op()->name(), "storequery_ping");
   // Fail parse.
   p.reset();
-  ASSERT_FALSE(p.parse(&dpp, "ping"));
+  ASSERT_FALSE(p.parse(&dpp, "ping", RGWSQHandlerType::Service));
   p.reset();
-  ASSERT_FALSE(p.parse(&dpp, "ping foo bar"));
+  ASSERT_FALSE(p.parse(&dpp, "ping foo bar", RGWSQHandlerType::Service));
+}
+
+TEST_F(StoreQueryHeaderParserTest, ObjectStatus)
+{
+  // Successful parse.
+  ASSERT_TRUE(p.parse(&dpp, "ObjectStatus", RGWSQHandlerType::Obj));
+  ASSERT_EQ(p.command(), "objectstatus");
+  ASSERT_TRUE(p.param().empty());
+  ASSERT_TRUE(p.op() != nullptr);
+  ASSERT_STREQ(p.op()->name(), "storequery_objectstatus");
+  // Fail parse.
+  p.reset();
+  ASSERT_FALSE(p.parse(&dpp, "objectstatus foo", RGWSQHandlerType::Obj));
+  p.reset();
+  ASSERT_FALSE(p.parse(&dpp, "objectstatus", RGWSQHandlerType::Service));
+  p.reset();
+  ASSERT_FALSE(p.parse(&dpp, "objectstatus", RGWSQHandlerType::Bucket));
 }
 
 int main(int argc, char** argv)
