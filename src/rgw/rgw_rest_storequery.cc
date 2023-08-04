@@ -15,8 +15,6 @@
 // #define dout_context g_ceph_context
 // #define dout_subsys ceph_subsys_rgw
 
-namespace ba = boost::algorithm;
-
 void RGWStoreQueryOp_Ping::execute(optional_yield y)
 {
   ldpp_dout(this, 20) << fmt::format("{}: {}({})", typeid(this).name(), __func__, request_id_) << dendl;
@@ -45,8 +43,33 @@ static const char* HEADER_LC = "x-rgw-storequery";
 
 void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
 {
-  ldpp_dout(this, 20) << fmt::format("{}: {}", typeid(this).name(), __func__) << dendl;
-  op_ret = 0; // XXX
+  bucket_name_ = rgw_make_bucket_entry_name(s->bucket_tenant, s->bucket_name);
+  object_key_name_ = s->object->get_key().name;
+
+  ldpp_dout(this, 20) << fmt::format("{}: {} (bucket='{}' object='{}')",
+    typeid(this).name(), __func__, bucket_name_, object_key_name_)
+    << dendl;
+
+  // Read cribbed from RGWGetObj::execute() and vastly simplified.
+
+  std::unique_ptr<rgw::sal::Object::ReadOp> read_op(s->object->get_read_op(s->obj_ctx));
+
+  op_ret = read_op->prepare(s->yield, this);
+  if (op_ret < 0) {
+    // Try to give a helpful log message, we really expect ENOENT as we're not
+    // setting read attributes.
+    if (op_ret == -ENOENT) {
+      ldpp_dout(this, 20) << "read_op return ENOENT, object not found" << dendl;
+    } else {
+      ldpp_dout(this, 20) << "read_op failed err=" << op_ret << dendl;
+    }
+    return;
+  }
+  // Gather other information that may be useful.
+  version_id_ = s->object->get_instance();
+  object_size_ = s->obj_size = s->object->get_obj_size();
+
+  op_ret = 0;
 }
 
 void RGWStoreQueryOp_ObjectStatus::send_response()
@@ -59,10 +82,18 @@ void RGWStoreQueryOp_ObjectStatus::send_response()
 
   dump_start(s);
   s->formatter->open_object_section("StoreQueryObjectStatusResult");
-  // XXX !!!
+  s->formatter->open_object_section("Object");
+  s->formatter->dump_string("bucket", bucket_name_);
+  s->formatter->dump_string("key", object_key_name_);
+  s->formatter->dump_bool("present", true);
+  s->formatter->dump_string("version_id", version_id_);
+  s->formatter->dump_int("size", static_cast<int64_t>(object_size_));
+  s->formatter->close_section();
   s->formatter->close_section();
   rgw_flush_formatter_and_reset(s, s->formatter);
 }
+
+namespace ba = boost::algorithm;
 
 void RGWSQHeaderParser::reset()
 {

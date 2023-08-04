@@ -175,6 +175,12 @@ int rgw_process_authenticated(RGWHandler_REST * const handler,
     return ret;
   }
 
+  // Bypass authorization for storequery operations.
+  bool is_storequery = boost::algorithm::starts_with(op->name(), "storequery_");
+  // if (is_storequery) {
+  //   s->system_request = true;
+  // }
+
   /**
    * Only some accesses support website mode, and website mode does NOT apply
    * if you are using the REST endpoint either (ergo, no authenticated access)
@@ -191,10 +197,12 @@ int rgw_process_authenticated(RGWHandler_REST * const handler,
   }
 
   /* If necessary extract object ACL and put them into req_state. */
-  ldpp_dout(op, 2) << "reading permissions" << dendl;
-  ret = handler->read_permissions(op, y);
-  if (ret < 0) {
-    return ret;
+  if (!is_storequery) {
+    ldpp_dout(op, 2) << "reading permissions" << dendl;
+    ret = handler->read_permissions(op, y);
+    if (ret < 0) {
+      return ret;
+    }
   }
 
   ldpp_dout(op, 2) << "init op" << dendl;

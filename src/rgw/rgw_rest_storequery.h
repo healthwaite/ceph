@@ -122,6 +122,15 @@ public:
 
 class RGWStoreQueryOp_Base : public RGWOp {
 public:
+
+  /**
+   * @brief Bypass requester authorization checks for storequery commands.
+   *
+   * @param auth_registry The registry (ignored).
+   * @param y optional yield.
+   * @return int zero (success).
+   */
+  int verify_requester([[maybe_unused]] const rgw::auth::StrategyRegistry& auth_registry, [[maybe_unused]] optional_yield y) override { return 0; }
   /**
    * @brief Bypass permission checks for storequery commands.
    *
@@ -176,6 +185,11 @@ public:
  *
  */
 class RGWStoreQueryOp_ObjectStatus : public RGWStoreQueryOp_Base {
+  std::string bucket_name_;
+  std::string object_key_name_;
+  std::string version_id_;
+  size_t object_size_;
+
 public:
 
   void execute(optional_yield y) override;
