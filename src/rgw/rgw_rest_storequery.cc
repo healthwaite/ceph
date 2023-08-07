@@ -6,6 +6,7 @@
 #include <fmt/format.h>
 #include <string>
 
+#include "cls/rgw/cls_rgw_types.h"
 #include "common/dout.h"
 #include "rgw_common.h"
 #include "rgw_rest_storequery.h"
@@ -49,24 +50,63 @@ void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
       typeid(this).name(), __func__, bucket_name_, object_key_name_)
                       << dendl;
 
-  // Read cribbed from RGWGetObj::execute() and vastly simplified.
+  // Mined from ListBucket::execute().
+  rgw::sal::Bucket::ListParams params;
+  params.prefix = object_key_name_;
+  params.list_versions = true;
+  rgw::sal::Bucket::ListResults results;
 
-  std::unique_ptr<rgw::sal::Object::ReadOp> read_op(s->object->get_read_op(s->obj_ctx));
+  // XXX if we're given a prefix, we'll probably get sub-entries...
 
-  op_ret = read_op->prepare(s->yield, this);
-  if (op_ret < 0) {
-    // Try to give a helpful log message, we really expect ENOENT as we're not
-    // setting read attributes.
-    if (op_ret == -ENOENT) {
-      ldpp_dout(this, 20) << "read_op return ENOENT, object not found" << dendl;
-    } else {
-      ldpp_dout(this, 20) << "read_op failed err=" << op_ret << dendl;
-    }
+  // XXX max=1000 is arbitrary.
+  auto ret = s->bucket->list(this, params, 1000, results, y);
+  if (ret < 0) {
+    op_ret = ret;
+    ldpp_dout(this, 2) << "sal bucket->list query failed ret=" << ret << dendl;
     return;
   }
-  // Gather other information that may be useful.
-  version_id_ = s->object->get_instance();
-  object_size_ = s->obj_size = s->object->get_obj_size();
+
+  if (results.objs.size() == 0) {
+    ldpp_dout(this, 2) << "key not found" << dendl;
+    op_ret = -ENOENT;
+    return;
+
+  } else {
+    for (size_t n=0; n<results.objs.size(); n++) {
+      auto &obj = results.objs[n];
+      ldpp_dout(this, 20) <<
+        fmt::format("obj {}/{}: exists={} current={} delete_marker={}",
+          n, results.objs.size(), obj.exists, obj.is_current(), obj.is_delete_marker())
+          << dendl;
+      if (obj.is_current()) {
+        object_deleted_ = obj.is_delete_marker();
+        if (!object_deleted_) {
+          object_size_ = obj.meta.size;
+        }
+        // We don't care at all about further versions.
+        break;
+      }
+    }
+  }
+
+  // Read cribbed from RGWGetObj::execute() and vastly simplified.
+
+  // std::unique_ptr<rgw::sal::Object::ReadOp> read_op(s->object->get_read_op(s->obj_ctx));
+
+  // op_ret = read_op->prepare(s->yield, this);
+  // if (op_ret < 0) {
+  //   // Try to give a helpful log message, we really expect ENOENT as we're not
+  //   // setting read attributes.
+  //   if (op_ret == -ENOENT) {
+  //     ldpp_dout(this, 20) << "read_op return ENOENT, object not found" << dendl;
+  //   } else {
+  //     ldpp_dout(this, 20) << "read_op failed err=" << op_ret << dendl;
+  //   }
+  //   return;
+  // }
+  // // Gather other information that may be useful.
+  // version_id_ = s->object->get_instance();
+  // object_size_ = s->obj_size = s->object->get_obj_size();
 
   op_ret = 0;
 }
@@ -84,9 +124,11 @@ void RGWStoreQueryOp_ObjectStatus::send_response()
   s->formatter->open_object_section("Object");
   s->formatter->dump_string("bucket", bucket_name_);
   s->formatter->dump_string("key", object_key_name_);
-  s->formatter->dump_bool("present", true);
-  s->formatter->dump_string("version_id", version_id_);
-  s->formatter->dump_int("size", static_cast<int64_t>(object_size_));
+  s->formatter->dump_bool("deleted", object_deleted_);
+  if (!object_deleted_) {
+    s->formatter->dump_string("version_id", version_id_);
+    s->formatter->dump_int("size", static_cast<int64_t>(object_size_));
+  }
   s->formatter->close_section();
   s->formatter->close_section();
   rgw_flush_formatter_and_reset(s, s->formatter);

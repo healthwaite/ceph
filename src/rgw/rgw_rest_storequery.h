@@ -271,6 +271,7 @@ class RGWStoreQueryOp_ObjectStatus : public RGWStoreQueryOp_Base {
   std::string object_key_name_;
   std::string version_id_;
   size_t object_size_;
+  bool object_deleted_;
 
 public:
   void execute(optional_yield y) override;
