@@ -46,10 +46,10 @@ protected:
    * @brief Determine if a StoreQuery GET operation is being requested.
    *
    * NOTE: Our error-handling behaviour depends on exception processing in the
-   * calling REST handler. RGWHandler_REST_{Service,Bucket,Obj}_S3 have been
-   * modified to catch this exception, and any further handlers should have
-   * the same processing. Otherwise the exception will propagate further. In
-   * v17.2.6 it will terminate the process!
+   * calling REST handler. RGWHandler_REST_{Service,Bucket,Obj}_S3 will catch
+   * this exception, and any further handlers should have the same processing.
+   * Otherwise the exception will propagate further. In v17.2.6 it will
+   * terminate the process.
    *
    * If the x-rgw-storequery HTTP header is absent, return nullptr.
    *

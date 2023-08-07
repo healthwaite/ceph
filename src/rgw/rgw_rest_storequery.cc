@@ -122,6 +122,9 @@ bool RGWSQHeaderParser::tokenize(const DoutPrefixProvider* dpp, const std::strin
     return false;
   }
 
+  // Only debug the header contents after canonicalising it.
+  ldpp_dout(&dpp, 20) << fmt::format("header {}: '{}'", HEADER_LC, hdr) << dendl;
+
   // Use boost::tokenizer to split into space-separated fields, allowing
   // double-quoted fields to contain spaces.
   boost::escaped_list_separator<char> els("\\", " ", "\"");
@@ -185,13 +188,12 @@ RGWOp* RGWHandler_REST_StoreQuery_S3::op_get()
     return nullptr;
   }
   DoutPrefix dpp { g_ceph_context, ceph_subsys_rgw, "storequery_parse " };
-  ldpp_dout(&dpp, 20) << fmt::format("header {}: '{}'", HEADER_LC, hdr) << dendl;
 
   // Our x- header is present - if we fail to parse now, we need to signal an
   // error up the stack and not continue processing.
   auto p = RGWSQHeaderParser();
   if (!p.parse(&dpp, hdr, handler_type_)) {
-    ldpp_dout(&dpp, 20) << fmt::format("{}: parser failure", HEADER_LC) << dendl;
+    ldpp_dout(&dpp, 0) << fmt::format("{}: parser failure", HEADER_LC) << dendl;
     throw -ERR_INTERNAL_ERROR;
   }
   return p.op();
