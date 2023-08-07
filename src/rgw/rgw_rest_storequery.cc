@@ -122,7 +122,7 @@ bool RGWSQHeaderParser::tokenize(const DoutPrefixProvider* dpp, const std::strin
   }
 
   // Only debug the header contents after canonicalising it.
-  ldpp_dout(&dpp, 20) << fmt::format("header {}: '{}'", HEADER_LC, hdr) << dendl;
+  ldpp_dout(dpp, 20) << fmt::format("header {}: '{}'", HEADER_LC, input) << dendl;
 
   // Use boost::tokenizer to split into space-separated fields, allowing
   // double-quoted fields to contain spaces.
