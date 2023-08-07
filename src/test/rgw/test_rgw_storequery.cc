@@ -93,8 +93,10 @@ TEST_F(StoreQueryHeaderParserTest, ObjectStatus)
   // Fail parse.
   p.reset();
   ASSERT_FALSE(p.parse(&dpp, "objectstatus foo", RGWSQHandlerType::Obj));
+  // Wrong handler type.
   p.reset();
   ASSERT_FALSE(p.parse(&dpp, "objectstatus", RGWSQHandlerType::Service));
+  // Wrong handler type.
   p.reset();
   ASSERT_FALSE(p.parse(&dpp, "objectstatus", RGWSQHandlerType::Bucket));
 }

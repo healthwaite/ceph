@@ -25,7 +25,13 @@ enum class RGWSQHandlerType {
  * This handler requires the presence of the HTTP header x-rgw-storequery,
  * with specifically-formatted contents.
  *
- * XXX more.
+ * This handler is created by RGWHandler_REST_Service_S3,
+ * RGWHandler_REST_Bucket_S3 and RGWHandler_REST_Obj_s3. Currently only
+ * Service (for Ping) and Obj (for ObjectStatus) are in use.
+ *
+ * Parsing of the `x-rgw-storequery` header is delegated to class
+ * RGWSQHeaderParser and the header's format is documented therein.
+ *
  */
 class RGWHandler_REST_StoreQuery_S3 : public RGWHandler_REST_S3 {
 private:
@@ -39,9 +45,15 @@ protected:
   /**
    * @brief Determine if a StoreQuery GET operation is being requested.
    *
+   * NOTE: Our error-handling behaviour depends on exception processing in the
+   * calling REST handler. RGWHandler_REST_{Service,Bucket,Obj}_S3 have been
+   * modified to catch this exception, and any further handlers should have
+   * the same processing. Otherwise the exception will propagate further. In
+   * v17.2.6 it will terminate the process!
+   *
    * If the x-rgw-storequery HTTP header is absent, return nullptr.
    *
-   * If the x- header is present but its contents fail to pass, throw
+   * If the x- header is present but its contents fail to parse, throw
    * -ERR_INTERNAL_ERROR to stop further processing of the request.
    *
    * Otherwise return an object of the appropriate RGWOp subclass to handle
@@ -91,9 +103,9 @@ static constexpr size_t RGWSQMaxHeaderLength = 2048;
  */
 class RGWSQHeaderParser {
 private:
-  std::string command_;
+  std::string command_ = "";
   std::vector<std::string> param_;
-  RGWOp* op_;
+  RGWOp* op_ = nullptr;
 
 public:
   RGWSQHeaderParser() { }
@@ -103,8 +115,36 @@ public:
   /// parse().
   bool tokenize(const DoutPrefixProvider* dpp, const std::string& input);
   /**
-   * @brief Parse the value of the x-rgw-storequery header and configure this
-   * to return an appropriate RGWOp* object.
+   * @brief Parse the value of the `x-rgw-storequery` header and configure
+   * this to return an appropriate RGWOp* object.
+   *
+   * The header is required to contain only ASCII-7 printable characters
+   * (codes 32-127). Any rune outside this range will result in the entire
+   * request being rejected.
+   *
+   * There is no value in allowing UTF-8 with all its processing
+   * sophistication here - if a command's parameters requires a wider
+   * character set, those parameters will have to be e.g. base64 encoded.
+   *
+   * The header contents are most 2048 bytes. This value is chosen to allow
+   * for an encoding of the maximum S3 key length (1024 bytes) into some safe
+   * encoding, and for some additional parameters.
+   *
+   * Command names are ASCII-7 strings of arbitrary length. Case is ignored in
+   * the command name.
+   *
+   * Command parameters are not case-tranformed, as it's not possible to know
+   * in advance what significance case may have to as-yet unimplemented
+   * commands. If case is significant in parameters, I recommend encoding with
+   * e.g. base64 as I'm disinclined to trust proxies etc. to leave HTTP
+   * headers alone.
+   *
+   * Command parameters are space-separated. However, double-quotes are
+   * respected; double-quoted parameters may contain spaces, and contained
+   * double-quotes may be escaped with the sequence `\"`. This facility is
+   * included to allow for straightforward commands; however it is probably
+   * more wise to encode 'complex' parameters with a scheme such as base64
+   * rather than deal with a quote-encoding.
    *
    * @param dpp prefix provider.
    * @param input The value of the X- header.
@@ -120,6 +160,20 @@ public:
   std::vector<std::string> param() { return param_; }
 };
 
+/**
+ * @brief Common behaviour for StoreQuery implementations of RGWOp.
+ *
+ * There are some commonalities between StoreQuery commands:
+ *
+ * - All bypass authorization checks (verify_requester()).
+ *
+ * - All bypass permission checks (verify_permission()).
+ *
+ * - All return RGW_OP_TYPE_READ from op_mask().
+ *
+ * Commands still have to implement execute(), send_response() and name() just
+ * to compile. Other methods may well be required, of course.
+ */
 class RGWStoreQueryOp_Base : public RGWOp {
 public:
 
@@ -152,15 +206,24 @@ public:
  * processing. Used to check the command path.
  *
  * ```
- * Query: (any path)
+ * Query: request_id 'foo', object/bucket path is ignored.
  * With header:
  *   x-rgw-storequery: ping foo
  *
  * Response: 200 OK
- * With body:
- *   <?xml
+ * With body (formatting added)
+ *   <?xml version="1.0" encoding="UTF-8"?>
+ *   <StoreQueryPingResult>
+ *     <request_id>foo</request_id>
+ *   </StoreQueryPingResult>
  * ```
- * XXX complete!
+ *
+ * The request_id is blindly mirrored back to the caller.
+ *
+ * Command-specific security considerations: Since the x- header is strictly
+ * canonicalised (any non-printable ASCII-7 characters will result in the
+ * header's rejection) there is no concern with mirroring the request back in
+ * the response document.
  */
 class RGWStoreQueryOp_Ping : public RGWStoreQueryOp_Base {
 private:
@@ -182,6 +245,25 @@ public:
  *
  * Return the status (presence, optionally other details) of an object in the
  * context of the existing query.
+ *
+ * XXX versioning...
+ *
+ * ```
+ * Query: objectstatus, bucket test, object foo of size 123 bytes.
+ *
+ * Response: 200 OK
+ * With body (formatting added)
+ *   <?xml version="1.0" encoding="UTF-8"?>
+ *   <StoreQueryObjectStatusResult>
+ *     <Object>
+ *       <bucket>test</bucket>
+ *       <key>foo</key>
+ *       <present>true</present>
+ *       <version_id></version_id>
+ *       <size>123</size>
+ *     </Object>
+ *   </StoreQueryObjectStatusResult>
+ * ```
  *
  */
 class RGWStoreQueryOp_ObjectStatus : public RGWStoreQueryOp_Base {

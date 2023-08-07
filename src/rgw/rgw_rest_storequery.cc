@@ -97,6 +97,7 @@ namespace ba = boost::algorithm;
 
 void RGWSQHeaderParser::reset()
 {
+  op_ = nullptr;
   command_ = "";
   param_.clear();
 }
@@ -140,6 +141,7 @@ bool RGWSQHeaderParser::tokenize(const DoutPrefixProvider* dpp, const std::strin
 
 bool RGWSQHeaderParser::parse(const DoutPrefixProvider* dpp, const std::string& input, RGWSQHandlerType handler_type)
 {
+  op_ = nullptr;
   if (!tokenize(dpp, input)) {
     return false;
   }
