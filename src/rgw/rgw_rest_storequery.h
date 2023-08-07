@@ -83,8 +83,8 @@ protected:
 public:
   using RGWHandler_REST_S3::RGWHandler_REST_S3;
   RGWHandler_REST_StoreQuery_S3(const rgw::auth::StrategyRegistry& auth_registry, RGWSQHandlerType handler_type)
-      : RGWHandler_REST_S3(auth_registry),
-        handler_type_{handler_type}
+      : RGWHandler_REST_S3(auth_registry)
+      , handler_type_ { handler_type }
   {
   }
   virtual ~RGWHandler_REST_StoreQuery_S3() = default;
@@ -99,7 +99,7 @@ static constexpr size_t RGWSQMaxHeaderLength = 2048;
  * We need to parse the header and return an RGWOp-derived object to process
  * the REST operation associated with this request.
  *
- * XXX document header format.
+ * The header format is explained in the documentation of the parse() method.
  */
 class RGWSQHeaderParser {
 private:
@@ -111,6 +111,7 @@ public:
   RGWSQHeaderParser() { }
   /// Reset the parser object.
   void reset();
+  /// @private
   /// Tokenise the header value. Intended for testing, called implicitly by
   /// parse().
   bool tokenize(const DoutPrefixProvider* dpp, const std::string& input);
@@ -176,7 +177,6 @@ public:
  */
 class RGWStoreQueryOp_Base : public RGWOp {
 public:
-
   /**
    * @brief Bypass requester authorization checks for storequery commands.
    *
@@ -273,7 +273,6 @@ class RGWStoreQueryOp_ObjectStatus : public RGWStoreQueryOp_Base {
   size_t object_size_;
 
 public:
-
   void execute(optional_yield y) override;
   void send_response() override;
   const char* name() const override { return "storequery_objectstatus"; }

@@ -40,15 +40,14 @@ void RGWStoreQueryOp_Ping::send_response()
 static const char* SQ_HEADER = "HTTP_X_RGW_STOREQUERY";
 static const char* HEADER_LC = "x-rgw-storequery";
 
-
 void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
 {
   bucket_name_ = rgw_make_bucket_entry_name(s->bucket_tenant, s->bucket_name);
   object_key_name_ = s->object->get_key().name;
 
   ldpp_dout(this, 20) << fmt::format("{}: {} (bucket='{}' object='{}')",
-    typeid(this).name(), __func__, bucket_name_, object_key_name_)
-    << dendl;
+      typeid(this).name(), __func__, bucket_name_, object_key_name_)
+                      << dendl;
 
   // Read cribbed from RGWGetObj::execute() and vastly simplified.
 
@@ -199,11 +198,13 @@ RGWOp* RGWHandler_REST_StoreQuery_S3::op_get()
   return p.op();
 }
 
-RGWOp* RGWHandler_REST_StoreQuery_S3::op_put() {
+RGWOp* RGWHandler_REST_StoreQuery_S3::op_put()
+{
   // We don't handle PUT requests yet.
   return nullptr;
 }
-RGWOp* RGWHandler_REST_StoreQuery_S3::op_delete() {
+RGWOp* RGWHandler_REST_StoreQuery_S3::op_delete()
+{
   // We don't handle DELETE requests yet.
   return nullptr;
 }
