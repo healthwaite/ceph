@@ -50,65 +50,132 @@ void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
       typeid(this).name(), __func__, bucket_name_, object_key_name_)
                       << dendl;
 
-  // Mined from ListBucket::execute().
-  rgw::sal::Bucket::ListParams params;
+  bool found = false;
+
+  //
+  // Query already-existing objects (the most common case).
+  //
+
+  rgw::sal::Bucket::ListParams params{};
   params.prefix = object_key_name_;
+  // We want results even if the last object is a delete marker. In a bucket
+  // without versioning a query for a deleted or nonexistent object will
+  // return zero objects, for which we'll return ENOENT.
   params.list_versions = true;
-  rgw::sal::Bucket::ListResults results;
+  // We always want an ordered list of objects. This is the default atow.
+  params.allow_unordered = false;
 
-  // XXX if we're given a prefix, we'll probably get sub-entries...
+  do {
+    rgw::sal::Bucket::ListResults results;
+    // This is the 'page size' for the bucket list. We're unlikely to have
+    // more than a thousand versions, but we're querying a prefix and there
+    // could easily be a *lot* of objects with the given prefix.
+    constexpr int version_query_max = 1000;
 
-  // XXX max=1000 is arbitrary.
-  auto ret = s->bucket->list(this, params, 1000, results, y);
-  if (ret < 0) {
-    op_ret = ret;
-    ldpp_dout(this, 2) << "sal bucket->list query failed ret=" << ret << dendl;
+    ldpp_dout(this, 20) << fmt::format("issue bucket list() query next_marker={}", params.marker.name) << dendl;
+    // NOTE: rgw::sal::RadosBucket::list() updates params.marker as it
+    // goes.
+    auto ret = s->bucket->list(this, params, version_query_max, results, y);
+
+    if (ret < 0) {
+      op_ret = ret;
+      ldpp_dout(this, 2) << "sal bucket->list query failed ret=" << ret << dendl;
+      return;
+    }
+
+    if (results.objs.size() == 0) {
+      // EOF. Exit the simple search loop.
+      ldpp_dout(this, 20) << fmt::format("bucket list() prefix='{}' EOF", object_key_name_) << dendl;
+      break;
+
+    } else {
+      for (size_t n=0; n<results.objs.size(); n++) {
+        auto &obj = results.objs[n];
+        // Check for exact key match - we searched a prefix.
+        if (obj.key.name != object_key_name_) {
+          ldpp_dout(this, 20) << fmt::format("ignore non-exact match key={}", obj.key.name) << dendl;
+          continue;
+        }
+
+        found = true;
+        ldpp_dout(this, 20) <<
+          fmt::format("obj {}/{}: exists={} current={} delete_marker={}",
+            n, results.objs.size(), obj.exists, obj.is_current(), obj.is_delete_marker())
+            << dendl;
+        if (obj.is_current()) {
+          object_deleted_ = obj.is_delete_marker();
+          if (!object_deleted_) {
+            object_size_ = obj.meta.size;
+          }
+          // We've found a matching, current object. We're done.
+          break;
+        }
+      }
+    }
+  } while (!found);
+
+  if (found) {
+    ldpp_dout(this, 20) << fmt::format("found key={} in standard path", object_key_name_) << dendl;
+    op_ret = 0;
     return;
   }
 
-  if (results.objs.size() == 0) {
-    ldpp_dout(this, 2) << "key not found" << dendl;
-    op_ret = -ENOENT;
-    return;
+  //
+  // Query in-progress multipart uploads (less common).
+  //
 
-  } else {
-    for (size_t n=0; n<results.objs.size(); n++) {
-      auto &obj = results.objs[n];
-      ldpp_dout(this, 20) <<
-        fmt::format("obj {}/{}: exists={} current={} delete_marker={}",
-          n, results.objs.size(), obj.exists, obj.is_current(), obj.is_delete_marker())
-          << dendl;
-      if (obj.is_current()) {
-        object_deleted_ = obj.is_delete_marker();
-        if (!object_deleted_) {
-          object_size_ = obj.meta.size;
-        }
-        // We don't care at all about further versions.
+  std::vector<std::unique_ptr<rgw::sal::MultipartUpload>> uploads{};
+  std::string marker{""};
+  std::string delimiter{""};
+  constexpr int mp_query_max = 1000;
+	bool is_truncated; // Must be present, pointer to this is unconditionally
+                     // written by list_multiparts().
+
+  do {
+    // Re-initialise this every run. We can only see if the query is complete
+    // across multiple list_multiparts() by checking if this is empty.
+    // However, nothing in list_multiparts() clears it.
+    uploads.clear();
+
+    ldpp_dout(this, 20) << fmt::format("issue list_multiparts() query marker='{}'", marker) << dendl;
+    // Note that 'marker' is an inout param.
+    auto ret = s->bucket->list_multiparts(this, object_key_name_, marker, delimiter,
+                                            mp_query_max, uploads, nullptr,
+                                            &is_truncated);
+    if (ret < 0) {
+      ldpp_dout(this, 5) << "list_multiparts() failed with code " << ret << dendl;
+      break;
+    }
+
+    // uploads is only
+    if (uploads.size() == 0) {
+      ldpp_dout(this, 20) << fmt::format("list_multiparts() prefix='{}' EOF", object_key_name_) << dendl;
+      break;
+    }
+
+    for (auto const& upload: uploads) {
+      if (upload->get_key() == object_key_name_) {
+        object_mpuploading_ = true;
+        object_mpupload_id_ = upload->get_upload_id();
+        ldpp_dout(this, 20) << fmt::format("multipart upload found for object={} upload_id='{}'",
+                                upload->get_key(), object_mpupload_id_) << dendl;
+        // This exact key is being mpuploaded to this cluster. We're done.
+        found = true;
         break;
       }
     }
+  } while (!found);
+
+  if (found) {
+    ldpp_dout(this, 20) << fmt::format("found key={} in mp upload path", object_key_name_) << dendl;
+    op_ret = 0;
+    return;
   }
 
-  // Read cribbed from RGWGetObj::execute() and vastly simplified.
-
-  // std::unique_ptr<rgw::sal::Object::ReadOp> read_op(s->object->get_read_op(s->obj_ctx));
-
-  // op_ret = read_op->prepare(s->yield, this);
-  // if (op_ret < 0) {
-  //   // Try to give a helpful log message, we really expect ENOENT as we're not
-  //   // setting read attributes.
-  //   if (op_ret == -ENOENT) {
-  //     ldpp_dout(this, 20) << "read_op return ENOENT, object not found" << dendl;
-  //   } else {
-  //     ldpp_dout(this, 20) << "read_op failed err=" << op_ret << dendl;
-  //   }
-  //   return;
-  // }
-  // // Gather other information that may be useful.
-  // version_id_ = s->object->get_instance();
-  // object_size_ = s->obj_size = s->object->get_obj_size();
-
-  op_ret = 0;
+  // Not found anywhere.
+  ldpp_dout(this, 2) << "key not found" << dendl;
+  op_ret = -ENOENT;
+  return;
 }
 
 void RGWStoreQueryOp_ObjectStatus::send_response()
@@ -125,7 +192,11 @@ void RGWStoreQueryOp_ObjectStatus::send_response()
   s->formatter->dump_string("bucket", bucket_name_);
   s->formatter->dump_string("key", object_key_name_);
   s->formatter->dump_bool("deleted", object_deleted_);
-  if (!object_deleted_) {
+  s->formatter->dump_bool("multipart_upload_in_progress", object_mpuploading_);
+  if (object_mpuploading_) {
+    s->formatter->dump_string("multipart_upload_id", object_mpupload_id_);
+  }
+  if (!object_deleted_ && !object_mpuploading_) {
     s->formatter->dump_string("version_id", version_id_);
     s->formatter->dump_int("size", static_cast<int64_t>(object_size_));
   }

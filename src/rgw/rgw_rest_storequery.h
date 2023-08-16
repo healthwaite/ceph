@@ -206,11 +206,11 @@ public:
  * processing. Used to check the command path.
  *
  * ```
- * Query: request_id 'foo', object/bucket path is ignored.
+ * Example query: request_id 'foo', object/bucket path is ignored.
  * With header:
  *   x-rgw-storequery: ping foo
  *
- * Response: 200 OK
+ * Example response: 200 OK
  * With body (formatting added)
  *   <?xml version="1.0" encoding="UTF-8"?>
  *   <StoreQueryPingResult>
@@ -246,19 +246,19 @@ public:
  * Return the status (presence, optionally other details) of an object in the
  * context of the existing query.
  *
- * XXX versioning...
- *
  * ```
- * Query: objectstatus, bucket test, object foo of size 123 bytes.
+ * Example query: objectstatus for bucket 'test', key 'foo' whose current
+ * version is of size 123 bytes.
  *
- * Response: 200 OK
+ * Example response: 200 OK
  * With body (formatting added)
  *   <?xml version="1.0" encoding="UTF-8"?>
  *   <StoreQueryObjectStatusResult>
  *     <Object>
  *       <bucket>test</bucket>
  *       <key>foo</key>
- *       <present>true</present>
+ *       <deleted>false</deleted>
+ *       <multipart_upload_in_progress>false</multipart_upload_in_progress>
  *       <version_id></version_id>
  *       <size>123</size>
  *     </Object>
@@ -272,6 +272,8 @@ class RGWStoreQueryOp_ObjectStatus : public RGWStoreQueryOp_Base {
   std::string version_id_;
   size_t object_size_;
   bool object_deleted_;
+  bool object_mpuploading_;
+  std::string object_mpupload_id_;
 
 public:
   void execute(optional_yield y) override;
