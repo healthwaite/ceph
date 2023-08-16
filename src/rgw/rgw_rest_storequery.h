@@ -207,10 +207,15 @@ public:
  *
  * ```
  * Example query: request_id 'foo', object/bucket path is ignored.
- * With header:
- *   x-rgw-storequery: ping foo
  *
- * Example response: 200 OK
+ * GET /
+ * ...
+ * x-rgw-storequery: ping foo
+ * ...
+ *
+ * Example response:
+ * 200 OK
+ *
  * With body (formatting added)
  *   <?xml version="1.0" encoding="UTF-8"?>
  *   <StoreQueryPingResult>
@@ -243,14 +248,37 @@ public:
 /**
  * @brief StoreQuery ObjectStatus command implementation.
  *
- * Return the status (presence, optionally other details) of an object in the
- * context of the existing query.
+ * Return the status (presence, and optionally other details) of an object in
+ * the context of the existing query.
+ *
+ * Look fairly hard to see if an object is present on this cluster. Check:
+ *
+ * - Regular keys (with no versioning enabled).
+ *
+ * - In versioned mode, the presence of a delete marker indicates that the key
+ *   is still present on this cluster.
+ *
+ * - If no regular key or delete marker is present, check to see if this key
+ *   is presently receiving a multipart upload, and if so mark the key as
+ *   'present' even though it won't show up otherwise until the multipart
+ *   upload has completed successfully.
+ *
+ * As a side-effect of the multipart upload implementation, if the multipart
+ * upload process fails, the key will show as not present in subsequent
+ * queries.
  *
  * ```
- * Example query: objectstatus for bucket 'test', key 'foo' whose current
+ * Example query: Get status for bucket 'test', key 'foo' whose current
  * version is of size 123 bytes.
  *
- * Example response: 200 OK
+ * GET /test/foo
+ * ...
+ * x-rgw-storequery: objectstatus
+ * ...
+ *
+ * Example response:
+ * 200 OK
+ *
  * With body (formatting added)
  *   <?xml version="1.0" encoding="UTF-8"?>
  *   <StoreQueryObjectStatusResult>
@@ -267,6 +295,7 @@ public:
  *
  */
 class RGWStoreQueryOp_ObjectStatus : public RGWStoreQueryOp_Base {
+private:
   std::string bucket_name_;
   std::string object_key_name_;
   std::string version_id_;
@@ -274,6 +303,9 @@ class RGWStoreQueryOp_ObjectStatus : public RGWStoreQueryOp_Base {
   bool object_deleted_;
   bool object_mpuploading_;
   std::string object_mpupload_id_;
+
+  bool execute_simple_query(optional_yield y);
+  bool execute_mpupload_query(optional_yield y);
 
 public:
   void execute(optional_yield y) override;

@@ -13,9 +13,14 @@
 #include "rgw_sal_rados.h"
 #include "rgw_url.h"
 
-// #define dout_context g_ceph_context
-// #define dout_subsys ceph_subsys_rgw
-
+/**
+ * @brief Reflect the supplied request ID back to the caller.
+ *
+ * Used to indicate that storequery is operational, without reference to any
+ * buckets or keys.
+ *
+ * @param y optional yield object.
+ */
 void RGWStoreQueryOp_Ping::execute(optional_yield y)
 {
   ldpp_dout(this, 20) << fmt::format("{}: {}({})", typeid(this).name(), __func__, request_id_) << dendl;
@@ -23,6 +28,10 @@ void RGWStoreQueryOp_Ping::execute(optional_yield y)
   op_ret = 0;
 }
 
+/**
+ * @brief Return either an appropriate error, or XML describing a successful
+ * search.
+ */
 void RGWStoreQueryOp_Ping::send_response()
 {
   if (op_ret) {
@@ -38,23 +47,33 @@ void RGWStoreQueryOp_Ping::send_response()
   rgw_flush_formatter_and_reset(s, s->formatter);
 }
 
-static const char* SQ_HEADER = "HTTP_X_RGW_STOREQUERY";
-static const char* HEADER_LC = "x-rgw-storequery";
-
-void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
-{
-  bucket_name_ = rgw_make_bucket_entry_name(s->bucket_tenant, s->bucket_name);
-  object_key_name_ = s->object->get_key().name;
-
-  ldpp_dout(this, 20) << fmt::format("{}: {} (bucket='{}' object='{}')",
-      typeid(this).name(), __func__, bucket_name_, object_key_name_)
-                      << dendl;
-
-  bool found = false;
-
-  //
+/**
+ * @brief Query already-existing objects, or delete markers.
+ *
+ * Perform a 'regular' query, returning either pre-existing objects or (in
+ * versioning-enabled buckets) delete markers for previously-existing objects.
+ * In either case, the object is deemed to be found.
+ *
+ * We check for the current version and stop further searching the moment we
+ * find it.
+ *
+ * However, since rgw::sal::Bucket::list() queries on a prefix not a key, we
+ * also check for an exact key match each time.
+ *
+ * Note that op_ret will be set <0 in case failures other than 'not found'.
+ * This indicates that we should abort the query process.
+ *
+ * @param y optional yield object.
+ * @return true Success. The object was found, in this case it is either
+ * present or a delete marker for it exists. op_ret==0.
+ * @return false Failure. If op_ret==0, the object was simply not found. If
+ * op_ret<0, a failure occurred.
+ */
+bool RGWStoreQueryOp_ObjectStatus::execute_simple_query(optional_yield y) {
+ //
   // Query already-existing objects (the most common case).
   //
+  bool found = false;
 
   rgw::sal::Bucket::ListParams params{};
   params.prefix = object_key_name_;
@@ -70,17 +89,17 @@ void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
     // This is the 'page size' for the bucket list. We're unlikely to have
     // more than a thousand versions, but we're querying a prefix and there
     // could easily be a *lot* of objects with the given prefix.
-    constexpr int version_query_max = 1000;
+    constexpr int version_query_max = 100;
 
     ldpp_dout(this, 20) << fmt::format("issue bucket list() query next_marker={}", params.marker.name) << dendl;
     // NOTE: rgw::sal::RadosBucket::list() updates params.marker as it
-    // goes.
+    // goes. This isn't how list_multiparts() works.
     auto ret = s->bucket->list(this, params, version_query_max, results, y);
 
     if (ret < 0) {
       op_ret = ret;
       ldpp_dout(this, 2) << "sal bucket->list query failed ret=" << ret << dendl;
-      return;
+      break;
     }
 
     if (results.objs.size() == 0) {
@@ -97,17 +116,16 @@ void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
           continue;
         }
 
-        found = true;
         ldpp_dout(this, 20) <<
           fmt::format("obj {}/{}: exists={} current={} delete_marker={}",
             n, results.objs.size(), obj.exists, obj.is_current(), obj.is_delete_marker())
             << dendl;
         if (obj.is_current()) {
+          found = true;
           object_deleted_ = obj.is_delete_marker();
           if (!object_deleted_) {
             object_size_ = obj.meta.size;
           }
-          // We've found a matching, current object. We're done.
           break;
         }
       }
@@ -117,17 +135,36 @@ void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
   if (found) {
     ldpp_dout(this, 20) << fmt::format("found key={} in standard path", object_key_name_) << dendl;
     op_ret = 0;
-    return;
+    return true;
   }
+  return false;
+}
 
-  //
-  // Query in-progress multipart uploads (less common).
-  //
+/**
+ * @brief Query in-progress multipart uploads for our key.
+ *
+ * Query in-process multipart uploads for an exact match for our key. This can
+ * be an expensive index query if there are a lot of in-flight mp uploads.
+ *
+ * rgw::sal::Bucket::list_multiparts() queries on a prefix (not a full key),
+ * so we check for an exact key match each time.
+ *
+ * Note that op_ret will be set <0 in case failures other than 'not found'.
+ * This indicates that we should abort the query process.
+ *
+ * @param y optional yield object.
+ * @return true Success, the object was found. op_ret==0.
+ * @return false Failure. If op_ret==0, the object was simply not found. If
+ * op_ret<0, an error occurred.
+ */
+bool RGWStoreQueryOp_ObjectStatus::execute_mpupload_query(optional_yield y) {
+
+  bool found = false;
 
   std::vector<std::unique_ptr<rgw::sal::MultipartUpload>> uploads{};
   std::string marker{""};
   std::string delimiter{""};
-  constexpr int mp_query_max = 1000;
+  constexpr int mp_query_max = 100;
 	bool is_truncated; // Must be present, pointer to this is unconditionally
                      // written by list_multiparts().
 
@@ -138,12 +175,14 @@ void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
     uploads.clear();
 
     ldpp_dout(this, 20) << fmt::format("issue list_multiparts() query marker='{}'", marker) << dendl;
-    // Note that 'marker' is an inout param.
+    // Note that 'marker' is an inout param that we'll need for subsequent
+    // queries.
     auto ret = s->bucket->list_multiparts(this, object_key_name_, marker, delimiter,
                                             mp_query_max, uploads, nullptr,
                                             &is_truncated);
     if (ret < 0) {
-      ldpp_dout(this, 5) << "list_multiparts() failed with code " << ret << dendl;
+      ldpp_dout(this, 2) << "list_multiparts() failed with code " << ret << dendl;
+      op_ret = ret;
       break;
     }
 
@@ -159,7 +198,6 @@ void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
         object_mpupload_id_ = upload->get_upload_id();
         ldpp_dout(this, 20) << fmt::format("multipart upload found for object={} upload_id='{}'",
                                 upload->get_key(), object_mpupload_id_) << dendl;
-        // This exact key is being mpuploaded to this cluster. We're done.
         found = true;
         break;
       }
@@ -169,15 +207,62 @@ void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
   if (found) {
     ldpp_dout(this, 20) << fmt::format("found key={} in mp upload path", object_key_name_) << dendl;
     op_ret = 0;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * @brief execute() Implementation - query the index for the presence of the
+ * given key.
+ *
+ * This will first query using rgw::sal::Bucket::list() for 'regular' keys (or
+ * delete markers).
+ *
+ * If no key is found, it will then query using
+ * rgw::sal::Bucket::list_multiparts() in order to find in-flight multipart
+ * uploads for the key.
+ *
+ * In either search, if there is a failure other than 'not found' the search
+ * will be terminated and an error will be returned via \p op_ret.
+ *
+ * If the key is not found, \p op_ret will be set to \p -ENOENT which will
+ * result in a 404 being returned to the user.
+ *
+ * If the key is found, \p op_ret will be zero, and barring failures elsewhere
+ * in the REST server the user will receive a 200.
+ *
+ * @param y optional yield object.
+ */
+void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
+{
+  bucket_name_ = rgw_make_bucket_entry_name(s->bucket_tenant, s->bucket_name);
+  object_key_name_ = s->object->get_key().name;
+
+  ldpp_dout(this, 20) << fmt::format("{}: {} (bucket='{}' object='{}')",
+      typeid(this).name(), __func__, bucket_name_, object_key_name_)
+                      << dendl;
+
+  // op_ret is used to signal a real failure, meaning we should not continue.
+  op_ret = 0;
+
+  if (execute_simple_query(y) || op_ret < 0) {
+    return;
+  }
+  if (execute_mpupload_query(y) || op_ret < 0) {
     return;
   }
 
-  // Not found anywhere.
+   // Not found anywhere.
   ldpp_dout(this, 2) << "key not found" << dendl;
   op_ret = -ENOENT;
   return;
 }
 
+/**
+ * @brief Return either an appropriate error, or XML describing a successful
+ * search.
+ */
 void RGWStoreQueryOp_ObjectStatus::send_response()
 {
   if (op_ret) {
@@ -206,6 +291,9 @@ void RGWStoreQueryOp_ObjectStatus::send_response()
 }
 
 namespace ba = boost::algorithm;
+
+static const char* SQ_HEADER = "HTTP_X_RGW_STOREQUERY";
+static const char* HEADER_LC = "x-rgw-storequery";
 
 void RGWSQHeaderParser::reset()
 {
