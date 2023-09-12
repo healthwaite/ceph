@@ -13,26 +13,7 @@
 #include "rgw_sal_rados.h"
 #include "rgw_url.h"
 
-/**
- * @brief Reflect the supplied request ID back to the caller.
- *
- * Used to indicate that storequery is operational, without reference to any
- * buckets or keys.
- *
- * @param y optional yield object.
- */
-void RGWStoreQueryOp_Ping::execute(optional_yield y)
-{
-  ldpp_dout(this, 20) << fmt::format("{}: {}({})", typeid(this).name(), __func__, request_id_) << dendl;
-  // This can't fail.
-  op_ret = 0;
-}
-
-/**
- * @brief Return either an appropriate error, or XML describing a successful
- * search.
- */
-void RGWStoreQueryOp_Ping::send_response()
+void RGWStoreQueryOp_Base::send_response_pre()
 {
   if (op_ret) {
     set_req_state_err(s, op_ret);
@@ -45,11 +26,32 @@ void RGWStoreQueryOp_Ping::send_response()
   dump_errno(s);
   end_header(s, this, "application/json");
   dump_start(s);
+}
 
+void RGWStoreQueryOp_Base::send_response_post()
+{
+  rgw_flush_formatter_and_reset(s, s->formatter);
+}
+
+void RGWStoreQueryOp_Base::send_response()
+{
+  send_response_pre();
+  send_response_json();
+  send_response_post();
+}
+
+void RGWStoreQueryOp_Ping::execute(optional_yield y)
+{
+  ldpp_dout(this, 20) << fmt::format("{}: {}({})", typeid(this).name(), __func__, request_id_) << dendl;
+  // This can't fail.
+  op_ret = 0;
+}
+
+void RGWStoreQueryOp_Ping::send_response_json()
+{
   s->formatter->open_object_section("StoreQueryPingResult");
   s->formatter->dump_string("request_id", request_id_);
   s->formatter->close_section();
-  rgw_flush_formatter_and_reset(s, s->formatter);
 }
 
 /**
@@ -191,7 +193,6 @@ bool RGWStoreQueryOp_ObjectStatus::execute_mpupload_query(optional_yield y) {
       break;
     }
 
-    // uploads is only
     if (uploads.size() == 0) {
       ldpp_dout(this, 20) << fmt::format("list_multiparts() prefix='{}' EOF", object_key_name_) << dendl;
       break;
@@ -217,28 +218,6 @@ bool RGWStoreQueryOp_ObjectStatus::execute_mpupload_query(optional_yield y) {
   return false;
 }
 
-/**
- * @brief execute() Implementation - query the index for the presence of the
- * given key.
- *
- * This will first query using rgw::sal::Bucket::list() for 'regular' keys (or
- * delete markers).
- *
- * If no key is found, it will then query using
- * rgw::sal::Bucket::list_multiparts() in order to find in-flight multipart
- * uploads for the key.
- *
- * In either search, if there is a failure other than 'not found' the search
- * will be terminated and an error will be returned via \p op_ret.
- *
- * If the key is not found, \p op_ret will be set to \p -ENOENT which will
- * result in a 404 being returned to the user.
- *
- * If the key is found, \p op_ret will be zero, and barring failures elsewhere
- * in the REST server the user will receive a 200.
- *
- * @param y optional yield object.
- */
 void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
 {
   bucket_name_ = rgw_make_bucket_entry_name(s->bucket_tenant, s->bucket_name);
@@ -265,23 +244,10 @@ void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
 }
 
 /**
- * @brief Return either an appropriate error, or XML describing a successful
- * search.
+ * @brief Send our JSON response.
  */
-void RGWStoreQueryOp_ObjectStatus::send_response()
+void RGWStoreQueryOp_ObjectStatus::send_response_json()
 {
-  if (op_ret) {
-    set_req_state_err(s, op_ret);
-  }
-  auto ret = RGWHandler_REST::reallocate_formatter(s, RGW_FORMAT_JSON);
-  if (ret != 0) {
-    ldpp_dout(this, 20) << "failed to set formatter to JSON" << dendl;
-    set_req_state_err(s, -EINVAL);
-  }
-  dump_errno(s);
-  end_header(s, this, "application/json");
-
-  dump_start(s);
   s->formatter->open_object_section("StoreQueryObjectStatusResult");
   s->formatter->open_object_section("Object");
   s->formatter->dump_string("bucket", bucket_name_);
@@ -297,7 +263,6 @@ void RGWStoreQueryOp_ObjectStatus::send_response()
   }
   s->formatter->close_section();
   s->formatter->close_section();
-  rgw_flush_formatter_and_reset(s, s->formatter);
 }
 
 namespace ba = boost::algorithm;

@@ -164,7 +164,7 @@ public:
 /**
  * @brief Common behaviour for StoreQuery implementations of RGWOp.
  *
- * There are some commonalities between StoreQuery commands:
+ * There are some common behavious for StoreQuery commands:
  *
  * - All bypass authorization checks (verify_requester()).
  *
@@ -172,8 +172,13 @@ public:
  *
  * - All return RGW_OP_TYPE_READ from op_mask().
  *
- * Commands still have to implement execute(), send_response() and name() just
+ * - All force their response format to JSON (by default).
+ *
+ * Commands have to implement execute(), send_response_json() and name() just
  * to compile. Other methods may well be required, of course.
+ *
+ * If you want to return something other than JSON, you need to override
+ * send_response().
  */
 class RGWStoreQueryOp_Base : public RGWOp {
 public:
@@ -184,7 +189,11 @@ public:
    * @param y optional yield.
    * @return int zero (success).
    */
-  int verify_requester([[maybe_unused]] const rgw::auth::StrategyRegistry& auth_registry, [[maybe_unused]] optional_yield y) override { return 0; }
+  int verify_requester([[maybe_unused]] const rgw::auth::StrategyRegistry& auth_registry,
+      [[maybe_unused]] optional_yield y) override
+  {
+    return 0;
+  }
   /**
    * @brief Bypass permission checks for storequery commands.
    *
@@ -194,9 +203,54 @@ public:
   int verify_permission(optional_yield y) override { return 0; }
   uint32_t op_mask() override { return RGW_OP_TYPE_READ; }
 
+  /**
+   * @brief Override hook for sending a command's response JSON.
+   *
+   * This method must be provided by subclasses to implement their responses.
+   * The minimal implementation is an empty method; that's a valid JSON
+   * document, so it's a valid response. You'll still get a `content-type:
+   * application/xml` header in the HTTP response, and a valid response code.
+   *
+   * More typically, this will actually do something, e.g.
+   *
+   * ```
+   *   s->formatter->open_object_section("MyCommandResult");
+   *   s->formatter->dump_string("my_bool", true);
+   *   s->formatter->close_section();
+   * ```
+   *
+   * It's up to the override to send valid JSON. Note Ceph::formatter handles
+   * other types of output as well, notably XML, so many of its methods will
+   * be no-ops on JSON.
+   */
+  virtual void send_response_json() = 0;
+
+  /**
+   * @brief Override of RGWOp::send_response() with our default processing. In
+   * normal use, leave this method alone and override send_response_json()
+   * instead.
+   *
+   * We change the response formatter unconditionally to JSON (normally the
+   * behaviour is to default to XML but to respect the `Accept:` header or a
+   * `format=` query parameter).
+   *
+   * All our responses will be JSON, but we recommend callers still set
+   * `Accept: application/json` so error responses will also be in JSON -
+   * storequery doesn't control all error responses, and if the upstream REST
+   * server sends the error you'll get XML by default.
+   *
+   * If you want different behaviour, you can still override send_response()
+   * yourself. However, to get the standard behaviour, just override
+   * send_response_json() and use \p s->formatter to format your response.
+   */
+  void send_response();
+
   // `void execute(optional_yield_ y)` still required.
-  // `void send_response()` still required;
   // `const char* name() const` still required.
+
+protected:
+  void send_response_pre();
+  void send_response_post();
 };
 
 /**
@@ -240,8 +294,20 @@ public:
   {
   }
 
+  /**
+   * @brief Reflect the supplied request ID back to the caller.
+   *
+   * Used to indicate that storequery is operational, without reference to any
+   * buckets or keys.
+   *
+   * @param y optional yield object.
+   */
   void execute(optional_yield y) override;
-  void send_response() override;
+
+  /**
+   * @brief Send our JSON response.
+   */
+  void send_response_json() override;
   const char* name() const override { return "storequery_ping"; }
 };
 
@@ -308,7 +374,33 @@ private:
   bool execute_mpupload_query(optional_yield y);
 
 public:
+  /**
+   * @brief execute() Implementation - query the index for the presence of the
+   * given key.
+   *
+   * This will first query using rgw::sal::Bucket::list() for 'regular' keys
+   * (or delete markers).
+   *
+   * If no key is found, it will then query using
+   * rgw::sal::Bucket::list_multiparts() in order to find in-flight multipart
+   * uploads for the key.
+   *
+   * In either search, if there is a failure other than 'not found' the search
+   * will be terminated and an error will be returned via \p op_ret.
+   *
+   * If the key is not found, \p op_ret will be set to \p -ENOENT which will
+   * result in a 404 being returned to the user.
+   *
+   * If the key is found, \p op_ret will be zero, and barring failures
+   * elsewhere in the REST server the user will receive a 200.
+   *
+   * @param y optional yield object.
+   */
   void execute(optional_yield y) override;
-  void send_response() override;
+
+  /**
+   * @brief Send our JSON response.
+   */
+  void send_response_json() override;
   const char* name() const override { return "storequery_objectstatus"; }
 };
