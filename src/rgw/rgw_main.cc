@@ -424,9 +424,8 @@ int radosgw_Main(int argc, const char **argv)
   const bool iam_enabled = apis_map.count("iam") > 0;
   const bool pubsub_enabled = apis_map.count("pubsub") > 0 || apis_map.count("notifications") > 0;
   const bool storequery_enabled = apis_map.count("storequery") > 0;
-  if (storequery_enabled) {
-    dout(0) << "XXXTEMP: storequery API is enabled" << dendl;
-  }
+  // Make sure SRE can see whether storequery is enabled even with debug off.
+  dout(0) << "storequery API enabled: " << storequery_enabled << dendl;
   // Swift API entrypoint could placed in the root instead of S3
   const bool swift_at_root = g_conf()->rgw_swift_url_prefix == "/";
   if (apis_map.count("s3") > 0 || s3website_enabled) {
