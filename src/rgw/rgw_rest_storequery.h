@@ -253,10 +253,10 @@ public:
  *
  * Look fairly hard to see if an object is present on this cluster. Check:
  *
- * - Regular keys (with no versioning enabled).
+ * - 'Regular' keys in the bucket (with or without versioning enabled).
  *
- * - In versioned mode, the presence of a delete marker indicates that the key
- *   is still present on this cluster.
+ * - In versioned mode, the presence of a delete marker is taken to indicate
+ *   that the key is still present on this cluster.
  *
  * - If no regular key or delete marker is present, check to see if this key
  *   is presently receiving a multipart upload, and if so mark the key as
