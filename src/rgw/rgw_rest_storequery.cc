@@ -37,8 +37,13 @@ void RGWStoreQueryOp_Ping::send_response()
   if (op_ret) {
     set_req_state_err(s, op_ret);
   }
+  auto ret = RGWHandler_REST::reallocate_formatter(s, RGW_FORMAT_JSON);
+  if (ret != 0) {
+    ldpp_dout(this, 20) << "failed to set formatter to JSON" << dendl;
+    set_req_state_err(s, -EINVAL);
+  }
   dump_errno(s);
-  end_header(s, this, "application/xml");
+  end_header(s, this, "application/json");
   dump_start(s);
 
   s->formatter->open_object_section("StoreQueryPingResult");
@@ -268,8 +273,13 @@ void RGWStoreQueryOp_ObjectStatus::send_response()
   if (op_ret) {
     set_req_state_err(s, op_ret);
   }
+  auto ret = RGWHandler_REST::reallocate_formatter(s, RGW_FORMAT_JSON);
+  if (ret != 0) {
+    ldpp_dout(this, 20) << "failed to set formatter to JSON" << dendl;
+    set_req_state_err(s, -EINVAL);
+  }
   dump_errno(s);
-  end_header(s, this, "application/xml");
+  end_header(s, this, "application/json");
 
   dump_start(s);
   s->formatter->open_object_section("StoreQueryObjectStatusResult");
