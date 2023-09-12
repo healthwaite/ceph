@@ -23,7 +23,6 @@
  */
 void RGWStoreQueryOp_Ping::execute(optional_yield y)
 {
-  ldpp_dout(this, 0) << fmt::format("{}: XXXTEMP ping execute() invoked", __func__) << dendl;
   ldpp_dout(this, 20) << fmt::format("{}: {}({})", typeid(this).name(), __func__, request_id_) << dendl;
   // This can't fail.
   op_ret = 0;
@@ -240,7 +239,6 @@ void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
   bucket_name_ = rgw_make_bucket_entry_name(s->bucket_tenant, s->bucket_name);
   object_key_name_ = s->object->get_key().name;
 
-  ldpp_dout(this, 0) << fmt::format("{}: XXXTEMP object_status execute() invoked", __func__) << dendl;
   ldpp_dout(this, 20) << fmt::format("{}: {} (bucket='{}' object='{}')",
       typeid(this).name(), __func__, bucket_name_, object_key_name_)
                       << dendl;
