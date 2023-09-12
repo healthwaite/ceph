@@ -76,10 +76,8 @@ void RGWStoreQueryOp_Ping::send_response_json()
  * @return false Failure. If op_ret==0, the object was simply not found. If
  * op_ret<0, a failure occurred.
  */
-bool RGWStoreQueryOp_ObjectStatus::execute_simple_query(optional_yield y) {
- //
-  // Query already-existing objects (the most common case).
-  //
+bool RGWStoreQueryOp_ObjectStatus::execute_simple_query(optional_yield y)
+{
   bool found = false;
 
   rgw::sal::Bucket::ListParams params{};
@@ -243,9 +241,6 @@ void RGWStoreQueryOp_ObjectStatus::execute(optional_yield y)
   return;
 }
 
-/**
- * @brief Send our JSON response.
- */
 void RGWStoreQueryOp_ObjectStatus::send_response_json()
 {
   s->formatter->open_object_section("StoreQueryObjectStatusResult");
