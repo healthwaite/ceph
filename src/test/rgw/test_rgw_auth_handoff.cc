@@ -336,7 +336,8 @@ static std::optional<std::string> verify_aws_signature(std::string string_to_sig
 // implementation ourselves, package a JSON response and return it in the
 // provided bufferlist.
 //
-// XXX It's a little ugly to have both the return struct and the bufferlist.
+// As the real function, we return our result struct appropriately filled, and
+// on success we put the reply markup for the caller in the bufferlist.
 static rgw::HandoffVerifyResult verify_by_func(const DoutPrefixProvider* dpp, const std::string& request_json, ceph::bufferlist* resp_bl, [[maybe_unused]] optional_yield y)
 {
 
@@ -373,6 +374,9 @@ static rgw::HandoffVerifyResult verify_by_func(const DoutPrefixProvider* dpp, co
   } else {
     return rgw::HandoffVerifyResult(-EACCES, 401);
   }
+
+  // We only need to create the response body if we're about to return
+  // success.
 
   JSONFormatter jf { true };
   jf.open_object_section(""); // root
