@@ -158,11 +158,11 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
   // The 'environment' of the request includes, amongst other things,
   // all the headers, prefixed with 'HTTP_'. They also have header names
   // uppercased and with underscores instead of hyphens.
-  auto env = s->cio->get_env();
+  auto envmap = s->cio->get_env().get_map();
 
   // Retrieve the Authorization header which has a lot of fields we need.
-  auto srch = env.get_map().find("HTTP_AUTHORIZATION");
-  if (srch == env.get_map().end()) {
+  auto srch = envmap.find("HTTP_AUTHORIZATION");
+  if (srch == envmap.end()) {
     ldpp_dout(dpp, 0) << "Handoff: Missing Authorization header" << dendl;
     return HandoffAuthResult(-EACCES, "Internal error (missing Authorization)");
   }
