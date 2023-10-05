@@ -16,6 +16,7 @@
 #include "rgw_handoff.h"
 
 #include <boost/algorithm/string.hpp>
+#include <cstring>
 #include <fmt/format.h>
 #include <optional>
 #include <string>
@@ -191,8 +192,9 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
   }
 
   if (vres.result() < 0) {
-    ldpp_dout(dpp, 5) << fmt::format("handoff verify query exit code {}", vres.result()) << dendl;
-    return HandoffAuthResult(-EACCES, fmt::format("Handoff query failed with code {}", vres.result()));
+    ldpp_dout(dpp, 0) << fmt::format("handoff verify HTTP request failed with exit code {} ({})", vres.result(), strerror(-vres.result()))
+                      << dendl;
+    return HandoffAuthResult(-EACCES, fmt::format("Handoff HTTP request failed with code {} ({})", vres.result(), strerror(-vres.result())));
   }
 
   // Parse the JSON response.
