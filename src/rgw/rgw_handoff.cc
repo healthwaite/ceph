@@ -140,6 +140,62 @@ static HandoffVerifyResult verify_standard(const DoutPrefixProvider* dpp, const 
   return HandoffVerifyResult { ret, verify.get_http_status(), query_url };
 }
 
+std::optional<std::string> HandoffHelper::synthesize_v2_header(const DoutPrefixProvider* dpp, const req_state* s)
+{
+  auto& infomap = s->info.args;
+  auto maybe_credential = infomap.get_optional("AWSAccessKeyId");
+  if (!maybe_credential) {
+    ldpp_dout(dpp, 0) << "Missing AWSAccessKeyId parameter" << dendl;
+  }
+  auto maybe_signature = infomap.get_optional("Signature");
+  if (!maybe_signature) {
+    ldpp_dout(dpp, 0) << "Missing Signature parameter" << dendl;
+  }
+  if (!(maybe_credential && maybe_signature)) {
+    return std::nullopt;
+  }
+  return std::make_optional(fmt::format("AWS {}:{}",
+      *maybe_credential, *maybe_signature));
+}
+
+std::optional<std::string> HandoffHelper::synthesize_v4_header(const DoutPrefixProvider* dpp, const req_state* s)
+{
+  auto& infomap = s->info.args;
+
+  // Params starting with 'X-Amz' are lowercased.
+  auto maybe_credential = infomap.get_optional("x-amz-credential");
+  if (!maybe_credential) {
+    ldpp_dout(dpp, 0) << "Missing x-amz-credential parameter" << dendl;
+  }
+  auto maybe_signedheaders = infomap.get_optional("x-amz-signedheaders");
+  if (!maybe_signedheaders) {
+    ldpp_dout(dpp, 0) << "Missing x-amz-signedheaders parameter" << dendl;
+  }
+  auto maybe_signature = infomap.get_optional("x-amz-signature");
+  if (!maybe_signature) {
+    ldpp_dout(dpp, 0) << "Missing x-amz-signature parameter" << dendl;
+  }
+  if (!(maybe_credential && maybe_signedheaders && maybe_signature)) {
+    return std::nullopt;
+  }
+  return std::make_optional(fmt::format("AWS4-HMAC-SHA256 Credential={}, SignedHeaders={}, Signature={}",
+      *maybe_credential, *maybe_signedheaders, *maybe_signature));
+}
+
+std::optional<std::string> HandoffHelper::synthesize_auth_header(
+    const DoutPrefixProvider* dpp,
+    const req_state* s)
+{
+  if (s->info.args.get_optional("AWSAccessKeyId")) {
+    return synthesize_v2_header(dpp, s);
+  }
+  // Params starting with 'X-Amz' are lowercased.
+  if (s->info.args.get_optional("x-amz-credential")) {
+    return synthesize_v4_header(dpp, s);
+  }
+  return std::nullopt;
+}
+
 // Documentation in .h.
 HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
     const std::string_view& session_token,
@@ -161,13 +217,23 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
   auto envmap = s->cio->get_env().get_map();
 
   // Retrieve the Authorization header which has a lot of fields we need.
+  std::string auth;
   auto srch = envmap.find("HTTP_AUTHORIZATION");
-  if (srch == envmap.end()) {
-    ldpp_dout(dpp, 0) << "Handoff: Missing Authorization header" << dendl;
-    return HandoffAuthResult(-EACCES, "Internal error (missing Authorization)");
+  if (srch != envmap.end()) {
+    auth = srch->second;
+    ldpp_dout(dpp, 20) << "HandoffHelper::auth(): Authorization=" << auth << dendl;
+
+  } else {
+    // Attempt to create an Authorization header using query parameters.
+    auto maybe_auth = synthesize_auth_header(dpp, s);
+    if (maybe_auth) {
+      auth = std::move(*maybe_auth);
+      ldpp_dout(dpp, 20) << "Synthesized Authorization=" << auth << dendl;
+    } else {
+      ldpp_dout(dpp, 0) << "Handoff: Missing Authorization header and insufficient query parameters" << dendl;
+      return HandoffAuthResult(-EACCES, "Internal error (missing Authorization and insufficient query parameters)");
+    }
   }
-  auto auth = srch->second;
-  ldpp_dout(dpp, 20) << "HandoffHelper::auth(): Authorization=" << auth << dendl;
 
   // We might have disabled V2 signatures.
   if (!dpp->get_cct()->_conf->rgw_handoff_enable_signature_v2) {
