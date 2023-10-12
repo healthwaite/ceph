@@ -221,14 +221,36 @@ public:
    * v2 or v4 Authorization: header, via synthesize_v2_header() or
    * synthesize_v4_header() respectively.
    *
-   * @param dpp DoutPrefixProvider
-   * @param s The request
-   * @param y Optional yield token
-   * @return std::optional<std::string>
+   * @param dpp DoutPrefixProvider.
+   * @param s The request.
+   * @return std::optional<std::string> The header on success, or std::nullopt
+   * on any failure.
    */
   std::optional<std::string> synthesize_auth_header(
       const DoutPrefixProvider* dpp,
       const req_state* s);
+
+  /**
+   * @brief Assuming an already-parsed (via synthesize_auth_header) presigned
+   * header URL, check that the given expiry time has not expired. Note that
+   * in v17.2.6, this won't get called - RGW checks the expiry time before
+   * even calling our authentication engine.
+   *
+   * Fail closed - if we can't parse the parameters to check, assume we're not
+   * authenticated.
+   *
+   * The fields are version-specific. For the v2-ish URLs (no region
+   * specified), we're given an expiry unix time to compare against. For the
+   * v4-type URLs (region specified), we're given a start time and a delta in
+   * seconds.
+   *
+   * @param dpp DoutPrefixProvider.
+   * @param s The request.
+   * @param now The current UNIX time (seconds since the epoch).
+   * @return true The request has not expired
+   * @return false The request has expired, or a check was not possible
+   */
+  bool valid_presigned_time(const DoutPrefixProvider* dpp, const req_state* s, time_t now);
 };
 
 } /* namespace rgw */

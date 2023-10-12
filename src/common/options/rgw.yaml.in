@@ -904,11 +904,19 @@ options:
   services:
   - rgw
   with_legacy: true
+- name: rgw_handoff_enable_presigned_expiry_check
+  type: bool
+  level: advanced
+  desc: Should handoff re-check presigned URL expiry time.
+  default: true
+  services:
+  - rgw
+  with_legacy: true
 - name: rgw_handoff_enable_signature_v2
   type: bool
   level: advanced
-  desc: Should S3 AWS Signature V2 verification be allowed.
-  default: enable
+  desc: Should handoff allow AWS Signature V2 verification.
+  default: true
   services:
   - rgw
   with_legacy: true

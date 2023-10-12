@@ -21,6 +21,8 @@
 #include <optional>
 #include <string>
 
+#include <time.h>
+
 #include "include/ceph_assert.h"
 
 #include "common/dout.h"
@@ -227,17 +229,101 @@ std::optional<std::string> HandoffHelper::synthesize_auth_header(
     const DoutPrefixProvider* dpp,
     const req_state* s)
 {
-  if (s->info.args.get_optional("AWSAccessKeyId")) {
+  if (s->info.args.exists("AWSAccessKeyId")) {
     return synthesize_v2_header(dpp, s);
   }
   // Params starting with 'X-Amz' are lowercased.
-  if (s->info.args.get_optional("x-amz-credential")) {
+  if (s->info.args.exists("x-amz-credential")) {
     return synthesize_v4_header(dpp, s);
   }
   return std::nullopt;
 }
 
-// Documentation in .h.
+static std::optional<time_t> get_v4_presigned_expiry_time(const DoutPrefixProvider* dpp, const req_state* s)
+{
+
+  auto& argmap = s->info.args;
+  auto maybe_date = argmap.get_optional("x-amz-date");
+  if (!maybe_date) {
+    ldpp_dout(dpp, 0) << "Missing x-amz-date parameter" << dendl;
+  }
+  auto maybe_expires_delta = argmap.get_optional("x-amz-expires");
+  if (!maybe_expires_delta) {
+    ldpp_dout(dpp, 0) << "Missing x-amz-expires parameter" << dendl;
+  }
+  if (!(maybe_date && maybe_expires_delta)) {
+    return std::nullopt;
+  }
+
+  std::string date = std::move(*maybe_date);
+  struct tm tm;
+  memset(&tm, 0, sizeof(struct tm));
+  char* p = strptime(date.c_str(), "%Y%m%dT%H%M%SZ", &tm);
+  if (p == nullptr || *p != 0) {
+    ldpp_dout(dpp, 0) << "Failed to parse x-amz-date parameter" << dendl;
+    return std::nullopt;
+  }
+  time_t param_time = mktime(&tm);
+  if (param_time == (time_t)-1) {
+    ldpp_dout(dpp, 0) << "Error converting x-amz-date to unix time: " << strerror(errno) << dendl;
+    return std::nullopt;
+  }
+
+  time_t expiry_time = param_time;
+  std::string delta = std::move(*maybe_expires_delta);
+  try {
+    expiry_time += static_cast<time_t>(std::stoi(delta));
+  } catch (std::exception& _) {
+    ldpp_dout(dpp, 20) << "Failed to parse x-amz-expires" << dendl;
+    return std::nullopt;
+  }
+  ldpp_dout(dpp, 20) << __func__ << fmt::format(": x-amz-date {}, delta {} -> unix time {}, expiry time {}", date, delta, param_time, expiry_time) << dendl;
+  return std::make_optional(expiry_time);
+}
+
+static std::optional<time_t> get_v2_presigned_expiry_time(const DoutPrefixProvider* dpp, const req_state* s)
+{
+  auto& argmap = s->info.args;
+  auto maybe_expires = argmap.get_optional("Expires");
+  if (!maybe_expires) {
+    ldpp_dout(dpp, 0) << "Missing Expiry parameter" << dendl;
+    return std::nullopt;
+  }
+
+  auto expiry_time_str = maybe_expires.value();
+  time_t expiry_time;
+  try {
+    expiry_time = std::stol(expiry_time_str, nullptr, 10);
+  } catch (std::exception& _) {
+    ldpp_dout(dpp, 0) << "Failed to parse presigned URL expiry time" << dendl;
+    return false;
+  }
+  ldpp_dout(dpp, 20) << __func__ << ": expiry time " << expiry_time << dendl;
+  return std::make_optional(expiry_time);
+}
+
+bool HandoffHelper::valid_presigned_time(const DoutPrefixProvider* dpp, const req_state* s, time_t now)
+{
+  std::optional<time_t> maybe_expiry_time;
+
+  auto& argmap = s->info.args;
+  if (argmap.exists("AWSAccessKeyId")) {
+    maybe_expiry_time = get_v2_presigned_expiry_time(dpp, s);
+  } else if (argmap.exists("x-amz-credential")) {
+    maybe_expiry_time = get_v4_presigned_expiry_time(dpp, s);
+  }
+  if (!maybe_expiry_time) {
+    ldpp_dout(dpp, 0) << "Unable to extract presigned URL expiry time from query parameters" << dendl;
+    return false;
+  }
+  ldpp_dout(dpp, 20) << fmt::format("Presigned URL last valid second {} now {}", *maybe_expiry_time, now) << dendl;
+  if (*maybe_expiry_time < now) {
+    ldpp_dout(dpp, 0) << fmt::format("Presigned URL expired - last valid second {} now {}", *maybe_expiry_time, now) << dendl;
+    return false;
+  }
+  return true;
+}
+
 HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
     const std::string_view& session_token,
     const std::string_view& access_key_id,
@@ -274,10 +360,15 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
       ldpp_dout(dpp, 0) << "Handoff: Missing Authorization header and insufficient query parameters" << dendl;
       return HandoffAuthResult(-EACCES, "Internal error (missing Authorization and insufficient query parameters)");
     }
-    // if (!check_presigned_expiry(dpp, s)) {
-    //   ldpp_dout(dpp, 0) << "Handoff: presigned URL expiry check failed" << dendl;
-    //   return HandoffAuthResult(-EACCES, "Presigned URL expiry check failed");
-    // }
+    if (dpp->get_cct()->_conf->rgw_handoff_enable_presigned_expiry_check) {
+      // Belt-and-braces: Check the expiry time.
+      // Note that RGW won't (in v17.2.6) pass this to us; it checks the expiry
+      // time before even calling auth(). Let's not assume things.
+      if (!valid_presigned_time(dpp, s, time(nullptr))) {
+        ldpp_dout(dpp, 0) << "Handoff: presigned URL expiry check failed" << dendl;
+        return HandoffAuthResult(-EACCES, "Presigned URL expiry check failed");
+      }
+    }
   }
 
   // We might have disabled V2 signatures.
