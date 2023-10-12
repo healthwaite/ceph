@@ -674,6 +674,8 @@ TEST_F(HandoffHelperTest, PresignedSynthesizeHeader)
   }
 }
 
+// Presigned headers have an expiry time. If we're past that time, we
+// shouldn't even pass the request to the Authenticator.
 TEST_F(HandoffHelperTest, PresignedCheckExpiry)
 {
   FAIL() << "notimpl";
