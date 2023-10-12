@@ -30,7 +30,7 @@
 
 namespace {
 
-/* #region TestData */
+/* #region(collapsed) TestData */
 
 // The information we need to use an access key.
 struct AccessKeyInfo {
@@ -569,6 +569,116 @@ TEST_F(HandoffHelperTest, HeaderExpectBadSignature)
   }
 }
 
+/* #region PresignedTestData */
+
+struct HandoffHeaderSynthData {
+  std::string name;
+  std::string url;
+  std::string header;
+};
+
+HandoffHeaderSynthData synth_pass[] = {
+  // All use credential 0555b35654ad1656d804, the RGW test user.
+
+  // `aws --endpoint-url='http://amygdala-ub01.home.ae-35.com:8000' s3 presign
+  // s3://testnv/rand --expires 3600`. No region.
+  {
+      "aws s3 GET no region",
+      "http://amygdala-ub01.home.ae-35.com:8000/testnv/rand?AWSAccessKeyId=0555b35654ad1656d804&Signature=XukLh8ZYkh7LhfDNGGPEznT5qMk%3D&Expires=1697103292",
+      "AWS 0555b35654ad1656d804:XukLh8ZYkh7LhfDNGGPEznT5qMk=",
+  },
+  // `aws --endpoint-url='http://amygdala-ub01.home.ae-35.com:8000' s3 presign
+  // s3://testnv/rand --expires 3600 --region eu-west-2`. Non-default region.
+  {
+      "aws s3 GET with region",
+      "http://amygdala-ub01.home.ae-35.com:8000/testnv/rand?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=0555b35654ad1656d804%2F20231012%2Feu-west-2%2Fs3%2Faws4_request&X-Amz-Date=20231012T083736Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=d63f2167860f1f3a02b098988cbe9e7cf19e2d3208044e70d52bcc88985abb17",
+      "AWS4-HMAC-SHA256 Credential=0555b35654ad1656d804/20231012/eu-west-2/s3/aws4_request, SignedHeaders=host, Signature=d63f2167860f1f3a02b098988cbe9e7cf19e2d3208044e70d52bcc88985abb17",
+  },
+  // `s3cmd --host http://amygdala-ub01.home.ae-35.com:8000 signurl
+  // s3://testnv/rand +3600`. No region.
+  {
+      "s3cmd presign GET no region",
+      "http://amygdala-ub01.home.ae-35.com:8000/testnv/rand?AWSAccessKeyId=0555b35654ad1656d804&Expires=1697103824&Signature=2X2H46QEM73dL8EAHiWTgpEUYqs%3D",
+      "AWS 0555b35654ad1656d804:2X2H46QEM73dL8EAHiWTgpEUYqs=",
+  },
+  // `s3cmd --host http://amygdala-ub01.home.ae-35.com:8000 --region eu-west-2
+  // signurl s3://testnv/rand +3600`. Non-default region. Note s3cmd didn't
+  // switch to the 'v4-ish' presigned URL format.
+  {
+      "s3cmd signurl GET with region",
+      "http://amygdala-ub01.home.ae-35.com:8000/testnv/rand?AWSAccessKeyId=0555b35654ad1656d804&Expires=1697110701&Signature=1QoTXjLEU3oh0LTfRn5wrccgWWw%3D",
+      "AWS 0555b35654ad1656d804:1QoTXjLEU3oh0LTfRn5wrccgWWw=" },
+  // `presigned_url.py --endpoint http://amygdala-ub01.home.ae-35.com:8000 testnv rand get --expiry 3600`. No region.
+  {
+      "presigned_url.py GET no region",
+      "http://amygdala-ub01.home.ae-35.com:8000/testnv/rand?AWSAccessKeyId=0555b35654ad1656d804&Signature=EqiVBEaa%2B9wUIpHUw26ph74Pq4o%3D&Expires=1697110900",
+      "AWS 0555b35654ad1656d804:EqiVBEaa+9wUIpHUw26ph74Pq4o=",
+  },
+
+  // `presigned_url.py --endpoint http://amygdala-ub01.home.ae-35.com:8000
+  // testnv rand get --expiry 3600 --region eu-west-2`. Non-default region.
+  {
+      "presigned_url.py GET with region",
+      "http://amygdala-ub01.home.ae-35.com:8000/testnv/rand?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=0555b35654ad1656d804%2F20231012%2Feu-west-2%2Fs3%2Faws4_request&X-Amz-Date=20231012T104359Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=a54b4ae7a782c395ef8a75a0fbaf23f6d4a8e6d52d06cdc358be03344dd439b4",
+      "AWS4-HMAC-SHA256 Credential=0555b35654ad1656d804/20231012/eu-west-2/s3/aws4_request, SignedHeaders=host, Signature=a54b4ae7a782c395ef8a75a0fbaf23f6d4a8e6d52d06cdc358be03344dd439b4",
+  },
+  // `presigned_url.py --endpoint http://amygdala-ub01.home.ae-35.com:8000
+  // testnv rand put --expiry 3600`. No region.
+  {
+      "presigned_url.py PUT no region",
+      "http://amygdala-ub01.home.ae-35.com:8000/testnv/rand?AWSAccessKeyId=0555b35654ad1656d804&Signature=ob%2FzEMUCnhQyX1KE6vhGo0oSZq4%3D&Expires=1697107623",
+      "AWS 0555b35654ad1656d804:ob/zEMUCnhQyX1KE6vhGo0oSZq4=",
+  },
+  // `presigned_url.py --endpoint http://amygdala-ub01.home.ae-35.com:8000
+  // testnv rand put --expiry 3600 --region eu-west-2`. Non-default region.
+  {
+      "presigned_url.py PUT with region",
+      "http://amygdala-ub01.home.ae-35.com:8000/testnv/rand?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=0555b35654ad1656d804%2F20231012%2Feu-west-2%2Fs3%2Faws4_request&X-Amz-Date=20231012T094852Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=cd8ed8099f8349c43bf1804bf3780ab0885e7c94baffcce65aacd34b4e6b6ade",
+      "AWS4-HMAC-SHA256 Credential=0555b35654ad1656d804/20231012/eu-west-2/s3/aws4_request, SignedHeaders=host, Signature=cd8ed8099f8349c43bf1804bf3780ab0885e7c94baffcce65aacd34b4e6b6ade",
+  }
+};
+
+/* #endregion */
+
+// Make sure we're properly creating the Authorization: header from query
+// parameters. This is order-dependent; however every program I've tried it
+// with (s3cmd, aws s3 presign, the AWS presigned_url.py SDK example code)
+// respects this order.
+TEST_F(HandoffHelperTest, PresignedSynthesizeHeader)
+{
+  for (auto const& t : synth_pass) {
+
+    // We need a req_state struct to pass to synthesize_auth_header(), so
+    // implement the pieces of RGWHandler_REST_S3::init_from_header() that we
+    // care about, taking the test URL as input.
+    RGWEnv rgw_env;
+    req_state s { g_ceph_context, &rgw_env, 0 };
+    // In the input URL, skip to the '?' marking the start of URL parameters.
+    // (This is what init_from_header() does.)
+    auto p = t.url.c_str();
+    for (auto c : t.url) {
+      if (c == '?') {
+        break;
+      }
+      p++;
+    }
+    ASSERT_TRUE(*p != 0) << t.name;
+    // Parse arguments from the URL.
+    s.info.args.set(p);
+    s.info.args.parse(&s);
+    // End init_from_header() mock.
+
+    auto got = hh.synthesize_auth_header(&dpp, &s);
+    ASSERT_TRUE(got.has_value()) << t.name;
+    EXPECT_EQ(*got, t.header) << t.name;
+  }
+}
+
+TEST_F(HandoffHelperTest, PresignedCheckExpiry)
+{
+  FAIL() << "notimpl";
+}
+
 // main() cribbed from test_http_manager.cc
 
 int main(int argc, char** argv)
@@ -580,6 +690,7 @@ int main(int argc, char** argv)
   rgw_http_client_init(cct->get());
   rgw_setup_saved_curl_handles();
 
+  //// This will raise the library logging level to max.
   // g_ceph_context->_conf->subsys.set_log_level(ceph_subsys_rgw, 20);
 
   ::testing::InitGoogleTest(&argc, argv);
