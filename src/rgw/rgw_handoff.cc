@@ -34,9 +34,10 @@ namespace ba = boost::algorithm;
 
 namespace rgw {
 
-int HandoffHelper::init(CephContext* const cct)
+int HandoffHelper::init(CephContext* const cct, rgw::sal::Store* store)
 {
   ldout(cct, 20) << "HandoffHelper::init" << dendl;
+  store_ = store;
   return 0;
 };
 

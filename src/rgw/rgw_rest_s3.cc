@@ -6054,7 +6054,7 @@ void rgw::auth::s3::LDAPEngine::shutdown() {
 rgw::HandoffHelper* rgw::auth::s3::HandoffEngine::handoff_helper = nullptr;
 std::mutex rgw::auth::s3::HandoffEngine::mtx;
 
-void rgw::auth::s3::HandoffEngine::init(CephContext* const cct)
+void rgw::auth::s3::HandoffEngine::init(CephContext* const cct, rgw::sal::Store* store)
 {
   if (! cct->_conf->rgw_s3_auth_use_handoff ||
       cct->_conf->rgw_handoff_uri.empty()) {
@@ -6066,7 +6066,7 @@ void rgw::auth::s3::HandoffEngine::init(CephContext* const cct)
     std::lock_guard<std::mutex> lck(mtx);
     if (! handoff_helper) {
       handoff_helper = new rgw::HandoffHelper();
-      handoff_helper->init(cct);
+      handoff_helper->init(cct, store);
     }
   }
 }

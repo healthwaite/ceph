@@ -1155,7 +1155,7 @@ class HandoffEngine : public AWSEngine {
    *
    * Simply a passthrough the the HandoffHelper initialisation.
    */
-  static void init(CephContext* const cct);
+  static void init(CephContext* const cct, rgw::sal::Store* store);
 
   using acl_strategy_t = rgw::auth::RemoteApplier::acl_strategy_t;
   using auth_info_t = rgw::auth::RemoteApplier::AuthInfo;
@@ -1204,7 +1204,7 @@ public:
     : AWSEngine(cct, ver_abstractor),
       store(store),
       apl_factory(apl_factory) {
-    init(cct);
+    init(cct, store);
   }
 
   using AWSEngine::authenticate;

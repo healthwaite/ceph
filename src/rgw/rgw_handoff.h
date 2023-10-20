@@ -115,6 +115,7 @@ public:
 
 private:
   const std::optional<VerifyFunc> verify_func_;
+  rgw::sal::Store* store_;
 
 public:
   HandoffHelper() { }
@@ -133,12 +134,13 @@ public:
 
   /**
    * @brief Initialise any long-lived state for this engine.
-   * @param cct Pointer to the Ceph context
+   * @param cct Pointer to the Ceph context.
+   * @param store Pointer to the sal::Store object.
    * @return 0 on success, otherwise failure.
    *
    * Currently a placeholder, there's no long-lived state at this time.
    */
-  int init(CephContext* const cct);
+  int init(CephContext* const cct, rgw::sal::Store* store);
 
   /**
    * @brief Authenticate the transaction using the Handoff engine.
