@@ -465,14 +465,14 @@ TEST(HandoffMeta, SigNegative)
 TEST(HandoffHelper, Init)
 {
   HandoffHelper hh;
-  ASSERT_EQ(hh.init(g_ceph_context), 0);
+  ASSERT_EQ(hh.init(g_ceph_context, nullptr), 0);
 }
 
 class HandoffHelperTest : public ::testing::Test {
 protected:
   void SetUp() override
   {
-    ASSERT_EQ(hh.init(g_ceph_context), 0);
+    ASSERT_EQ(hh.init(g_ceph_context, nullptr), 0);
   }
 
   HandoffHelper hh { verify_by_func };
@@ -595,15 +595,15 @@ static HandoffHeaderSynthData synth_pass[] = {
       "AWS4-HMAC-SHA256 Credential=0555b35654ad1656d804/20231012/eu-west-2/s3/aws4_request, SignedHeaders=host, Signature=d63f2167860f1f3a02b098988cbe9e7cf19e2d3208044e70d52bcc88985abb17",
   },
   // `s3cmd --host http://amygdala-ub01.home.ae-35.com:8000 signurl
-  // s3://testnv/rand +3600`. No region.
+  // s3://testnv/rand +3600`. No region. No --host-bucket set.
   {
-      "s3cmd presign GET no region",
+      "s3cmd signurl GET no region",
       "http://amygdala-ub01.home.ae-35.com:8000/testnv/rand?AWSAccessKeyId=0555b35654ad1656d804&Expires=1697103824&Signature=2X2H46QEM73dL8EAHiWTgpEUYqs%3D",
       "AWS 0555b35654ad1656d804:2X2H46QEM73dL8EAHiWTgpEUYqs=",
   },
   // `s3cmd --host http://amygdala-ub01.home.ae-35.com:8000 --region eu-west-2
-  // signurl s3://testnv/rand +3600`. Non-default region. Note s3cmd didn't
-  // switch to the 'v4-ish' presigned URL format.
+  // signurl s3://testnv/rand +3600`. Non-default region. No --host-bucket
+  // set. Note s3cmd didn't switch to the 'v4-ish' presigned URL format.
   {
       "s3cmd signurl GET with region",
       "http://amygdala-ub01.home.ae-35.com:8000/testnv/rand?AWSAccessKeyId=0555b35654ad1656d804&Expires=1697110701&Signature=1QoTXjLEU3oh0LTfRn5wrccgWWw%3D",
