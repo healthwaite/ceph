@@ -8,6 +8,7 @@
 
 #include <fmt/format.h>
 #include <functional>
+#include <iosfwd>
 #include <string>
 
 #include "common/async/yield_context.h"
@@ -100,6 +101,105 @@ public:
   long http_code() const noexcept { return http_code_; }
   std::string query_url() const noexcept { return query_url_; }
 };
+
+class EAKParameters {
+
+private:
+  bool valid_;
+  std::string method_;
+  std::string bucket_name_;
+  std::string object_key_name_;
+
+  void valid_check() const
+  {
+    if (!valid()) {
+      throw new std::runtime_error("EAKParamters not valid");
+    }
+  }
+
+public:
+  EAKParameters(const DoutPrefixProvider* dpp, const req_state* s) noexcept;
+
+  // Standard copies and moves are fine.
+  EAKParameters(EAKParameters& other) = default;
+  EAKParameters& operator=(EAKParameters& other) = default;
+  EAKParameters(EAKParameters&& other) = default;
+  EAKParameters& operator=(EAKParameters&& other) = default;
+
+  /**
+   * @brief Return the validity of this EAKParameters object.
+   *
+   * If at construction time the request was well-formed and contained
+   * sufficient information to be used in an EAK request to the Authenticator,
+   * return true.
+   *
+   * Otherwise, return false.
+   *
+   * @return true The request can be used as the source of an EAK
+   * authentication operation.
+   * @return false The request cannot be used.
+   */
+  bool valid() const noexcept
+  {
+    return valid_;
+  }
+  /**
+   * @brief Return the HTTP method for a valid request. Throw if valid() is
+   * false.
+   *
+   * @return std::string The method.
+   * @throw std::runtime_error if !valid().
+   */
+  std::string method() const
+  {
+    valid_check();
+    return method_;
+  }
+  /**
+   * @brief Return the bucket name for a valid request. Throw if valid() is
+   * false.
+   *
+   * @return std::string The bucket name.
+   * @throw std::runtime_error if !valid().
+   */
+  std::string bucket_name() const
+  {
+    valid_check();
+    return bucket_name_;
+  }
+  /**
+   * @brief Return the object key name for a valid request. Throw if valid()
+   * is false.
+   *
+   * @return std::string The object key name.
+   * @throw std::runtime_error if !valid().
+   */
+  std::string object_key_name() const
+  {
+    valid_check();
+    return object_key_name_;
+  }
+
+  /**
+   * @brief Convert this EAKParameters object to string form.
+   *
+   * @return std::string A string representation of the object. Works fine for
+   * objects in the invalid state; this call is always safe.
+   */
+  std::string to_string() const noexcept
+  {
+    if (valid()) {
+      return fmt::format("EAKParameters(method={},bucket={},key={})", method(), bucket_name(), object_key_name());
+    } else {
+      return "EAKParameters(INVALID)";
+    }
+  }
+
+  /// Used to implement streaming.
+  friend std::ostream& operator<<(std::ostream& os, const EAKParameters& ep);
+};
+
+std::ostream& operator<<(std::ostream& os, const EAKParameters& ep);
 
 /**
  * @brief Support class for 'handoff' authentication.
