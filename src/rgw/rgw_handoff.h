@@ -43,17 +43,17 @@ public:
       , message_ { message }
       , is_err_ { true } {};
 
-  bool is_err() { return is_err_; }
-  bool is_ok() { return !is_err_; }
-  int code() { return errorcode_; }
-  std::string message() { return message_; }
+  bool is_err() const noexcept { return is_err_; }
+  bool is_ok() const noexcept { return !is_err_; }
+  int code() const noexcept { return errorcode_; }
+  std::string message() const noexcept { return message_; }
 
   /// @brief Return the user ID for a success result. Throw EACCES on
   /// failure.
   ///
   /// This is to catch erroneous use of userid(). It will probably get
   /// thrown all the way up to rgw::auth::Strategy::authenticate().
-  std::string userid()
+  std::string userid() const
   {
     if (is_err()) {
       throw -EACCES;
@@ -61,7 +61,7 @@ public:
     return userid_;
   }
 
-  std::string to_string()
+  std::string to_string() const noexcept
   {
     if (is_err()) {
       return fmt::format("error={} message={}", errorcode_, message_);
@@ -96,9 +96,9 @@ public:
   HandoffVerifyResult(HandoffVerifyResult&& other) = default;
   HandoffVerifyResult& operator=(HandoffVerifyResult&& other) = default;
 
-  int result() { return result_; }
-  long http_code() { return http_code_; }
-  std::string query_url() { return query_url_; }
+  int result() const noexcept { return result_; }
+  long http_code() const noexcept { return http_code_; }
+  std::string query_url() const noexcept { return query_url_; }
 };
 
 /**
