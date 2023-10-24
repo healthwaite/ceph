@@ -674,7 +674,8 @@ TEST_F(HandoffHelperTest, PresignedSynthesizeHeader)
   }
 }
 
-// #region(collapsed) PresignedExpiryData
+/* #region(collapsed) PresignedExpiryData */
+
 struct PresignedExpiryData {
   std::string name;
   std::string url;
@@ -702,7 +703,7 @@ static PresignedExpiryData expiry_unit[] = {
   }
 };
 
-// #endregion
+/* #endregion */
 
 // Presigned headers have an expiry time. If we're past that time, we
 // shouldn't even pass the request to the Authenticator.
@@ -737,6 +738,88 @@ TEST_F(HandoffHelperTest, PresignedCheckExpiry)
     EXPECT_EQ(actual, true) << t.name << ": expect pass (t==now+delta)";
     actual = hh.valid_presigned_time(&dpp, &s, t.now + t.delta + 1);
     EXPECT_EQ(actual, false) << t.name << ": expect fail (t==now+delta+1)";
+  }
+}
+
+// #region(collapsed) EAKParametersTestData
+
+struct EAKConstructTest {
+  std::string method;
+  // Note that the r_uri is used as s->relative_uri. We don't have to worry
+  // about URL encoding of the bucket and keys. Why? In
+  // RGWREST::get_handler(), we do RGWREST::preprocess() which fills in
+  // s->decoded_uri, and immediately s->decoded_uri is used to initialise the
+  // RGWRestMgr, whose out parameter is s->relative_uri.
+  //
+  std::string r_uri;
+  bool expected_pass;
+  std::string exp_method;
+  std::string exp_bucket;
+  std::string exp_object_key;
+};
+
+static EAKConstructTest eak_unit[] = {
+  // Simple get.
+  { "GET", "/bucket/key", true, "GET", "bucket", "key" },
+  // Simple put.
+  { "PUT", "/bucket/key", true, "PUT", "bucket", "key" },
+  // Get with non-ASCII7 key. Essentially a no-op because we get the URL
+  // post-decoding.
+  { "GET", "/foo/Déjà vu", true, "GET", "foo", "Déjà vu" },
+  // Get for ls (i.e. no key).
+  { "GET", "/bucket", true, "GET", "bucket", "" },
+  // Broken: No method.
+  { "", "/bucket", false, "", "", "" },
+  // Broken: No bucket or key.
+  { "GET", "/", false, "", "", "" },
+};
+
+// #endregion
+
+TEST_F(HandoffHelperTest, EAKParamConstruct)
+{
+  for (const auto& t : eak_unit) {
+    RGWEnv rgw_env;
+    req_state s { g_ceph_context, &rgw_env, 0 };
+
+    auto test_desc = fmt::format("for test: {} {} exp:{}", t.method, t.r_uri, t.expected_pass);
+    s.info.method = t.method.c_str();
+    s.relative_uri = t.r_uri;
+
+    auto eak = EAKParameters(&dpp, &s);
+    if (!t.expected_pass) {
+      EXPECT_FALSE(eak.valid()) << test_desc;
+      EXPECT_ANY_THROW(eak.method()) << test_desc;
+      EXPECT_ANY_THROW(eak.bucket_name()) << test_desc;
+      EXPECT_ANY_THROW(eak.object_key_name()) << test_desc;
+    } else {
+      ASSERT_TRUE(eak.valid()) << test_desc;
+      EXPECT_EQ(eak.method(), t.exp_method) << test_desc;
+      EXPECT_EQ(eak.bucket_name(), t.exp_bucket) << test_desc;
+      EXPECT_EQ(eak.object_key_name(), t.exp_object_key) << test_desc;
+    }
+  }
+}
+
+TEST(HandoffHelperEak, IsEakCredential)
+{
+  struct EAKCredTest {
+    std::string input;
+    bool expected;
+  };
+
+  EAKCredTest tests[] = {
+    { "foo", false },
+    { "OTv1", true },
+    { "OTv", false },
+    { "otv1", false },
+  };
+
+  HandoffHelper hh;
+
+  for (const auto& t : tests) {
+    auto desc = fmt::format("test: prefix {}, expects {}", t.input, t.expected);
+    EXPECT_EQ(hh.is_eak_credential(t.input), t.expected) << desc;
   }
 }
 

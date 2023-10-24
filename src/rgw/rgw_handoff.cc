@@ -21,6 +21,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include <time.h>
 
@@ -51,6 +52,7 @@ int HandoffHelper::init(CephContext* const cct, rgw::sal::Store* store)
  * @param access_key_id The access key ID. This is the Credential= field of
  * the Authorization header, but RGW has already parsed it out for us.
  * @param auth The full Authorization header in the HTTP request.
+ * @param eak_param Optional EAK parameters.
  * @return std::string The JSON request as a (pretty-printed) string.
  *
  * Construct a JSON string to send to the authenticator. With this we have
@@ -58,21 +60,30 @@ int HandoffHelper::init(CephContext* const cct, rgw::sal::Store* store)
  * can securely construct and so validate an S3 v4 signature. We don't need
  * the access secret key, but the authenticator process does.
  */
-static std::string PrepareHandoffRequest(const req_state* s, const std::string_view& string_to_sign, const std::string_view& access_key_id, const std::string_view& auth)
+static std::string PrepareHandoffRequest(const req_state* s,
+    const std::string_view& string_to_sign, const std::string_view& access_key_id,
+    const std::string_view& auth, const std::optional<EAKParameters>& eak_param)
 {
   JSONFormatter jf { true };
   jf.open_object_section(""); // root
   encode_json("stringToSign", rgw::to_base64(string_to_sign), &jf);
   encode_json("accessKeyId", std::string(access_key_id), &jf);
   encode_json("authorization", std::string(auth), &jf);
-  jf.close_section(); // root
+  if (eak_param && eak_param->valid()) {
+    jf.open_object_section("eakParameters");
+    encode_json("method", eak_param->method(), &jf);
+    encode_json("bucketName", eak_param->bucket_name(), &jf);
+    encode_json("objectKeyName", eak_param->object_key_name(), &jf);
+    jf.close_section(); // /eakParameters
+  }
+  jf.close_section(); // /root
   std::ostringstream oss;
   jf.flush(oss);
   return oss.str();
 }
 
 /**
- * @brief Bundle the results form parsing the authenticator's JSON response.
+ * @brief Bundle the results from parsing the authenticator's JSON response.
  *
  * \p uid has meaning only when \p success is true. If success is false, \p
  * uid's value must not be used.
@@ -175,7 +186,11 @@ EAKParameters::EAKParameters(const DoutPrefixProvider* dpp, const req_state* s) 
     return;
   }
 
-  // The method is already stored.
+  // Method should be set in the request.
+  if (!s->info.method || *(s->info.method) == 0) {
+    ldpp_dout(dpp, 0) << "Handoff: Invalid request method for EAK" << dendl;
+    return;
+  }
   method_ = s->info.method;
 
   std::string req;
@@ -227,6 +242,15 @@ EAKParameters::EAKParameters(const DoutPrefixProvider* dpp, const req_state* s) 
   }
 
   valid_ = true;
+}
+
+std::string EAKParameters::to_string() const noexcept
+{
+  if (valid()) {
+    return fmt::format("EAKParameters(method={},bucket={},key={})", method(), bucket_name(), object_key_name());
+  } else {
+    return "EAKParameters(INVALID)";
+  }
 }
 
 std::ostream& operator<<(std::ostream& os, const EAKParameters& ep)
@@ -417,6 +441,17 @@ bool HandoffHelper::valid_presigned_time(const DoutPrefixProvider* dpp, const re
   return true;
 }
 
+bool HandoffHelper::is_eak_credential(const std::string_view access_key_id)
+{
+  using namespace std::string_view_literals;
+
+  if (access_key_id.compare(0, 4, "OTv1"sv) == 0)
+    return true;
+  else {
+    return false;
+  }
+}
+
 HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
     const std::string_view& session_token,
     const std::string_view& access_key_id,
@@ -431,11 +466,6 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
   if (!s->cio) {
     return HandoffAuthResult(-EACCES, "Internal error (cio)");
   }
-
-  // XXX unconditional EAKParameters setup. This needs to be gated on the
-  // XXX EAK format of the access key.
-  EAKParameters eak_param { dpp, s };
-  ldpp_dout(dpp, 20) << eak_param << dendl;
 
   // The 'environment' of the request includes, amongst other things,
   // all the headers, prefixed with 'HTTP_'. They also have header names
@@ -478,8 +508,24 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
     }
   }
 
+  // Only do the extra work for EAK if we have to, i.e. the access key looks
+  // like an EAK variant.
+  //
+  std::optional<EAKParameters> eak_param;
+  if (is_eak_credential(access_key_id)) {
+    ldpp_dout(dpp, 20) << "Handoff: Gathering request info for EAK" << dendl;
+    eak_param = EAKParameters(dpp, s);
+    ldpp_dout(dpp, 20) << eak_param << dendl;
+    if (!(eak_param->valid())) {
+      // This shouldn't happen with a valid request. If it does, it's probably
+      // a bug.
+      ldpp_dout(dpp, 0) << "Handoff: EAK request info fetch failed (likely BUG)" << dendl;
+      return HandoffAuthResult(-EACCES, "Access denied (failed to fetch request info for EAK credential)");
+    }
+  }
+
   // Build our JSON request for the authenticator.
-  auto request_json = PrepareHandoffRequest(s, string_to_sign, access_key_id, auth);
+  auto request_json = PrepareHandoffRequest(s, string_to_sign, access_key_id, auth, eak_param);
 
   ceph::bufferlist resp_bl;
 

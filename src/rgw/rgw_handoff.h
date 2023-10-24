@@ -186,14 +186,7 @@ public:
    * @return std::string A string representation of the object. Works fine for
    * objects in the invalid state; this call is always safe.
    */
-  std::string to_string() const noexcept
-  {
-    if (valid()) {
-      return fmt::format("EAKParameters(method={},bucket={},key={})", method(), bucket_name(), object_key_name());
-    } else {
-      return "EAKParameters(INVALID)";
-    }
-  }
+  std::string to_string() const noexcept;
 
   /// Used to implement streaming.
   friend std::ostream& operator<<(std::ostream& os, const EAKParameters& ep);
@@ -353,6 +346,19 @@ public:
    * @return false The request has expired, or a check was not possible
    */
   bool valid_presigned_time(const DoutPrefixProvider* dpp, const req_state* s, time_t now);
+
+  /**
+   * @brief Return true if the supplied credential looks like an Extended
+   * Access Key.
+   *
+   * The EAK format is specified to have a small set of known prefix strings,
+   * to make them easy to detect. The prefixes are case-significant.
+   *
+   * @param access_key_id
+   * @return true The credential has a recognised EAK prefix.
+   * @return false The credential is a regular access key.
+   */
+  bool is_eak_credential(const std::string_view access_key_id);
 };
 
 } /* namespace rgw */
