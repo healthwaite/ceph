@@ -6050,9 +6050,7 @@ void rgw::auth::s3::LDAPEngine::shutdown() {
   }
 }
 
-
 rgw::HandoffHelper* rgw::auth::s3::HandoffEngine::handoff_helper = nullptr;
-std::mutex rgw::auth::s3::HandoffEngine::mtx;
 
 void rgw::auth::s3::HandoffEngine::init(CephContext* const cct, rgw::sal::Store* store)
 {
@@ -6062,18 +6060,14 @@ void rgw::auth::s3::HandoffEngine::init(CephContext* const cct, rgw::sal::Store*
   }
 
   // NOTE: This is not a thread-safe initialisation.
-  if (! handoff_helper) {
-    std::lock_guard<std::mutex> lck(mtx);
-    if (! handoff_helper) {
-      handoff_helper = new rgw::HandoffHelper();
-      handoff_helper->init(cct, store);
-    }
+  if (!handoff_helper) {
+    handoff_helper = new rgw::HandoffHelper();
+    handoff_helper->init(cct, store);
   }
 }
 
 bool rgw::auth::s3::HandoffEngine::valid() {
-  std::lock_guard<std::mutex> lck(mtx);
-  return (!!handoff_helper);
+  return (handoff_helper != nullptr);
 }
 
 rgw::auth::RemoteApplier::acl_strategy_t
