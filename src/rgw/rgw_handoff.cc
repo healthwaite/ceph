@@ -568,6 +568,9 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
   case RGWHTTPClient::HTTP_STATUS_NOSTATUS:
     ldpp_dout(dpp, 5) << fmt::format("Handoff fetch '{}' unknown status {}", vres.query_url(), status) << dendl;
     return HandoffAuthResult(-EACCES, resp.message);
+  default:
+    ldpp_dout(dpp, 0) << fmt::format("Handoff fetch '{}' returned unexpected HTTP status code {}", status) << dendl;
+    return HandoffAuthResult(-EACCES, resp.message);
   }
 
   return HandoffAuthResult(resp.uid, resp.message);
