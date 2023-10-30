@@ -1151,9 +1151,14 @@ class HandoffEngine : public AWSEngine {
   /**
    * @brief One-time initialisation of the Handoff engine.
    *
-   * @param cct The context.
-   *
    * Simply a passthrough the the HandoffHelper initialisation.
+   *
+   * Though currently unused, keep a copy of the store pointer - it's bound to
+   * be useful at some point.
+   *
+   * @param cct The context.
+   * @param store The store abstraction later.
+   *
    */
   static void init(CephContext* const cct, rgw::sal::Store* store);
 
@@ -1170,6 +1175,13 @@ protected:
 
   /**
    * @brief Authenticate the request via the external authenticator.
+   *
+   * Pass most parameters straight through and call HandoffHelper::auth().
+   *
+   * On failure, simply return a deny result.
+   *
+   * On success, return a grant result with applier via get_creds_info() and
+   * an empty completer.
    *
    * @param dpp Debug prefix provider.
    * @param access_key_id The access key. An opaque string from the
@@ -1197,6 +1209,14 @@ protected:
                         const req_state* s,
 			optional_yield y) const override;
 public:
+  /**
+   * @brief Construct a new Handoff Engine object. Calls init().
+   *
+   * @param cct The Ceph context.
+   * @param store The store abstraction layer pointer.
+   * @param ver_abstractor passthrough to AWSEngine.
+   * @param apl_factory passthrough to AWSEngine.
+   */
   HandoffEngine(CephContext* const cct,
              rgw::sal::Store* store,
              const VersionAbstractor& ver_abstractor,
@@ -1213,7 +1233,18 @@ public:
     return "rgw::auth::s3::HandoffEngine";
   }
 
+  /**
+   * @brief Return true if the HandoffEngine has been initialised.
+   *
+   * @return true The engine is ready for use.
+   * @return false The engine is uninitialised and must be configured using
+   * init().
+   */
   static bool valid();
+
+  /**
+   * @brief Free any resources used by the HandoffEngine.
+   */
   static void shutdown();
 };
 

@@ -113,7 +113,7 @@ private:
   void valid_check() const
   {
     if (!valid()) {
-      throw new std::runtime_error("EAKParamters not valid");
+      throw new std::runtime_error("EAKParameters not valid");
     }
   }
 
@@ -258,8 +258,15 @@ public:
    *   necessary to validate a v4 signature because we need some fields (date,
    *   region, service, request type) for step 2 of the signature process.
    *
+   * - If the Authorization header is absent, attempt to extract the relevant
+   *   information from query parameters to synthesize an Authorization
+   *   header. This is to support presigned URLs.
+   *
    * - If the header indicates AWS Signature V2 authentication, but V2 is
    *   disabled via configuration, return a failure immediately.
+   *
+   * - If required, introspect the request to obtain additional authentication
+   *   parameters that might be required by the external authenticator.
    *
    * - Construct a JSON payload for the authenticator in the prescribed
    *   format.

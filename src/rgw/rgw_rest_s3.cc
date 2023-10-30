@@ -6136,7 +6136,8 @@ rgw::auth::s3::HandoffEngine::authenticate(
   // Pass a placeholder secret in the token. We don't need the actual secret key.
   auto access_key_token = RGWToken(RGWToken::TOKEN_HANDOFF, auth_result.userid(), "NOTSPECIFIED");
   // This will create an rgw::auth::RemoteApplier.
-  // The applier may create the user if it doesn't exist locally.
+  // The applier may create the user if it doesn't exist locally, however for
+  // Handoff this can be disabled via config if desired.
   auto apl = apl_factory->create_apl_remote(cct, s, get_acl_strategy(),
                                             get_creds_info(access_key_token));
   return result_t::grant(std::move(apl), completer_factory(boost::none));
