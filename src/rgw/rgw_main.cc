@@ -712,6 +712,7 @@ int radosgw_Main(int argc, const char **argv)
 
   StoreManager::close_storage(store);
   rgw::auth::s3::LDAPEngine::shutdown();
+  rgw::auth::s3::HandoffEngine::shutdown();
   rgw_tools_cleanup();
   rgw_shutdown_resolver();
   rgw_http_client_cleanup();
