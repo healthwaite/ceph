@@ -5863,6 +5863,12 @@ void RGWPutLC::execute(optional_yield y)
     ldpp_dout(this, 15) << "New LifecycleConfiguration:" << ss.str() << dendl;
   }
 
+  auto validate_only = s->info.env->get("HTTP_VALIDATE_ONLY");
+  if (validate_only != nullptr) {
+    ldpp_dout(this, 0) << "validate-only header set - exiting early" << dendl;
+    return;
+  }
+
   op_ret = store->forward_request_to_master(this, s->user.get(), nullptr, data, nullptr, s->info, y);
   if (op_ret < 0) {
     ldpp_dout(this, 0) << "forward_request_to_master returned ret=" << op_ret << dendl;
