@@ -5863,9 +5863,8 @@ void RGWPutLC::execute(optional_yield y)
     ldpp_dout(this, 15) << "New LifecycleConfiguration:" << ss.str() << dendl;
   }
 
-  auto validate_only = s->info.env->get("HTTP_X_RGW_VALIDATE_ONLY");
-  if (validate_only != nullptr) {
-    ldpp_dout(this, 0) << "validate-only header set - exiting early" << dendl;
+  if (s->info.env->exists("HTTP_X_RGW_VALIDATE_ONLY")) {
+    ldpp_dout(this, 15) << "x-rgw-validate-only header set - exiting early" << dendl;
     return;
   }
 
