@@ -441,6 +441,7 @@ option(WITH_RADOSGW_DAOS "DAOS backend for RADOS Gateway" OFF)
 option(WITH_RADOSGW_SELECT_PARQUET "Support for s3 select on parquet objects" ON)
 option(WITH_RADOSGW_ARROW_FLIGHT "Build arrow flight when not using system-provided arrow" OFF)
 option(WITH_RADOSGW_BACKTRACE_LOGGING "Enable backtraces in rgw logs" OFF)
+option(WITH_RADOSGW_GRPC "Rados Gateway gRPC support" ON)
 
 option(WITH_SYSTEM_ARROW "Use system-provided arrow" OFF)
 option(WITH_SYSTEM_UTF8PROC "Use system-provided utf8proc" OFF)
@@ -496,6 +497,24 @@ if(WITH_RADOSGW)
   endif()
   message(STATUS "ssl soname: ${LIBSSL_SONAME}")
   message(STATUS "crypto soname: ${LIBCRYPTO_SONAME}")
+
+  if(WITH_RADOSGW_GRPC)
+    # # See: https://github.com/protocolbuffers/protobuf/issues/12185
+    set(RGW_ABSL_ROOT_DIR /usr/local/abseil-cpp)
+    set(RGW_GRPC_ROOT_DIR /usr/local/grpc)
+
+    list(APPEND CMAKE_PREFIX_PATH ${RGW_ABSL_ROOT_DIR}/lib/cmake/absl)
+
+    foreach(pkg in utf8_range protobuf grpc)
+      list(APPEND CMAKE_PREFIX_PATH ${RGW_GRPC_ROOT_DIR}/lib/cmake/${pkg})
+    endforeach()
+
+    find_package(absl REQUIRED)
+    find_package(utf8_range REQUIRED)
+    find_package(protobuf REQUIRED)
+    find_package(gRPC REQUIRED)
+
+  endif(WITH_RADOSGW_GRPC)
 endif (WITH_RADOSGW)
 
 #option for CephFS
