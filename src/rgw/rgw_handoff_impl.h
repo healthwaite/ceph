@@ -535,7 +535,7 @@ private:
   const std::optional<HTTPVerifyFunc> http_verify_func_;
 
   // The store should be constant throughout the lifetime of the helper.
-  rgw::sal::Store* store_;
+  rgw::sal::Driver* store_;
 
   // These are used in place of constantly querying the ConfigProxy.
   std::shared_mutex m_config_;
@@ -594,7 +594,7 @@ public:
    * later use. This will manage the persistent connection(s) for all gRPC
    * communications.
    */
-  int init(CephContext* const cct, rgw::sal::Store* store, const std::string& grpc_uri = "");
+  int init(CephContext* const cct, rgw::sal::Driver* store, const std::string& grpc_uri = "");
 
   /**
    * @brief Set the gRPC channel URI.

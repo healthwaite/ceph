@@ -64,7 +64,7 @@ HandoffHelper::HandoffHelper()
 // https://www.fluentcpp.com/2017/09/22/make-pimpl-using-unique_ptr/ .
 HandoffHelper::~HandoffHelper() { }
 
-int HandoffHelper::init(CephContext* const cct, rgw::sal::Store* store)
+int HandoffHelper::init(CephContext* const cct, rgw::sal::Driver* store)
 {
   ldout(cct, 20) << "HandoffHelper::init" << dendl;
   return impl_->init(cct, store);

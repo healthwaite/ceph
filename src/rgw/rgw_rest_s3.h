@@ -1157,14 +1157,14 @@ class HandoffEngine : public AWSEngine {
    * @param store The store abstraction later.
    *
    */
-  static void init(CephContext* const cct, rgw::sal::Store* store);
+  static void init(CephContext* const cct, rgw::sal::Driver* store);
 
   using acl_strategy_t = rgw::auth::RemoteApplier::acl_strategy_t;
   using auth_info_t = rgw::auth::RemoteApplier::AuthInfo;
   using result_t = rgw::auth::Engine::result_t;
 
 protected:
-  rgw::sal::Store* store;
+  rgw::sal::Driver* store;
   const rgw::auth::RemoteApplier::Factory* const apl_factory;
 
   acl_strategy_t get_acl_strategy() const;
@@ -1215,7 +1215,7 @@ public:
    * @param apl_factory passthrough to AWSEngine.
    */
   HandoffEngine(CephContext* const cct,
-             rgw::sal::Store* store,
+             rgw::sal::Driver* store,
              const VersionAbstractor& ver_abstractor,
              const rgw::auth::RemoteApplier::Factory* const apl_factory)
     : AWSEngine(cct, ver_abstractor),

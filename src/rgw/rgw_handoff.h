@@ -189,7 +189,7 @@ public:
    * Initialise the long-lived object. Calls HandoffHelperImpl::init() and
    * returns its result.
    */
-  int init(CephContext* const cct, rgw::sal::Store* store);
+  int init(CephContext* const cct, rgw::sal::Driver* store);
 
   /**
    * @brief Authenticate the transaction using the Handoff engine.

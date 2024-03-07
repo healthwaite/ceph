@@ -6227,7 +6227,7 @@ void rgw::auth::s3::LDAPEngine::shutdown() {
 
 std::shared_ptr<rgw::HandoffHelper> rgw::auth::s3::HandoffEngine::handoff_helper;
 
-void rgw::auth::s3::HandoffEngine::init(CephContext* const cct, rgw::sal::Store* store)
+void rgw::auth::s3::HandoffEngine::init(CephContext* const cct, rgw::sal::Driver* store)
 {
   static std::once_flag logged_presence;
   if (!cct->_conf->rgw_s3_auth_use_handoff) {

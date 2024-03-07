@@ -569,7 +569,7 @@ static std::optional<std::string> synthesize_v4_header(const DoutPrefixProvider*
  *
  ****************************************************************************/
 
-int HandoffHelperImpl::init(CephContext* const cct, rgw::sal::Store* store, const std::string& grpc_uri)
+int HandoffHelperImpl::init(CephContext* const cct, rgw::sal::Driver* store, const std::string& grpc_uri)
 {
   store_ = store;
 
