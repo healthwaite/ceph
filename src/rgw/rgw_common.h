@@ -505,6 +505,7 @@ enum RGWIdentityType
   TYPE_LDAP=3,
   TYPE_ROLE=4,
   TYPE_WEB=5,
+  TYPE_HANDOFF=6,
 };
 
 void encode_json(const char *name, const rgw_placement_rule& val, ceph::Formatter *f);

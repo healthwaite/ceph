@@ -945,6 +945,157 @@ options:
   services:
   - rgw
   with_legacy: true
+- name: rgw_s3_auth_use_handoff
+  type: bool
+  level: advanced
+  desc: Should S3 authentication use handoff (external program).
+  default: false
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_handoff_authparam_always
+  type: bool
+  level: advanced
+  desc: Always pass authorization parameters to the authentication service.
+  long_desc: If enabled, the authentication service will always be passed
+    authorization parameters by Handoff, regardless of the details of the
+    request.
+  default: true
+  services:
+  - rgw
+  flags:
+  - runtime
+  with_legacy: true
+- name: rgw_handoff_authparam_withtoken
+  type: bool
+  level: advanced
+  desc: Send authorization parameters on receipt of an authorization token.
+  long_desc: If enabled, the authentication service will be passed
+    authorization parameters by Handoff if the request contains an
+    authorization token. Otherwise no authz parameters will be sent.
+  default: false
+  services:
+  - rgw
+  flags:
+  - runtime
+  with_legacy: true
+- name: rgw_handoff_enable_grpc
+  type: bool
+  level: advanced
+  desc: Enable handoff authentication via gRPC (rather than HTTP).
+  long_desc: If enabled, the handoff authentication service will be available via
+    gRPC. Otherwise, it will be available via HTTP. Both modes will most
+    likely require additional configuration.
+  default: true
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_handoff_enable_user_autocreation
+  type: bool
+  level: advanced
+  desc: Enable automatic creation of new users authenticated via the handoff engine.
+  long_desc: If enabled, the handoff authentication service will automatically create
+    new users if they do not already exist. If not enabled, authenticated
+    requests for that user will fail.
+  default: true
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_handoff_enable_presigned_expiry_check
+  type: bool
+  level: advanced
+  desc: Should handoff re-check presigned URL expiry time.
+  long_desc: RGW in Ceph v17 checks the expiry time of presigned URLs before
+    even calling Handoff. If this should change in later Ceph versions,
+    enabling this feature may be necessary.
+  default: false
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_handoff_enable_signature_v2
+  type: bool
+  level: advanced
+  desc: Should handoff allow AWS Signature V2 verification.
+  long_desc: Some S3 clients will still issue Amazon V2 authentication
+    requests. s3cmd is one such client. If this option is false, V2 requests
+    (or presigned URLs that can only be successfully mapped to V2 requests)
+    will not be authenticated on this RGW. It is strongly recommended that you
+    leave this set to true.
+  default: true
+  flags:
+  - runtime
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_handoff_grpc_arg_initial_reconnect_backoff_ms
+  type: int
+  level: advanced
+  desc: Setting for GRPC_ARG_INITIAL_RECONNECT_BACKOFF_MS.
+  long_desc: The initial reconnect backoff timeout, the amount of time the
+    gRPC channel will wait before attempting to reconnect to the server.
+    The library enforces a minimum value of 100ms for this setting.
+    Be careful when changing this setting.
+  default: 1000
+  flags:
+  - runtime
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_handoff_grpc_arg_min_reconnect_backoff_ms
+  type: int
+  level: advanced
+  desc: Setting for GRPC_ARG_MIN_RECONNECT_BACKOFF_MS (minimum reconnect backoff).
+  long_desc: The smallest value for the reconnect backoff timer. Be careful
+    when changing this setting.
+  default: 20000
+  flags:
+  - runtime
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_handoff_grpc_arg_max_reconnect_backoff_ms
+  type: int
+  level: advanced
+  desc: Setting for GRPC_ARG_MAX_RECONNECT_BACKOFF_MS (minimum reconnect backoff).
+  long_desc: The largest value for the reconnect backoff timer. Be careful
+    when changing this setting.
+  default: 120000
+  flags:
+  - runtime
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_handoff_grpc_uri
+  type: str
+  level: advanced
+  desc: URI for the S3 authentication handoff service via gRPC.
+  long_desc: The gRPC server address to use. This value is passed unchanged to
+    grpc::CreateCustomChannel() so may be in any format supported by the C++
+    gRPC library.
+  default: dns:127.0.0.1:8002
+  flags:
+  - runtime
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_handoff_http_uri
+  type: str
+  level: advanced
+  desc: URI for the S3 authentication handoff service via HTTP.
+  long_desc: The HTTP(S) server to use.
+  default: http://127.0.0.1:8001
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_handoff_verify_ssl
+  type: bool
+  level: advanced
+  desc: Should handoff verify the remote HTTP server TLS certificate.
+  long_desc: In HTTP mode, verify the remote TLS certificate.
+  default: true
+  services:
+  - rgw
+  with_legacy: true
 - name: rgw_opa_url
   type: str
   level: advanced

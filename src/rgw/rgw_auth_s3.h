@@ -104,6 +104,7 @@ class ExternalAuthStrategy : public rgw::auth::Strategy,
 
   boost::optional <EC2Engine> keystone_engine;
   LDAPEngine ldap_engine;
+  HandoffEngine handoff_engine;
 
   aplptr_t create_apl_remote(CephContext* const cct,
                              const req_state* const s,
@@ -125,6 +126,8 @@ public:
     : driver(driver),
       implicit_tenant_context(implicit_tenant_context),
       ldap_engine(cct, driver, *ver_abstractor,
+                  static_cast<rgw::auth::RemoteApplier::Factory*>(this)),
+      handoff_engine(cct, driver, *ver_abstractor,
                   static_cast<rgw::auth::RemoteApplier::Factory*>(this)) {
 
     if (cct->_conf->rgw_s3_auth_use_keystone &&
@@ -141,6 +144,9 @@ public:
 
     if (ldap_engine.valid()) {
       add_engine(Control::SUFFICIENT, ldap_engine);
+    }
+    if (handoff_engine.valid()) {
+      add_engine(Control::SUFFICIENT, handoff_engine);
     }
   }
 

@@ -281,11 +281,23 @@ target_link_libraries(radosgw-cr-test ${rgw_libs} librados
   ${CURL_LIBRARIES} ${EXPAT_LIBRARIES} ${BLKID_LIBRARIES}
   GTest::GTest)
 
+# unittest_rgw_grpc
 add_executable(unittest_rgw_grpc
   test_rgw_grpc.cc test_rgw_grpc_util.h
 )
 add_ceph_unittest(unittest_rgw_grpc)
 target_link_libraries(unittest_rgw_grpc
+  ${UNITTEST_LIBS}
+  ${rgw_libs}
+)
+
+# unittest_rgw_auth_handoff
+add_executable(unittest_rgw_auth_handoff
+  test_rgw_auth_handoff.cc
+  test_rgw_grpc_util.h
+)
+add_ceph_unittest(unittest_rgw_auth_handoff)
+target_link_libraries(unittest_rgw_auth_handoff
   ${UNITTEST_LIBS}
   ${rgw_libs}
 )
