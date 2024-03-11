@@ -22,6 +22,7 @@
 #include <openssl/evp.h>
 
 #include "authenticator/v1/authenticator.pb.h"
+
 #include "common/async/yield_context.h"
 #include "common/ceph_argparse.h"
 #include "common/ceph_json.h"
@@ -32,9 +33,17 @@
 #include "include/ceph_assert.h"
 #include "rgw/rgw_b64.h"
 #include "rgw/rgw_client_io.h"
-#include "rgw/rgw_handoff.h"
 #include "rgw/rgw_handoff_impl.h"
+#include "rgw/rgw_handoff.h"
 #include "rgw/rgw_http_client.h"
+#include "rgw/rgw_process_env.h"
+
+// The following two includes are necessary because there are a couple of
+// static asserts in RGWProcessEnv that check that rgw::sal::LuaManager and
+// rgw::auth::StrategyRegistry are of size > 0. It's inconsequential to us,
+// but it does need to compile.
+#include "rgw/rgw_sal.h"
+#include "rgw_auth_registry.h"
 
 #include "test_rgw_grpc_util.h"
 
@@ -474,6 +483,9 @@ public:
 
 using namespace rgw;
 
+// Stole this from test_rgw_lua.cc. Set up a req_state s for testing.
+#define DEFINE_REQ_STATE RGWProcessEnv pe; RGWEnv e; req_state s(g_ceph_context, pe, &e, 0);
+
 /*
  * File-local framework tests.
  */
@@ -544,8 +556,7 @@ TEST_F(HandoffHelperImplHTTPTest, FailIfMissingAuthorizationHeader)
   TestClient cio;
 
   auto t = sigpass_tests[0];
-  RGWEnv rgw_env;
-  req_state s { g_ceph_context, &rgw_env, 0 };
+  DEFINE_REQ_STATE;
   s.cio = &cio;
   auto string_to_sign = rgw::from_base64(t.ss_base64);
   auto res = hh.auth(&dpp, "", t.access_key, string_to_sign, t.signature, &s, y);
@@ -565,8 +576,7 @@ TEST_F(HandoffHelperImplHTTPTest, SignatureV2CanBeDisabled)
   cio.get_env().set("HTTP_AUTHORIZATION", t.authorization);
   ldpp_dout(&dpp, 20) << fmt::format(FMT_STRING("Auth: {}"), t.authorization) << dendl;
 
-  RGWEnv rgw_env;
-  req_state s { g_ceph_context, &rgw_env, 0 };
+  DEFINE_REQ_STATE;
   s.cio = &cio;
   auto string_to_sign = rgw::from_base64(t.ss_base64);
   // This is what the config observer would call.
@@ -596,8 +606,7 @@ TEST_F(HandoffHelperImplHTTPTest, HeaderHappyPath)
     cio.get_env().set("HTTP_AUTHORIZATION", t.authorization);
     ldpp_dout(&dpp, 20) << fmt::format(FMT_STRING("Auth: {}"), t.authorization) << dendl;
 
-    RGWEnv rgw_env;
-    req_state s { g_ceph_context, &rgw_env, 0 };
+    DEFINE_REQ_STATE;
     s.cio = &cio;
     auto string_to_sign = rgw::from_base64(t.ss_base64);
     auto res = hh.auth(&dpp, "", t.access_key, string_to_sign, t.signature, &s, y);
@@ -614,8 +623,7 @@ TEST_F(HandoffHelperImplHTTPTest, HeaderExpectBadSignature)
     cio.get_env().set("HTTP_AUTHORIZATION", t.authorization);
     ldpp_dout(&dpp, 20) << fmt::format(FMT_STRING("Auth: {}"), t.authorization) << dendl;
 
-    RGWEnv rgw_env;
-    req_state s { g_ceph_context, &rgw_env, 0 };
+    DEFINE_REQ_STATE;
     s.cio = &cio;
     auto string_to_sign = rgw::from_base64(t.ss_base64);
     auto res = hh.auth(&dpp, "", t.access_key, string_to_sign, t.signature, &s, y);
@@ -790,8 +798,7 @@ TEST_F(HandoffHelperImplGRPCTest, FailIfMissingAuthorizationHeader)
   TestClient cio;
 
   auto t = sigpass_tests[0];
-  RGWEnv rgw_env;
-  req_state s { g_ceph_context, &rgw_env, 0 };
+  DEFINE_REQ_STATE;
   s.cio = &cio;
   auto string_to_sign = rgw::from_base64(t.ss_base64);
   auto res = hh_.auth(&dpp_, "", t.access_key, string_to_sign, t.signature, &s, y_);
@@ -814,8 +821,7 @@ TEST_F(HandoffHelperImplGRPCTest, SignatureV2CanBeDisabled)
   cio.get_env().set("HTTP_AUTHORIZATION", t.authorization);
   ldpp_dout(&dpp_, 20) << fmt::format(FMT_STRING("Auth: {}"), t.authorization) << dendl;
 
-  RGWEnv rgw_env;
-  req_state s { g_ceph_context, &rgw_env, 0 };
+  DEFINE_REQ_STATE;
   s.cio = &cio;
   auto string_to_sign = rgw::from_base64(t.ss_base64);
   // This is what the config observer would call.
@@ -848,8 +854,7 @@ TEST_F(HandoffHelperImplGRPCTest, HeaderHappyPath)
     cio.get_env().set("HTTP_AUTHORIZATION", t.authorization);
     ldpp_dout(&dpp_, 20) << fmt::format(FMT_STRING("Auth: {}"), t.authorization) << dendl;
 
-    RGWEnv rgw_env;
-    req_state s { g_ceph_context, &rgw_env, 0 };
+    DEFINE_REQ_STATE;
     s.cio = &cio;
     auto string_to_sign = rgw::from_base64(t.ss_base64);
     auto res = hh_.auth(&dpp_, "", t.access_key, string_to_sign, t.signature, &s, y_);
@@ -869,8 +874,7 @@ TEST_F(HandoffHelperImplGRPCTest, HeaderExpectBadSignature)
     cio.get_env().set("HTTP_AUTHORIZATION", t.authorization);
     ldpp_dout(&dpp_, 20) << fmt::format(FMT_STRING("Auth: {}"), t.authorization) << dendl;
 
-    RGWEnv rgw_env;
-    req_state s { g_ceph_context, &rgw_env, 0 };
+    DEFINE_REQ_STATE;
     s.cio = &cio;
     auto string_to_sign = rgw::from_base64(t.ss_base64);
     auto res = hh_.auth(&dpp_, "", t.access_key, string_to_sign, t.signature, &s, y_);
@@ -905,8 +909,7 @@ TEST_F(HandoffHelperImplGRPCTest, ChannelRecoversFromDeadAtStartup)
 
   auto t = sigpass_tests[0];
   cio.get_env().set("HTTP_AUTHORIZATION", t.authorization);
-  RGWEnv rgw_env;
-  req_state s { g_ceph_context, &rgw_env, 0 };
+  DEFINE_REQ_STATE;
   s.cio = &cio;
   auto string_to_sign = rgw::from_base64(t.ss_base64);
   auto res = hh_.auth(&dpp_, "", t.access_key, string_to_sign, t.signature, &s, y_);
@@ -1030,8 +1033,7 @@ TEST_F(HandoffHelperImplSubsysTest, PresignedSynthesizeHeader)
     // We need a req_state struct to pass to synthesize_auth_header(), so
     // implement the pieces of RGWHandler_REST_S3::init_from_header() that we
     // care about, taking the test URL as input.
-    RGWEnv rgw_env;
-    req_state s { g_ceph_context, &rgw_env, 0 };
+    DEFINE_REQ_STATE;
     // In the input URL, skip to the '?' marking the start of URL parameters.
     // (This is what init_from_header() does.)
     auto p = t.url.c_str();
@@ -1258,8 +1260,7 @@ TEST_F(HandoffHelperImplSubsysTest, PresignedCheckExpiry)
     // We need a req_state struct to pass to synthesize_auth_header(), so
     // implement the pieces of RGWHandler_REST_S3::init_from_header() that we
     // care about, taking the test URL as input.
-    RGWEnv rgw_env;
-    req_state s { g_ceph_context, &rgw_env, 0 };
+    DEFINE_REQ_STATE;
     // In the input URL, skip to the '?' marking the start of URL parameters.
     // (This is what init_from_header() does.)
     auto p = t.url.c_str();
@@ -1322,8 +1323,7 @@ static AuthorizationConstructTest eak_unit[] = {
 TEST_F(HandoffHelperImplSubsysTest, AuthorizationParamConstruct)
 {
   for (const auto& t : eak_unit) {
-    RGWEnv rgw_env;
-    req_state s { g_ceph_context, &rgw_env, 0 };
+    DEFINE_REQ_STATE;
 
     TestClient cio;
     // Set a header that should be included in the params.
