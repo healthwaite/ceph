@@ -68,6 +68,21 @@ public:
       , err_type_ { error_type::NO_ERROR } {};
 
   /**
+   * @brief Construct a success-type result for a regular user, with an
+   * embedded signing key used to support chunked uploads.
+   *
+   * @param userid The user ID associated with the request.
+   * @param message human-readable status.
+   * @param signing_key The signing key associated with the request.
+   */
+  HandoffAuthResult(const std::string& userid, const std::string& message, const std::string& signing_key)
+      : userid_ { userid }
+      , signing_key_ { signing_key }
+      , message_ { message }
+      , is_err_ { false }
+      , err_type_ { error_type::NO_ERROR } {};
+
+  /**
    * @brief Construct a success-type result for an anonymous user.
    *
    * @param type user_type::ANONYMOUS
@@ -86,11 +101,12 @@ public:
   };
 
   /**
-   * @brief Construct a success-type result. \p message is
+   * @brief Construct a failure-type result.
    *
-   * \p errorcode is one of the codes in rgw_common.cc, array
-   * rgw_http_s3_errors. If we don't map exactly, it's most likely because
-   * those error codes don't match the HTTP return code we want.
+   * \p message is human-readable.\p errorcode is one of the codes in
+   * rgw_common.cc, array rgw_http_s3_errors. If we don't map exactly, it's
+   * most likely because those error codes don't match the HTTP return code we
+   * want.
    *
    * @param errorcode The RGW S3 error code.
    * @param message human-readable status.
@@ -140,8 +156,8 @@ public:
 
 private:
   user_type type_ = user_type::USER;
-  std::string userid_
-      = "";
+  std::string userid_ = "";
+  std::string signing_key_ = "";
   int errorcode_ = 0;
   std::string message_ = "";
   bool is_err_ = false;
