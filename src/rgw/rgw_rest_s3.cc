@@ -6,17 +6,18 @@
 #include <string.h>
 #include <string_view>
 
-#include "common/ceph_crypto.h"
-#include "common/split.h"
-#include "common/Formatter.h"
-#include "common/utf8.h"
-#include "common/ceph_json.h"
-#include "common/safe_io.h"
-#include "common/errno.h"
 #include "auth/Crypto.h"
+#include "common/Formatter.h"
+#include "common/ceph_crypto.h"
+#include "common/ceph_json.h"
+#include "common/errno.h"
+#include "common/safe_io.h"
+#include "common/split.h"
+#include "common/utf8.h"
+#include <boost/algorithm/hex.hpp>
 #include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string/replace.hpp>
 #include <boost/tokenizer.hpp>
 #define BOOST_BIND_GLOBAL_PLACEHOLDERS
 #ifdef HAVE_WARN_IMPLICIT_CONST_INT_FLOAT_CONVERSION
@@ -6325,8 +6326,24 @@ rgw::auth::s3::HandoffEngine::authenticate(
   // Handoff this can be disabled via config if desired.
   auto apl = apl_factory->create_apl_remote(cct, s, get_acl_strategy(),
                                             get_creds_info(access_key_token));
+
+  // Check for a signing key. This will be present only for chunked uploads.
+  std::optional<sha256_digest_t> cached_signing_key;
+  if (!auth_result.has_signing_key()) {
+    // The signing key is raw bytes, not a string.
+    auto sk = auth_result.signing_key().value();
+    if (sk.size() != 32) {
+      ldpp_dout(dpp, 1)
+          << __func__ << ": signing key SHA256 digest must be exactly 32 bytes"
+          << dendl;
+      return result_t::deny(-EPERM);
+    }
+    // Luckily, sha_digest_t<> has a constructor that takes raw bytes.
+    sha256_digest_t digest(sk.data());
+  }
+
   return result_t::grant(std::move(apl),
-                         completer_factory(boost::none, std::nullopt));
+                         completer_factory(boost::none, cached_signing_key));
 } /* rgw::auth::s3::HandoffEngine::authenticate */
 
 // End Handoff Engine.

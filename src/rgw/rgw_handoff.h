@@ -73,14 +73,16 @@ public:
    *
    * @param userid The user ID associated with the request.
    * @param message human-readable status.
-   * @param signing_key The signing key associated with the request.
+   * @param signing_key The signing key associated with the request, an
+   * HMAC-SHA256 value as raw bytes.
    */
-  HandoffAuthResult(const std::string& userid, const std::string& message, const std::string& signing_key)
-      : userid_ { userid }
-      , signing_key_ { signing_key }
-      , message_ { message }
-      , is_err_ { false }
-      , err_type_ { error_type::NO_ERROR } {};
+  HandoffAuthResult(const std::string &userid, const std::string &message,
+                    const std::vector<uint8_t> &signing_key)
+      : userid_{userid}
+      , signing_key_{signing_key}
+      , message_{message}
+      , is_err_{false}
+      , err_type_{error_type::NO_ERROR} {};
 
   /**
    * @brief Construct a success-type result for an anonymous user.
@@ -125,6 +127,17 @@ public:
   error_type err_type() const noexcept { return err_type_; }
   int code() const noexcept { return errorcode_; }
   std::string message() const noexcept { return message_; }
+  /**
+   * @brief Return the signing key, if any.
+   *
+   * A signing key is nonempty for chunked requests, and is empty otherwise.
+   *
+   * @return std::string the signing key, encoded as raw bytes.
+   */
+  std::optional<std::vector<uint8_t>> signing_key() const noexcept {
+    return signing_key_;
+  }
+  bool has_signing_key() { return signing_key_.has_value(); }
 
   /// @brief Return the user ID for a success result. Throw EACCES on
   /// failure.
@@ -157,7 +170,7 @@ public:
 private:
   user_type type_ = user_type::USER;
   std::string userid_ = "";
-  std::string signing_key_ = "";
+  std::optional<std::vector<uint8_t>> signing_key_;
   int errorcode_ = 0;
   std::string message_ = "";
   bool is_err_ = false;
