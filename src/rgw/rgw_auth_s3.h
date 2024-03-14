@@ -374,12 +374,11 @@ public:
   bool complete() override;
 
   /* Factories. */
-  static cmplptr_t create(const req_state* s,
-                          std::string_view date,
-                          std::string_view credential_scope,
-                          std::string_view seed_signature,
-                          const boost::optional<std::string>& secret_key);
-
+  static cmplptr_t create(
+      const req_state *s, std::string_view date,
+      std::string_view credential_scope, std::string_view seed_signature,
+      const boost::optional<std::string> &secret_key,
+      const std::optional<sha256_digest_t> &cached_signing_key = std::nullopt);
 };
 
 class AWSv4ComplSingle : public rgw::auth::Completer,

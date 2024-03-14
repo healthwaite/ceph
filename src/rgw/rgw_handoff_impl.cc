@@ -917,6 +917,21 @@ HandoffAuthResult HandoffHelperImpl::auth(const DoutPrefixProvider* dpp_in,
     }
   }
 
+  // Determine if we're a chunked upload. The spec
+  // (https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html)
+  // says that we have to set the content-encoding: HTTP header, but the only
+  // client I can find (minio go) doesn't set it. We won't depend on it.
+  //
+  [[maybe_unused]] bool is_chunked = false; // NOT UNUSED XXX
+
+  auto aws_content = envmap.find("HTTP_X_AMZ_CONTENT_SHA256");
+  if (aws_content != envmap.cend()) {
+    if (aws_content->second == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD") {
+      is_chunked = true;
+      ldpp_dout(dpp, 20) << "chunked upload in progress" << dendl;
+    }
+  }
+
   // Depending on configuration, call the gRPC or HTTP arm to complete the
   // handoff.
   if (grpc_mode_) {

@@ -5547,12 +5547,11 @@ RGWOp* RGWHandler_REST_Service_S3Website::get_obj_op(bool get_data)
 
 namespace rgw::auth::s3 {
 
-static rgw::auth::Completer::cmplptr_t
-null_completer_factory(const boost::optional<std::string>& secret_key)
-{
+static rgw::auth::Completer::cmplptr_t null_completer_factory(
+    const boost::optional<std::string> &secret_key,
+    const std::optional<sha256_digest_t> &cached_signing_key) {
   return nullptr;
 }
-
 
 AWSEngine::VersionAbstractor::auth_data_t
 AWSGeneralAbstractor::get_auth_data(const req_state* const s) const
@@ -5916,12 +5915,9 @@ AWSGeneralAbstractor::get_auth_data_v4(const req_state* const s,
       /* In the case of query string-based authentication there should be no
        * x-amz-content-sha256 header and the value "UNSIGNED-PAYLOAD" is used
        * for CanonReq. */
-      const auto cmpl_factory = std::bind(AWSv4ComplMulti::create,
-                                          s,
-                                          date,
-                                          credential_scope,
-                                          client_signature,
-                                          std::placeholders::_1);
+      const auto cmpl_factory = std::bind(
+          AWSv4ComplMulti::create, s, date, credential_scope, client_signature,
+          std::placeholders::_1, std::placeholders::_2);
       return {
         access_key_id,
         client_signature,
@@ -6211,7 +6207,8 @@ rgw::auth::s3::LDAPEngine::authenticate(
 
   auto apl = apl_factory->create_apl_remote(cct, s, get_acl_strategy(),
                                             get_creds_info(base64_token));
-  return result_t::grant(std::move(apl), completer_factory(boost::none));
+  return result_t::grant(std::move(apl),
+                         completer_factory(boost::none, std::nullopt));
 } /* rgw::auth::s3::LDAPEngine::authenticate */
 
 void rgw::auth::s3::LDAPEngine::shutdown() {
@@ -6328,7 +6325,8 @@ rgw::auth::s3::HandoffEngine::authenticate(
   // Handoff this can be disabled via config if desired.
   auto apl = apl_factory->create_apl_remote(cct, s, get_acl_strategy(),
                                             get_creds_info(access_key_token));
-  return result_t::grant(std::move(apl), completer_factory(boost::none));
+  return result_t::grant(std::move(apl),
+                         completer_factory(boost::none, std::nullopt));
 } /* rgw::auth::s3::HandoffEngine::authenticate */
 
 // End Handoff Engine.
@@ -6390,7 +6388,8 @@ rgw::auth::s3::LocalEngine::authenticate(
 
   auto apl = apl_factory->create_apl_local(cct, s, user->get_info(),
                                            k.subuser, std::nullopt, access_key_id);
-  return result_t::grant(std::move(apl), completer_factory(k.key));
+  return result_t::grant(std::move(apl),
+                         completer_factory(k.key, std::nullopt));
 }
 
 rgw::auth::RemoteApplier::AuthInfo
@@ -6559,7 +6558,9 @@ rgw::auth::s3::STSEngine::authenticate(
   if (token.acct_type == TYPE_KEYSTONE || token.acct_type == TYPE_LDAP || token.acct_type == TYPE_HANDOFF) {
     auto apl = remote_apl_factory->create_apl_remote(cct, s, get_acl_strategy(),
                                             get_creds_info(token));
-    return result_t::grant(std::move(apl), completer_factory(token.secret_access_key));
+    return result_t::grant(
+        std::move(apl),
+        completer_factory(token.secret_access_key, std::nullopt));
   } else if (token.acct_type == TYPE_ROLE) {
     t_attrs.user_id = std::move(token.user); // This is mostly needed to assign the owner of a bucket during its creation
     t_attrs.token_policy = std::move(token.policy);
@@ -6568,11 +6569,15 @@ rgw::auth::s3::STSEngine::authenticate(
     t_attrs.token_issued_at = std::move(token.issued_at);
     t_attrs.principal_tags = std::move(token.principal_tags);
     auto apl = role_apl_factory->create_apl_role(cct, s, r, t_attrs);
-    return result_t::grant(std::move(apl), completer_factory(token.secret_access_key));
+    return result_t::grant(
+        std::move(apl),
+        completer_factory(token.secret_access_key, std::nullopt));
   } else { // This is for all local users of type TYPE_RGW or TYPE_NONE
     string subuser;
     auto apl = local_apl_factory->create_apl_local(cct, s, user->get_info(), subuser, token.perm_mask, std::string(_access_key_id));
-    return result_t::grant(std::move(apl), completer_factory(token.secret_access_key));
+    return result_t::grant(
+        std::move(apl),
+        completer_factory(token.secret_access_key, std::nullopt));
   }
 }
 
