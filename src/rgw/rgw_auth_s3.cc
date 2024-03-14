@@ -17,10 +17,9 @@
 #include "rgw_rest.h"
 #include "rgw_crypt_sanitize.h"
 
-#include <boost/algorithm/hex.hpp>
+#include <boost/container/small_vector.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/trim_all.hpp>
-#include <boost/container/small_vector.hpp>
 
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_rgw
