@@ -270,6 +270,22 @@ HandoffAuthResult AuthServiceClient::Auth(const AuthenticateRESTRequest& req)
   return HandoffAuthResult(-EACCES, "S3ErrorDetails not found, error message follows: " + status.error_message(), HandoffAuthResult::error_type::TRANSPORT_ERROR);
 }
 
+AuthServiceClient::GetSigningKeyResult
+AuthServiceClient::GetSigningKey(const GetSigningKeyRequest req)
+{
+  ::grpc::ClientContext context;
+  GetSigningKeyResponse resp;
+
+  ::grpc::Status status = stub_->GetSigningKey(&context, req, &resp);
+  if (status.ok()) {
+    auto key = resp.signing_key();
+    std::vector<uint8_t> kvec;
+    std::copy(key.begin(), key.end(), std::back_inserter(kvec));
+    return GetSigningKeyResult(kvec);
+  }
+  return GetSigningKeyResult(status.error_message());
+}
+
 using err_type = ::authenticator::v1::S3ErrorDetails_Type;
 
 // We can't statically initialise a map, so initialise a list and allocate a
@@ -928,24 +944,34 @@ HandoffAuthResult HandoffHelperImpl::auth(const DoutPrefixProvider* dpp_in,
   if (aws_content != envmap.cend()) {
     if (aws_content->second == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD") {
       is_chunked = true;
-      ldpp_dout(dpp, 20) << "chunked upload in progress" << dendl;
-    }
-  }
-
-  // If we're chunked, we need a signing key from the Authenticator.
-  if (is_chunked) {
-    auto sk = get_signing_key(dpp, auth, s, y);
-    if (!sk.has_value()) {
-      ldpp_dout(dpp, 1) << "failed to fetch signing key" << dendl;
-      return HandoffAuthResult(
-          -EACCES, "failed to fetch signing key for chunked upload");
+      ldpp_dout(dpp, 5) << "chunked upload in progress" << dendl;
     }
   }
 
   // Depending on configuration, call the gRPC or HTTP arm to complete the
   // handoff.
   if (grpc_mode_) {
-    return _grpc_auth(dpp, auth, authorization_param, session_token, access_key_id, string_to_sign, signature, s, y);
+    auto result = _grpc_auth(dpp, auth, authorization_param, session_token, access_key_id, string_to_sign, signature, s, y);
+
+    if (result.is_err()) {
+      return result;
+    }
+    // If we're chunked, we need a signing key from the Authenticator.
+    if (!is_chunked) {
+      return result;
+    } else {
+      auto sk = get_signing_key(dpp, auth, s, y);
+      if (!sk.has_value()) {
+        ldpp_dout(dpp, 0) << "failed to fetch signing key for chunked upload"
+                          << dendl;
+        return HandoffAuthResult(
+            -EACCES, "failed to fetch signing key for chunked upload");
+      }
+      result.set_signing_key(*sk);
+      ldpp_dout(dpp, 0) << "success (signing key set)" << dendl;
+      return result;
+    }
+
   } else {
     return _http_auth(dpp, auth, authorization_param, session_token, access_key_id, string_to_sign, signature, s, y);
   }
@@ -1009,13 +1035,13 @@ HandoffAuthResult HandoffHelperImpl::_grpc_auth(const DoutPrefixProvider* dpp_in
     }
     client.set_stub(channel_);
   }
-  ldpp_dout(dpp, 1) << "Sending gRPC request" << dendl;
+  ldpp_dout(dpp, 1) << "Sending gRPC auth request" << dendl;
   auto result = client.Auth(req);
 
   // The client returns a fully-populated HandoffAuthResult, but we want to
   // issue some helpful log messages before returning it.
   if (result.is_ok()) {
-    ldpp_dout(dpp, 0) << fmt::format(FMT_STRING("Success (access_key_id='{}', uid='{}')"), access_key_id, result.userid()) << dendl;
+    ldpp_dout(dpp, 0) << fmt::format(FMT_STRING("success (access_key_id='{}', uid='{}')"), access_key_id, result.userid()) << dendl;
   } else {
     if (result.err_type() == HandoffAuthResult::error_type::TRANSPORT_ERROR) {
       ldpp_dout(dpp, 0) << fmt::format(FMT_STRING("authentication attempt failed: {}"), result.message()) << dendl;
@@ -1034,7 +1060,30 @@ std::optional<std::vector<uint8_t>>
 HandoffHelperImpl::get_signing_key(const DoutPrefixProvider *dpp,
                                    const std::string auth,
                                    const req_state *const s, optional_yield y) {
-  return std::nullopt;
+
+  authenticator::v1::GetSigningKeyRequest req;
+  req.set_authorization_header(auth);
+
+  // Get the gRPC client from under the channel lock. Hold the lock for as
+  // short a time as possible.
+  AuthServiceClient client {}; // Uninitialised variant - must call set_stub().
+  {
+    std::shared_lock<std::shared_mutex> g(m_channel_);
+    // Quick confidence check of channel_.
+    if (!channel_) {
+      ldpp_dout(dpp, 0) << "Unset gRPC channel" << dendl;
+      return std::nullopt;
+    }
+    client.set_stub(channel_);
+  }
+  ldpp_dout(dpp, 1) << "Sending gRPC signing key request" << dendl;
+  auto result = client.GetSigningKey(req);
+  if (!result.ok()) {
+    ldpp_dout(dpp, 1) << "Failed to fetch signing key: " << result.error_message() << dendl;
+    return std::nullopt;
+  }
+  ldpp_dout(dpp, 5) << "fetched signing key" << dendl;
+  return std::make_optional(result.signing_key());
 }
 
 HandoffAuthResult HandoffHelperImpl::_http_auth(const DoutPrefixProvider* dpp,

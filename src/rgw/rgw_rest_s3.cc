@@ -6341,6 +6341,7 @@ rgw::auth::s3::HandoffEngine::authenticate(
     }
     // Luckily, sha_digest_t<> has a constructor that takes raw bytes.
     sha256_digest_t digest(sk.data());
+    cached_signing_key = std::make_optional(digest);
   }
 
   return result_t::grant(std::move(apl),

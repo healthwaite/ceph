@@ -38,6 +38,7 @@
 #include "rgw/rgw_common.h"
 
 #include "authenticator/v1/authenticator.grpc.pb.h"
+#include "authenticator/v1/authenticator.pb.h"
 using namespace ::authenticator::v1;
 
 #include "rgw_handoff.h"
@@ -239,6 +240,33 @@ public:
       ::authenticator::v1::S3ErrorDetails_Type auth_type,
       int32_t auth_http_status_code,
       const std::string& message);
+
+  /**
+   * @brief Return value from GetSigningKey().
+   */
+  class GetSigningKeyResult {
+    std::vector<uint8_t> signing_key_;
+    bool success_;
+    std::string error_message_;
+
+  public:
+    GetSigningKeyResult(std::vector<uint8_t> key)
+        : signing_key_ { key }
+        , success_ { true } {};
+    GetSigningKeyResult(std::string msg)
+        : success_ { false }
+        , error_message_ { msg }
+    {
+    }
+
+    // Standard copy and move constructors are fine.
+
+    bool ok() const noexcept { return success_; }
+    std::vector<uint8_t> signing_key() const noexcept { return signing_key_; }
+    std::string error_message() const noexcept { return error_message_; }
+  };
+
+  GetSigningKeyResult GetSigningKey(const GetSigningKeyRequest req);
 };
 
 /****************************************************************************/

@@ -138,6 +138,12 @@ public:
     return signing_key_;
   }
   bool has_signing_key() { return signing_key_.has_value(); }
+  /**
+   * @brief Set the signing key.
+   *
+   * @param key The binary signing key.
+   */
+  void set_signing_key(const std::vector<uint8_t> key) { signing_key_ = key; }
 
   /// @brief Return the user ID for a success result. Throw EACCES on
   /// failure.
