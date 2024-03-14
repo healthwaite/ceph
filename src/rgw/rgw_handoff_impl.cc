@@ -932,6 +932,16 @@ HandoffAuthResult HandoffHelperImpl::auth(const DoutPrefixProvider* dpp_in,
     }
   }
 
+  // If we're chunked, we need a signing key from the Authenticator.
+  if (is_chunked) {
+    auto sk = get_signing_key(dpp, auth, s, y);
+    if (!sk.has_value()) {
+      ldpp_dout(dpp, 1) << "failed to fetch signing key" << dendl;
+      return HandoffAuthResult(
+          -EACCES, "failed to fetch signing key for chunked upload");
+    }
+  }
+
   // Depending on configuration, call the gRPC or HTTP arm to complete the
   // handoff.
   if (grpc_mode_) {
@@ -1018,6 +1028,13 @@ HandoffAuthResult HandoffHelperImpl::_grpc_auth(const DoutPrefixProvider* dpp_in
   }
 
   return result;
+}
+
+std::optional<std::vector<uint8_t>>
+HandoffHelperImpl::get_signing_key(const DoutPrefixProvider *dpp,
+                                   const std::string auth,
+                                   const req_state *const s, optional_yield y) {
+  return std::nullopt;
 }
 
 HandoffAuthResult HandoffHelperImpl::_http_auth(const DoutPrefixProvider* dpp,

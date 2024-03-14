@@ -724,6 +724,11 @@ public:
       const req_state* const s,
       optional_yield y);
 
+  // XXX doc
+  std::optional<std::vector<uint8_t>>
+  get_signing_key(const DoutPrefixProvider *dpp, const std::string auth,
+                  const req_state *const s, optional_yield y);
+
   /**
    * @brief Get our default grpc::ChannelArguments value.
    *

@@ -64,6 +64,8 @@ service AuthenticatorService {
   rpc AuthenticateREST(AuthenticateRESTRequest) returns (AuthenticateRESTResponse);
   // AuthenticatePresignedURL authenticated requests made via Presigned URLs.
   rpc AuthenticatePresignedURL(AuthenticatePresignedURLRequest) returns (AuthenticatePresignedURLResponse);
+  // Request a signing key for the given request.
+  rpc GetSigningKey(GetSigningKeyRequest) returns (GetSigningKeyResponse);
 }
 
 // Request message for authenticating REST API S3 requests.
@@ -128,4 +130,12 @@ message AuthenticatePresignedURLResponse {
   // The user ID of the signer. This will be set to the assuming user/service if STS was used. This will be omitted if
   // STS was not used.
   optional string original_user_id = 2;
+}
+
+message GetSigningKeyRequest {
+  string authorization_header = 1;
+}
+
+message GetSigningKeyResponse {
+  bytes signing_key = 1;
 }

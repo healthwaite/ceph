@@ -14,6 +14,7 @@
 #include "common/safe_io.h"
 #include "common/split.h"
 #include "common/utf8.h"
+#include "rgw_common.h"
 #include <boost/algorithm/hex.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -6336,7 +6337,7 @@ rgw::auth::s3::HandoffEngine::authenticate(
       ldpp_dout(dpp, 1)
           << __func__ << ": signing key SHA256 digest must be exactly 32 bytes"
           << dendl;
-      return result_t::deny(-EPERM);
+      return result_t::deny(-ERR_INTERNAL_ERROR);
     }
     // Luckily, sha_digest_t<> has a constructor that takes raw bytes.
     sha256_digest_t digest(sk.data());
