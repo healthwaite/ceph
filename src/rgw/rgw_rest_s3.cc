@@ -6329,7 +6329,7 @@ rgw::auth::s3::HandoffEngine::authenticate(
 
   // Check for a signing key. This will be present only for chunked uploads.
   std::optional<sha256_digest_t> cached_signing_key;
-  if (!auth_result.has_signing_key()) {
+  if (auth_result.has_signing_key()) {
     // The signing key is raw bytes, not a string.
     auto sk = auth_result.signing_key().value();
     if (sk.size() != 32) {
