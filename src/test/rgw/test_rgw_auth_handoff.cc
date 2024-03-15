@@ -38,10 +38,9 @@
 #include "rgw/rgw_http_client.h"
 #include "rgw/rgw_process_env.h"
 
-// The following two includes are necessary because there are a couple of
-// static asserts in RGWProcessEnv that check that rgw::sal::LuaManager and
-// rgw::auth::StrategyRegistry are of size > 0. It's inconsequential to us,
-// but it does need to compile.
+// Despite clangd's assertions, the following two includes are necessary
+// because there are a couple of static asserts in RGWProcessEnv that check
+// that rgw::sal::LuaManager and rgw::auth::StrategyRegistry are of size > 0.
 #include "rgw/rgw_sal.h"
 #include "rgw_auth_registry.h"
 
@@ -49,7 +48,6 @@
 
 // These are 'standard' protobufs for the 'Richer error model'
 // (https://grpc.io/docs/guides/error/).
-#include "google/rpc/error_details.pb.h"
 #include "google/rpc/status.pb.h"
 
 // This is the protobuf for the authenticator service, copied from

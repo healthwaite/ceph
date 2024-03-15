@@ -158,6 +158,71 @@ private:
 
 public:
   /**
+   * @brief Return value from GetSigningKey().
+   */
+  class GetSigningKeyResult {
+    std::vector<uint8_t> signing_key_;
+    bool success_;
+    std::string error_message_;
+
+  public:
+    /**
+     * @brief Construct a success-type result.
+     *
+     * @param key The signing key.
+     */
+    GetSigningKeyResult(std::vector<uint8_t> key)
+        : signing_key_ { key }
+        , success_ { true }
+    {
+    }
+
+    /**
+     * @brief Construct a failure-type result.
+     *
+     * ok() will return false.
+     *
+     * @param msg A human-readable error message.
+     */
+    GetSigningKeyResult(std::string msg)
+        : success_ { false }
+        , error_message_ { msg }
+    {
+    }
+
+    // Standard copy and move constructors are fine.
+    GetSigningKeyResult(const GetSigningKeyResult&) = default;
+    GetSigningKeyResult& operator=(const GetSigningKeyResult&) = default;
+    GetSigningKeyResult(GetSigningKeyResult&&) = default;
+    GetSigningKeyResult& operator=(GetSigningKeyResult&&) = default;
+
+    /// @brief Return true if a signing key is present, false otherwise.
+    bool ok() const noexcept { return success_; }
+    /// Return true if this is a failure-type object, false otherwise.
+    bool err() const noexcept { return !ok(); }
+
+    /**
+     * @brief Return the signing key if present, otherwise throw std::runtime_error.
+     *
+     * @return std::vector<uint8_t> The signing key.
+     * @throws std::runtime_error if this is a failure-type object.
+     */
+    std::vector<uint8_t> signing_key() const
+    {
+      if (!ok()) {
+        throw std::runtime_error("signing_key() called in error");
+      }
+      return signing_key_;
+    }
+    /**
+     * @brief Return an error message if present, otherwise an empty string.
+     *
+     * @return std::string The error message. May be empty.
+     */
+    std::string error_message() const noexcept { return error_message_; }
+  }; // class AuthServiceClient::GetSigningKeyResult
+
+  /**
    * @brief Construct a new Auth Service Client object. You must use set_stub
    * before using any gRPC calls, or the object's behaviour is undefined.
    */
@@ -173,6 +238,13 @@ public:
       : stub_(AuthenticatorService::NewStub(channel))
   {
   }
+
+  // Copy constructors can't work with the stub unique_ptr.
+  AuthServiceClient(const AuthServiceClient&) = delete;
+  AuthServiceClient& operator=(const AuthServiceClient&) = delete;
+  // Moves are fine.
+  AuthServiceClient(AuthServiceClient&&) = default;
+  AuthServiceClient& operator=(AuthServiceClient&&) = default;
 
   /**
    * @brief Set the gRPC stub for this object.
@@ -242,30 +314,21 @@ public:
       const std::string& message);
 
   /**
-   * @brief Return value from GetSigningKey().
+   * @brief Request a signing key for the given authorization header. The
+   * signing key is valid on the day it is issued, as it has a date component
+   * in the HMAC.
+   *
+   * This is intended for use with chunked uploads, but may be useful for
+   * caching purposes as the singing key allows us to authenticate locally.
+   * However, it would also reduce the granularity of credential changes so I
+   * don't recommend it be used with a time window of a day. Maybe 15 minutes
+   * is acceptable, though honestly if we were to use this in anger I would
+   * recommend an API to imperatively expire credentials.
+   *
+   * @param req A properly filled authenticator.v1.GetSigningKeyRequest
+   * protobuf message.
+   * @return A GetSigningKeyResult object.
    */
-  class GetSigningKeyResult {
-    std::vector<uint8_t> signing_key_;
-    bool success_;
-    std::string error_message_;
-
-  public:
-    GetSigningKeyResult(std::vector<uint8_t> key)
-        : signing_key_ { key }
-        , success_ { true } {};
-    GetSigningKeyResult(std::string msg)
-        : success_ { false }
-        , error_message_ { msg }
-    {
-    }
-
-    // Standard copy and move constructors are fine.
-
-    bool ok() const noexcept { return success_; }
-    std::vector<uint8_t> signing_key() const noexcept { return signing_key_; }
-    std::string error_message() const noexcept { return error_message_; }
-  };
-
   GetSigningKeyResult GetSigningKey(const GetSigningKeyRequest req);
 };
 
