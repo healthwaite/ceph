@@ -1285,7 +1285,6 @@ rgw::auth::Completer::cmplptr_t AWSv4ComplMulti::create(
     const std::optional<sha256_digest_t> &cached_signing_key) {
 
   if (cached_signing_key.has_value()) {
-    ldpp_dout(s, 20) << __func__ << ": using cached signing key" << dendl;
     return std::make_shared<AWSv4ComplMulti>(
         s, std::move(date), std::move(credential_scope),
         std::move(seed_signature), *cached_signing_key);
