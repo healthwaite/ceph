@@ -993,6 +993,7 @@ HandoffAuthResult HandoffHelperImpl::_grpc_auth(const DoutPrefixProvider* dpp_in
   authenticator::v1::AuthenticateRESTRequest req;
   // Fill in the request protobuf. Seem to have to create strings from
   // string_view, which is a shame.
+  req.set_transaction_id(s->trans_id);
   req.set_string_to_sign(std::string { string_to_sign });
   req.set_authorization_header(auth);
 
@@ -1062,6 +1063,7 @@ HandoffHelperImpl::get_signing_key(const DoutPrefixProvider *dpp,
                                    const req_state *const s, optional_yield y) {
 
   authenticator::v1::GetSigningKeyRequest req;
+  req.set_transaction_id(s->trans_id);
   req.set_authorization_header(auth);
 
   // Get the gRPC client from under the channel lock. Hold the lock for as
