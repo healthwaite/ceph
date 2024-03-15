@@ -203,6 +203,24 @@ HandoffQueryTestData presigned_pass_tests[] = {
       "http://amygdala-ub01.home.ae-35.com:8000/testnv/rand?AWSAccessKeyId=0555b35654ad1656d804&Expires=1696593928&Signature=2yvZEGjagY%2B5nyk9IcBOR%2Bu5KT8%3D" }
 };
 
+struct HandoffV4SigningKeyData {
+  std::string name;
+  std::string header;
+  std::string signing_key_hex;
+};
+
+// Generated using the python client and server.
+static HandoffV4SigningKeyData sk_pass[] = {
+  { // Basic pass.
+      "rgw std 20231113 from python client",
+      "AWS4-HMAC-SHA256 Credential=0555b35654ad1656d804/20231113/us-east-1/s3/aws4_request, SignedHeaders=content-md5;host;x-amz-content-sha256;x-amz-date, Signature=2d139a3564b7795d859f5ce788b0d7a0f0c9028c8519b381c9add9a72345aac",
+      "adc9095910047d23e416b24d4d1edf1bcd386fcc58d3307a159e8caf2bdb613e" },
+  { // Same as previous, but one day later. The signature has to change.
+      "rgw std 20231114 from python client",
+      "AWS4-HMAC-SHA256 Credential=0555b35654ad1656d804/20231114/us-east-1/s3/aws4_request, SignedHeaders=content-md5;host;x-amz-content-sha256;x-amz-date, Signature=2d139a3564b7795d859f5ce788b0d7a0f0c9028c8519b381c9add9a72345aac",
+      "4e8beb5c49ca3a6c977a6463bb85ff484ac4fc524114af9c926a4dc01c6a8500" }
+};
+
 /* #endregion */
 /* #region SupportCode */
 
@@ -239,14 +257,83 @@ static boost::regex re_v4_auth { "^AWS4-HMAC-SHA256\\sCredential=(?<accesskey>[0
                                  "/(?<region>[0-9a-z-]+)"
                                  "/(?<service>[0-9a-z-]+)"
                                  "/aws4_request"
-                                 ",SignedHeaders=(?<signhdr>[-;a-z0-9]+)"
-                                 ",Signature=(?<sig>[0-9a-f]+)"
+                                 ",\\s*SignedHeaders=(?<signhdr>[-;a-z0-9]+)"
+                                 ",\\s*Signature=(?<sig>[0-9a-f]+)"
                                  "$" };
 
-/* Given the inputs, generate an AWS v4 signature and return as an
- * optional<string>. In case of problems, return nullopt.
+/**
+ * @brief Given the inputs, create an AWS v4 signing key. Return nullopt on
+ * error, though it's hard to see why any of this would error.
  *
- * This is the part the authenticator normally performs.
+ * @param secret_key
+ * @param hdrdate
+ * @param hdrregion
+ * @param hdrservice
+ * @return std::optional<std::vector<uint8_t>> the signing key, or nullopt on
+ * error.
+ */
+static std::optional<std::vector<uint8_t>> generate_signing_key(const std::string& secret_key, const std::string& hdrdate, const std::string& hdrregion, const std::string& hdrservice)
+{
+  auto _initstr = "AWS4" + secret_key;
+  std::vector<uint8_t> _init;
+  // Create a vec<uint8_t> of the initial secret. The _hash() function can
+  // then chain input to output more easily without excessive conversions.
+  std::copy(_initstr.begin(), _initstr.end(), std::back_inserter(_init));
+
+  // Hash each step.
+  auto _datekey = _hash_by(_init, hdrdate, "SHA256");
+  if (!_datekey) {
+    return std::nullopt;
+  }
+  auto _dateregionkey = _hash_by(*_datekey, hdrregion, "SHA256");
+  if (!_dateregionkey) {
+    return std::nullopt;
+  }
+  auto _dateregionservicekey = _hash_by(*_dateregionkey, hdrservice, "SHA256");
+  if (!_dateregionservicekey) {
+    return std::nullopt;
+  }
+  auto signingkey = _hash_by(*_dateregionservicekey, "aws4_request", "SHA256");
+  if (!signingkey) {
+    return std::nullopt;
+  }
+  return signingkey;
+}
+
+/**
+ * @brief Get a signing key given a secret and an authorization header. Return
+ * nullopt on error.
+ *
+ * @param secret_key The secret key as a string.
+ * @param authorization The HTTP Authorization: header.
+ * @return std::optional<std::vector<uint8_t>> The signing key as a vector of
+ * bytes, or nullopt on error.
+ */
+static std::optional<std::vector<uint8_t>> get_signing_key(const std::string secret_key, const std::string& authorization)
+{
+  boost::smatch m;
+  if (!boost::regex_match(authorization, m, re_v4_auth)) {
+    std::cerr << "no match v4" << std::endl;
+    return std::nullopt;
+  }
+  auto hdrakid = m.str("accesskey");
+  auto hdrdate = m.str("date");
+  auto hdrregion = m.str("region");
+  auto hdrservice = m.str("service");
+  auto hdrsig = m.str("sig");
+
+  return generate_signing_key(secret_key, hdrdate, hdrregion, hdrservice);
+}
+
+/**
+ * @brief Generate an AWS v4 signature and return as an optional<string>. In
+ * case of problems, return nullopt.
+ *
+ * @param string_to_sign The stringToSign as defined in the AWS docs.
+ * @param secret_key The secret key as a string.
+ * @param authorization The HTTP Authorization: header.
+ * @return std::optional<std::string> The signature as a hex string, or
+ * nullopt on error.
  */
 static std::optional<std::string> verify_aws_v4_signature(std::string string_to_sign, std::string secret_key, std::string authorization)
 {
@@ -266,26 +353,7 @@ static std::optional<std::string> verify_aws_v4_signature(std::string string_to_
   // Step 1 is in string_to_sign.
 
   // Step 2.
-  auto initstr = "AWS4" + secret_key;
-  std::vector<uint8_t> init;
-  // Create a vec<uint8_t> of the initial secret. The _hash() function can
-  // then chain input to output more easily without excessive conversions.
-  std::copy(initstr.begin(), initstr.end(), std::back_inserter(init));
-
-  // Hash each step.
-  auto datekey = _hash_by(init, hdrdate, "SHA256");
-  if (!datekey) {
-    return std::nullopt;
-  }
-  auto dateregionkey = _hash_by(*datekey, hdrregion, "SHA256");
-  if (!dateregionkey) {
-    return std::nullopt;
-  }
-  auto dateregionservicekey = _hash_by(*dateregionkey, hdrservice, "SHA256");
-  if (!dateregionservicekey) {
-    return std::nullopt;
-  }
-  auto signingkey = _hash_by(*dateregionservicekey, "aws4_request", "SHA256");
+  auto signingkey = generate_signing_key(secret_key, hdrdate, hdrregion, hdrservice);
   if (!signingkey) {
     return std::nullopt;
   }
@@ -695,6 +763,37 @@ class TestAuthImpl final : public authenticator::v1::AuthenticatorService::Servi
     ldpp_dout(&dpp_, 20) << __func__ << ": exit OK" << dendl;
     return grpc::Status::OK;
   }
+
+  // Simple implementation of the GetSigningKey service.
+  grpc::Status GetSigningKey(grpc::ServerContext* context, const authenticator::v1::GetSigningKeyRequest* request, authenticator::v1::GetSigningKeyResponse* response) override
+  {
+    ldpp_dout(&dpp_, 20) << __func__ << ": enter" << dendl;
+    ldpp_dout(&dpp_, 0) << __func__ << ": XXX auth: " << request->authorization_header() << dendl;
+
+    auto maybe_akid = extract_access_key_id_from_authorization_header(request->authorization_header());
+    if (!maybe_akid) {
+      ldpp_dout(&dpp_, 20) << __func__ << ": unable to extract access key from authorization header" << dendl;
+      return grpc_error(grpc::StatusCode::INVALID_ARGUMENT, s3err_type::S3ErrorDetails_Type_TYPE_AUTHORIZATION_HEADER_MALFORMED, 400, "unable to extract access key from authorization header");
+    }
+    auto access_key_id = *maybe_akid;
+
+    // Use our pre-canned authentication database.
+    auto info = info_for_credential(access_key_id);
+    if (!info) {
+      ldpp_dout(&dpp_, 20) << __func__ << ": credentials not found" << dendl;
+      return grpc_error(grpc::StatusCode::UNAUTHENTICATED, s3err_type::S3ErrorDetails_Type_TYPE_INVALID_ACCESS_KEY_ID, 403, "credentials not found");
+    }
+
+    auto signing_key = get_signing_key(info->secret, request->authorization_header());
+    if (!signing_key) {
+      ldpp_dout(&dpp_, 20) << __func__ << ": failed to generate signing key" << dendl;
+      // Not sure what else could cause this to fail.
+      return grpc_error(grpc::StatusCode::UNAUTHENTICATED, s3err_type::S3ErrorDetails_Type_TYPE_INVALID_ACCESS_KEY_ID, 403, "credentials not found");
+    }
+    response->set_signing_key(signing_key->data(), signing_key->size());
+    ldpp_dout(&dpp_, 20) << __func__ << ": exit OK" << dendl;
+    return grpc::Status::OK;
+  }
 };
 
 /**
@@ -921,6 +1020,26 @@ TEST_F(HandoffHelperImplGRPCTest, ChannelRecoversFromDeadAtStartup)
   res = hh_.auth(&dpp_, "", t.access_key, string_to_sign, t.signature, &s, y_);
   EXPECT_TRUE(res.is_ok()) << "should now succeed";
   EXPECT_EQ(res.err_type(), HandoffAuthResult::error_type::NO_ERROR) << "should now show no error";
+}
+
+TEST_F(HandoffHelperImplGRPCTest, GetSigningKey)
+{
+  server().start();
+  helper_init();
+  TestClient cio;
+
+  for (const auto& t : sk_pass) {
+    cio.get_env().set("HTTP_AUTHORIZATION", t.header);
+    DEFINE_REQ_STATE;
+    s.cio = &cio;
+    auto sk = hh_.get_signing_key(&dpp_, t.header, &s, y_);
+    EXPECT_TRUE(sk.has_value());
+    if (sk.has_value()) {
+      std::string sk_hex;
+      boost::algorithm::hex_lower(sk->cbegin(), sk->cend(), std::back_inserter(sk_hex));
+      EXPECT_EQ(sk_hex, t.signing_key_hex) << fmt::format(FMT_STRING("test {}: expect match"), t.name);
+    }
+  }
 }
 
 /* #endregion HandoffHelperImplGRPC tests */
