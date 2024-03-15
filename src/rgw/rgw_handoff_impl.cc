@@ -968,7 +968,7 @@ HandoffAuthResult HandoffHelperImpl::auth(const DoutPrefixProvider* dpp_in,
             -EACCES, "failed to fetch signing key for chunked upload");
       }
       result.set_signing_key(*sk);
-      ldpp_dout(dpp, 0) << "success (signing key set)" << dendl;
+      ldpp_dout(dpp, 0) << "chunked upload signing key saved" << dendl;
       return result;
     }
 
