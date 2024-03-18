@@ -25,6 +25,7 @@
 
 #include "common/async/yield_context.h"
 #include "common/ceph_argparse.h"
+#include "common/ceph_context.h"
 #include "common/ceph_json.h"
 #include "common/dout.h"
 #include "common/strtol.h"
@@ -33,8 +34,8 @@
 #include "include/ceph_assert.h"
 #include "rgw/rgw_b64.h"
 #include "rgw/rgw_client_io.h"
-#include "rgw/rgw_handoff_impl.h"
 #include "rgw/rgw_handoff.h"
+#include "rgw/rgw_handoff_impl.h"
 #include "rgw/rgw_http_client.h"
 #include "rgw/rgw_process_env.h"
 
@@ -1201,12 +1202,14 @@ public:
   void set_channel_args(CephContext* const cct, const grpc::ChannelArguments& args) { channel_args_set_ = true; }
   void set_channel_uri(CephContext* const cct, const std::string& uri) { channel_uri_ = uri; }
   void set_signature_v2(CephContext* const cct, bool enable) { signature_v2_ = enable; }
+  void set_chunked_upload_mode(CephContext* const cct, bool enable) { chunked_upload_ = enable; }
   void set_authorization_mode(CephContext* const cct, AuthParamMode mode) { authparam_mode_ = mode; }
 
 public:
   HandoffConfigObserver<MockHelperForConfigObserver> observer_;
   AuthParamMode authparam_mode_;
   bool signature_v2_;
+  bool chunked_upload_;
   bool channel_args_set_ = false;
   std::string channel_uri_;
 };
@@ -1247,6 +1250,23 @@ TEST_F(TestHandoffConfigObserver, SignatureV2Mode)
   conf->rgw_handoff_enable_signature_v2 = false;
   hh_.observer_.handle_conf_change(conf, changed);
   EXPECT_EQ(hh_.signature_v2_, false);
+}
+
+TEST_F(TestHandoffConfigObserver, ChunkedUploadMode)
+{
+  // Parameters we'll 'change'.
+  std::set<std::string> changed { "rgw_handoff_enable_chunked_upload" };
+
+  auto cct = dpp_.get_cct();
+  auto conf = cct->_conf;
+
+  conf->rgw_handoff_enable_chunked_upload = true;
+  hh_.observer_.handle_conf_change(conf, changed);
+  EXPECT_EQ(hh_.chunked_upload_, true);
+
+  conf->rgw_handoff_enable_chunked_upload = false;
+  hh_.observer_.handle_conf_change(conf, changed);
+  EXPECT_EQ(hh_.chunked_upload_, false);
 }
 
 // Test that the config change propagates to the helper. We're not parsing the

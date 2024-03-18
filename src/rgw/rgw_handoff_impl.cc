@@ -490,10 +490,6 @@ static HandoffHTTPVerifyResult http_verify_standard(const DoutPrefixProvider* dp
 
 /****************************************************************************/
 
-// Instantiate HandoffConfigObserver<T> for HandoffHelperImpl.
-
-/****************************************************************************/
-
 /**
  * @brief Create an AWS v2 authorization header from the request's URL
  * parameters.
@@ -620,6 +616,9 @@ int HandoffHelperImpl::init(CephContext* const cct, rgw::sal::Driver* store, con
   // rgw_handoff_enable_signature_v2 is runtime-alterable.
   set_signature_v2(cct, cct->_conf->rgw_handoff_enable_signature_v2);
 
+  // rgw_handoff_enable_chunked_upload is runtime-alterable.
+  set_chunked_upload_mode(cct, cct->_conf->rgw_handoff_enable_chunked_upload);
+
   // The authparam mode is runtime-alterable.
   set_authorization_mode(cct, config_obs_.get_authorization_mode(cct->_conf));
 
@@ -667,9 +666,16 @@ bool HandoffHelperImpl::set_channel_uri(CephContext* const cct, const std::strin
 
 void HandoffHelperImpl::set_signature_v2(CephContext* const cct, bool enabled)
 {
-  std::unique_lock<std::shared_mutex> g(m_config_);
   ldout(cct, 1) << "HandoffHelperImpl: set_signature_v2(" << (enabled ? "true" : "false") << ")" << dendl;
+  std::unique_lock<std::shared_mutex> g(m_config_);
   enable_signature_v2_ = enabled;
+}
+
+void HandoffHelperImpl::set_chunked_upload_mode(CephContext* const cct, bool enabled)
+{
+  ldout(cct, 1) << "HandoffHelperImpl::set_chunked_upload_mode(" << (enabled ? "true" : "false") << ")" << dendl;
+  std::unique_lock<std::shared_mutex> g(m_config_);
+  enable_chunked_upload_ = enabled;
 }
 
 std::optional<std::string> HandoffHelperImpl::synthesize_auth_header(
@@ -946,6 +952,11 @@ HandoffAuthResult HandoffHelperImpl::auth(const DoutPrefixProvider* dpp_in,
       is_chunked = true;
       ldpp_dout(dpp, 5) << "chunked upload in progress" << dendl;
     }
+  }
+
+  if (is_chunked && !enable_chunked_upload_) {
+    ldpp_dout(dpp, 5) << "chunked upload disabled - rejecting request" << dendl;
+    return HandoffAuthResult(-EACCES, "chunked upload is disabled");
   }
 
   // Depending on configuration, call the gRPC or HTTP arm to complete the

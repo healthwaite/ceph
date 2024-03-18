@@ -499,6 +499,7 @@ enum class AuthParamMode {
  *   - set_channel_uri()
  *   - set_signature_v2()
  *   - set_authorization_mode()
+ *   - set_chunked_upload_mode()
  *
  * or it won't compile.
  *
@@ -565,6 +566,7 @@ public:
     static const char* keys[] = {
       "rgw_handoff_authparam_always",
       "rgw_handoff_authparam_withtoken",
+      "rgw_handoff_enable_chunked_upload",
       "rgw_handoff_enable_signature_v2",
       "rgw_handoff_grpc_arg_initial_reconnect_backoff_ms",
       "rgw_handoff_grpc_arg_max_reconnect_backoff_ms",
@@ -586,6 +588,9 @@ public:
     // The gRPC channel change needs to come after the arguments setting, if any.
     if (changed.count("rgw_handoff_grpc_uri")) {
       helper_.set_channel_uri(cct_, conf->rgw_handoff_grpc_uri);
+    }
+    if (changed.count("rgw_handoff_enable_chunked_upload")) {
+      helper_.set_chunked_upload_mode(cct_, conf->rgw_handoff_enable_chunked_upload);
     }
     if (changed.count("rgw_handoff_enable_signature_v2")) {
       helper_.set_signature_v2(cct_, conf->rgw_handoff_enable_signature_v2);
@@ -633,6 +638,7 @@ private:
   bool grpc_mode_ = true; // Not runtime-alterable.
   bool presigned_expiry_check_ = false; // Not runtime-alterable.
   bool enable_signature_v2_ = true; // Runtime-alterable.
+  bool enable_chunked_upload_ = true; // Runtime-alterable.
   AuthParamMode authorization_mode_ = AuthParamMode::ALWAYS; // Runtime-alterable.
 
   // The gRPC channel pointer needs to be behind a mutex. Changing channel_,
@@ -725,6 +731,18 @@ public:
    * @param mode The authorization mode.
    */
   void set_authorization_mode(CephContext* const cct, AuthParamMode mode);
+
+  /**
+   * @brief Configure chunked upload mode.
+   *
+   * This should probably remain enabled, but the toggle exists just in case
+   * we have performance problems with the additional gRPC calls this
+   * requires.
+   *
+   * @param cct CephContext pointer.
+   * @param enabled Whether or not chunked uploads should be allowed.
+   */
+  void set_chunked_upload_mode(CephContext* const cct, bool enabled);
 
   /**
    * @brief Authenticate the transaction using the Handoff engine.
