@@ -938,7 +938,7 @@ HandoffAuthResult HandoffHelperImpl::auth(const DoutPrefixProvider* dpp_in,
   // says that we have to set the content-encoding: HTTP header, but the only
   // client I can find (minio go) doesn't set it. We won't depend on it.
   //
-  [[maybe_unused]] bool is_chunked = false; // NOT UNUSED XXX
+  bool is_chunked = false;
 
   auto aws_content = envmap.find("HTTP_X_AMZ_CONTENT_SHA256");
   if (aws_content != envmap.cend()) {
