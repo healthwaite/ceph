@@ -941,8 +941,8 @@ public:
      * if necessary. Otherwise caller gets nullptr. Caller may provide secret
      * key */
     using completer_factory_t = std::function<rgw::auth::Completer::cmplptr_t(
-        const boost::optional<std::string> &secret_key,
-        const std::optional<sha256_digest_t> &cached_sigining_key)>;
+        const boost::optional<std::string>& secret_key,
+        const std::optional<sha256_digest_t>& cached_signing_key)>;
 
     struct auth_data_t {
       access_key_id_t access_key_id;
