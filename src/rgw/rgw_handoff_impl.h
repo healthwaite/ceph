@@ -815,7 +815,26 @@ public:
       const req_state* const s,
       optional_yield y);
 
-  // XXX doc
+  /**
+   * @brief Attempt to retrieve a signing key from the Authenticator.
+   *
+   * Request the signing key from the Authenticator. The signing key has a
+   * validity of one day, so must be cached only with careful consideration.
+   * We definitely should not cache it for a whole day.
+   *
+   * This can fail for a few reasons. The RPC can fail, or the Authenticator
+   * may choose not to honour the request. We send the Authorization: header
+   * and the internal transaction ID to try to help the Authenticator make a
+   * decision.
+   *
+   * @param dpp The DoutPrefixProvider
+   * @param auth The HTTP Authorization: header. Will be send verbatim to the
+   * Authenticator.
+   * @param s The request.
+   * @param y The otional yield context.
+   * @return std::optional<std::vector<uint8_t>> The signing key, or nullopt
+   * on failure.
+   */
   std::optional<std::vector<uint8_t>>
   get_signing_key(const DoutPrefixProvider *dpp, const std::string auth,
                   const req_state *const s, optional_yield y);
