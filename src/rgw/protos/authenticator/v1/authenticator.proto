@@ -126,7 +126,7 @@ message AuthenticatePresignedURLRequest {
   HTTPMethod http_method = 3;
   // The internal rgw transaction ID, may be useful for log correlation and
   // perhaps additional authentication.
-  optional string transaction_id = 8;
+  optional string transaction_id = 4;
 }
 
 // Response message for Presigned URL authentications.
