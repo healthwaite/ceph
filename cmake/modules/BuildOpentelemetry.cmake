@@ -9,7 +9,15 @@ function(build_opentelemetry)
   set(opentelemetry_SOURCE_DIR "${PROJECT_SOURCE_DIR}/src/jaegertracing/opentelemetry-cpp")
   set(opentelemetry_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/opentelemetry-cpp")
   set(opentelemetry_cpp_targets opentelemetry_trace opentelemetry_exporter_jaeger_trace)
+  # Akamai: We have to help OTel build in a way compatible with our external
+  # abseil-cpp and gRPC. Pass the CMAKE_PREFIX_PATH through (this includes
+  # absl as well as some gRPC parts), build in C++17 mode, and specify that we
+  # already have abseil and don't need to use the opentelemetry in-tree
+  # version. We may need to switch this to C++20 mode at some point.
   set(opentelemetry_CMAKE_ARGS -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+                               -DCMAKE_CXX_STANDARD=17
+                               -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
+                               -DWITH_ABSEIL=ON
                                -DWITH_JAEGER=ON
                                -DBUILD_TESTING=OFF
                                -DCMAKE_BUILD_TYPE=Release

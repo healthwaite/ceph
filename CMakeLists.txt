@@ -514,6 +514,15 @@ if(WITH_RADOSGW)
     find_package(protobuf REQUIRED)
     find_package(gRPC REQUIRED)
 
+    # Help OTel (Jaeger) by adding HAVE_ABSEIL to the compile definitions
+    # everywhere, and the Abseil include directory to the include directory
+    # path everywhere. I know target_include_directories() is preferred, and
+    # for good reason, but there's no easy way to add these in a targeted way
+    # as tracing can in principle be used from anywhere.
+    add_compile_definitions(HAVE_ABSEIL)
+    include_directories(BEFORE SYSTEM /usr/local/abseil-cpp/include)
+
+
   endif(WITH_RADOSGW_GRPC)
 endif (WITH_RADOSGW)
 
