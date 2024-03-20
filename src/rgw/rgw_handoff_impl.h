@@ -190,9 +190,10 @@ public:
     {
     }
 
-    // Standard copy and move constructors are fine.
-    GetSigningKeyResult(const GetSigningKeyResult&) = default;
-    GetSigningKeyResult& operator=(const GetSigningKeyResult&) = default;
+    // Can't have a copy constructor with a unique_ptr.
+    GetSigningKeyResult(const GetSigningKeyResult&) = delete;
+    GetSigningKeyResult& operator=(const GetSigningKeyResult&) = delete;
+    // Move is fine.
     GetSigningKeyResult(GetSigningKeyResult&&) = default;
     GetSigningKeyResult& operator=(GetSigningKeyResult&&) = default;
 
