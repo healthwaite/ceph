@@ -288,14 +288,7 @@ AuthServiceClient::GetSigningKey(const GetSigningKeyRequest req)
 
 using err_type = ::authenticator::v1::S3ErrorDetails_Type;
 
-// We can't statically initialise a map, so initialise a list and allocate a
-// map on first use in _translate_authenticator_error_code().
-struct HandoffAuthResultMapping {
-  err_type auth_type;
-  int rgw_error_code;
-};
-
-static HandoffAuthResultMapping auth_list[] = {
+static std::map<err_type, int> auth_map = {
   { err_type::S3ErrorDetails_Type_TYPE_ACCESS_DENIED, EACCES },
   { err_type::S3ErrorDetails_Type_TYPE_AUTHORIZATION_HEADER_MALFORMED, ERR_INVALID_REQUEST },
   { err_type::S3ErrorDetails_Type_TYPE_EXPIRED_TOKEN, EACCES },
@@ -312,19 +305,11 @@ static HandoffAuthResultMapping auth_list[] = {
   { err_type::S3ErrorDetails_Type_TYPE_TOKEN_REFRESH_REQUIRED, ERR_INVALID_REQUEST }
 };
 
-static std::map<err_type, int> auth_map;
-
 HandoffAuthResult AuthServiceClient::_translate_authenticator_error_code(
     ::authenticator::v1::S3ErrorDetails_Type auth_type,
     int32_t auth_http_status_code,
     const std::string& message)
 {
-  static std::once_flag map_init;
-  std::call_once(map_init, []() {
-    for (const auto& al : auth_list) {
-      auth_map[al.auth_type] = al.rgw_error_code;
-    }
-  });
   auto srch = auth_map.find(auth_type);
   if (srch != auth_map.end()) {
     // Return an entry in the map directly.
