@@ -19,7 +19,6 @@
 #ifndef RGW_HANDOFF_IMPL_H
 #define RGW_HANDOFF_IMPL_H
 
-#include <functional>
 #include <iosfwd>
 #include <shared_mutex>
 #include <string>

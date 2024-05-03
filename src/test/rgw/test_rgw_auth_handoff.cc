@@ -26,7 +26,6 @@
 #include "common/async/yield_context.h"
 #include "common/ceph_argparse.h"
 #include "common/ceph_context.h"
-#include "common/ceph_json.h"
 #include "common/dout.h"
 #include "common/strtol.h"
 #include "global/global_context.h"

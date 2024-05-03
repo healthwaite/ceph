@@ -50,10 +50,8 @@
 #include "include/ceph_assert.h"
 
 #include "common/dout.h"
-#include "rgw/rgw_b64.h"
 #include "rgw/rgw_client_io.h"
 #include "rgw/rgw_common.h"
-#include "rgw/rgw_http_client.h"
 
 // These are 'standard' protobufs for the 'Richer error model'
 // (https://grpc.io/docs/guides/error/).
