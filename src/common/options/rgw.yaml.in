@@ -995,10 +995,10 @@ options:
 - name: rgw_handoff_enable_grpc
   type: bool
   level: advanced
-  desc: Enable handoff authentication via gRPC (rather than HTTP).
-  long_desc: If enabled, the handoff authentication service will be available via
-    gRPC. Otherwise, it will be available via HTTP. Both modes will most
-    likely require additional configuration.
+  desc: Backward-compatibility only - Handoff always uses gRPC.
+  long_desc: Backwards-compatiblity configuration option only. Handoff always
+    uses gRPC for communication, the initial HTTP mode has been removed. This
+    value will be ignored.
   default: true
   services:
   - rgw

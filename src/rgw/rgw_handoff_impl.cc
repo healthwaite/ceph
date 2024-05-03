@@ -348,148 +348,6 @@ HandoffAuthResult AuthServiceClient::_translate_authenticator_error_code(
 
 /****************************************************************************/
 
-// HTTP request support.
-
-/**
- * @brief Prepare a JSON document to send to the authenticator HTTP endpoint.
- *
- * @param s Pointer to the req_state struct.
- * @param string_to_sign The pre-generated StringToSign field required by the
- * signature process.
- * @param access_key_id The access key ID. This is the Credential= field of
- * the Authorization header, but RGW has already parsed it out for us.
- * @param auth The full Authorization header in the HTTP request.
- * @param token The x-amz-authorization-token header, if present (otherwise
- * empty).
- * @param authorization_param Optional authorization parameters.
- * @return std::string The JSON request as a (pretty-printed) string.
- *
- * Construct a JSON string to send to the authenticator. With this we have
- * just enough information at this point to send to the authenticator so we
- * can securely construct and so validate an S3 v4 signature. We don't need
- * the access secret key, but the authenticator process does.
- */
-static std::string PrepareHandoffRequest(const req_state* s,
-    const std::string_view& string_to_sign,
-    const std::string_view& access_key_id,
-    const std::string_view& auth,
-    const std::string_view& token,
-    const std::optional<AuthorizationParameters>& authorization_param)
-{
-  JSONFormatter jf { true };
-  jf.open_object_section(""); // root
-  encode_json("stringToSign", rgw::to_base64(string_to_sign), &jf);
-  encode_json("accessKeyId", std::string(access_key_id), &jf);
-  encode_json("authorization", std::string(auth), &jf);
-  if (token != "") {
-    encode_json("authorization-token", std::string(token), &jf);
-  }
-  if (authorization_param.has_value() && authorization_param->valid()) {
-    jf.open_object_section("authorizationParameters");
-    encode_json("method", authorization_param->method(), &jf);
-    encode_json("bucketName", authorization_param->bucket_name(), &jf);
-    encode_json("objectKeyName", authorization_param->object_key_name(), &jf);
-    encode_json("httpRequestPath", authorization_param->http_request_path(), &jf);
-    const auto headers = authorization_param->http_headers();
-    if (headers.size() > 0) {
-      jf.open_object_section("httpHeaders");
-      for (const auto& kv : headers) {
-        encode_json(kv.first.c_str(), kv.second, &jf);
-      }
-      jf.close_section(); // /httpHeaders
-    }
-    const auto params = authorization_param->http_query_params();
-    if (params.size() > 0) {
-      jf.open_object_section("httpQueryParameters");
-      for (const auto& kv : params) {
-        encode_json(kv.first.c_str(), kv.second, &jf);
-      }
-      jf.close_section(); // /httpQueryParameters
-    }
-
-    jf.close_section(); // /authorizationParameters
-  }
-  jf.close_section(); // /root
-  std::ostringstream oss;
-  jf.flush(oss);
-  return oss.str();
-}
-
-/**
- * @brief Bundle the results from parsing the authenticator's JSON response.
- *
- * \p uid has meaning only when \p success is true. If success is false, \p
- * uid's value must not be used.
- *
- * In all cases, \p message may contain human-readable information to help
- * explain the result.
- */
-struct HandoffResponse {
-  bool success;
-  std::string uid;
-  std::string message;
-};
-
-/**
- * @brief Parse the authenticator's JSON response.
- *
- * @param dpp The *DoutPrefixProvider passed to the engine.
- * @param resp_bl The ceph::bufferlist used by the RGWHTTPClient subclass.
- * @return HandoffResponse Parser result.
- *
- * This merely attempts to parse the JSON response from the authenticator.
- * Field \p success of the return struct is set last, and if it's false the
- * caller MUST assume authentication failure.
- */
-static HandoffResponse ParseHandoffResponse(const DoutPrefixProvider* dpp, ceph::bufferlist& resp_bl)
-{
-  HandoffResponse resp { success : false, uid : "notset", message : "none" };
-
-  JSONParser parser;
-
-  if (!parser.parse(resp_bl.c_str(), resp_bl.length())) {
-    ldpp_dout(dpp, 0) << "Handoff response parser error: malformed JSON" << dendl;
-    resp.message = "malformed response JSON";
-    return resp;
-  }
-
-  try {
-    JSONDecoder::decode_json("message", resp.message, &parser, true);
-    JSONDecoder::decode_json("uid", resp.uid, &parser, true);
-  } catch (const JSONDecoder::err& err) {
-    ldpp_dout(dpp, 0) << fmt::format("Handoff response parser error: {}", err.what()) << dendl;
-    return resp;
-  }
-  ldpp_dout(dpp, 20) << fmt::format("Handoff parser response: uid='{}' message='{}'", resp.uid, resp.message) << dendl;
-  resp.success = true;
-  return resp;
-}
-
-static HandoffHTTPVerifyResult http_verify_standard(const DoutPrefixProvider* dpp, const std::string& request_json, bufferlist* resp_bl, optional_yield y)
-{
-  auto cct = dpp->get_cct();
-
-  auto query_url = cct->_conf->rgw_handoff_http_uri;
-  if (!ba::ends_with(query_url, "/")) {
-    query_url += "/";
-  }
-  // The authentication verifier is a POST to /verify.
-  query_url += "verify";
-
-  RGWHTTPTransceiver verify { cct, "POST", query_url, resp_bl };
-  verify.set_verify_ssl(cct->_conf->rgw_handoff_verify_ssl);
-  verify.append_header("Content-Type", "application/json");
-  verify.set_post_data(request_json);
-  verify.set_send_length(request_json.length());
-
-  ldpp_dout(dpp, 20) << fmt::format("fetch '{}': POST '{}'", query_url, request_json) << dendl;
-  auto ret = verify.process(y);
-
-  return HandoffHTTPVerifyResult { ret, verify.get_http_status(), query_url };
-}
-
-/****************************************************************************/
-
 /**
  * @brief Create an AWS v2 authorization header from the request's URL
  * parameters.
@@ -591,27 +449,25 @@ int HandoffHelperImpl::init(CephContext* const cct, rgw::sal::Driver* store, con
   // Set up some state variables based on configuration. Most of these are not
   // runtime-alterable.
 
-  // rgw_handoff_enable_grpc is not runtime-alterable, but the URI is.
-  if (!grpc_uri.empty() || cct->_conf->rgw_handoff_enable_grpc) {
-    ldout(cct, 1) << "HandoffHelperImpl::init(): Using gRPC mode" << dendl;
-    grpc_mode_ = true;
-    auto uri = grpc_uri.empty() ? cct->_conf->rgw_handoff_grpc_uri : grpc_uri;
+  ldout(cct, 1) << "HandoffHelperImpl::init()" << dendl;
+  grpc_mode_ = true;
+  // Production calls to this function will have grpc_uri empty, so we'll
+  // fetch configuration. Unit tests will pass a URI.
+  auto uri = grpc_uri.empty() ? cct->_conf->rgw_handoff_grpc_uri : grpc_uri;
 
-    // Will use rgw_handoff_grpc_uri, which is runtime-alterable.
-    // set_channel_uri() will fetch default channel args if none have been set
-    // beforehand.
-    if (!set_channel_uri(cct, uri)) {
-      // This is unlikely, but no gRPC channel in gRPC mode is a fatal error.
-      throw new std::runtime_error("Failed to create initial gRPC channel");
-    }
-  } else {
-    ldout(cct, 1) << "HandoffHelperImpl::init(): Using HTTP mode" << dendl;
-    grpc_mode_ = false;
+  // Will use rgw_handoff_grpc_uri, which is runtime-alterable.
+  // set_channel_uri() will fetch default channel args if none have been set
+  // beforehand.
+  if (!set_channel_uri(cct, uri)) {
+    // This is unlikely, but no gRPC channel in gRPC mode is a fatal error.
+    // Note that this won't attempt to connect! That's done lazily on first
+    // use. This will just attempt to create the channel object.
+    throw new std::runtime_error("Failed to create initial gRPC channel");
   }
 
   // rgw_handoff_enable_presigned_expiry_check is not runtime-alterable.
   presigned_expiry_check_ = cct->_conf->rgw_handoff_enable_presigned_expiry_check;
-  ldout(cct, 5) << "HandoffHelperImpl::init(): Presigned URL expiry check " << (presigned_expiry_check_ ? "enabled" : "disabled") << dendl;
+  ldout(cct, 5) << fmt::format(FMT_STRING("HandoffHelperImpl::init(): Presigned URL expiry check {}"), (presigned_expiry_check_ ? "enabled" : "disabled")) << dendl;
 
   // rgw_handoff_enable_signature_v2 is runtime-alterable.
   set_signature_v2(cct, cct->_conf->rgw_handoff_enable_signature_v2);
@@ -645,6 +501,7 @@ grpc::ChannelArguments HandoffHelperImpl::get_default_channel_args(CephContext* 
 
 bool HandoffHelperImpl::set_channel_uri(CephContext* const cct, const std::string& new_uri)
 {
+  ldout(cct, 5) << fmt::format(FMT_STRING("HandoffHelperImpl::set_channel_uri({})"), new_uri) << dendl;
   std::unique_lock<chan_lock_t> g(m_channel_);
   if (!channel_args_) {
     auto args = get_default_channel_args(cct);
@@ -654,10 +511,10 @@ bool HandoffHelperImpl::set_channel_uri(CephContext* const cct, const std::strin
   // XXX grpc::InsecureChannelCredentials()...
   auto new_channel = grpc::CreateCustomChannel(new_uri, grpc::InsecureChannelCredentials(), *channel_args_);
   if (!new_channel) {
-    ldout(cct, 0) << "HandoffHelperImpl::set_channel_uri(): ERROR: Failed to create new gRPC channel " << new_uri << dendl;
+    ldout(cct, 0) << fmt::format(FMT_STRING("HandoffHelperImpl::set_channel_uri(): ERROR: Failed to create new gRPC channel for URI {}"), new_uri) << dendl;
     return false;
   } else {
-    ldout(cct, 1) << "HandoffHelperImpl::set_channel_uri(" << new_uri << ") success" << dendl;
+    ldout(cct, 1) << fmt::format(FMT_STRING("HandoffHelperImpl::set_channel_uri({}) success"), new_uri) << dendl;
     channel_ = std::move(new_channel);
     channel_uri_ = new_uri;
     return true;
@@ -666,14 +523,14 @@ bool HandoffHelperImpl::set_channel_uri(CephContext* const cct, const std::strin
 
 void HandoffHelperImpl::set_signature_v2(CephContext* const cct, bool enabled)
 {
-  ldout(cct, 1) << "HandoffHelperImpl: set_signature_v2(" << (enabled ? "true" : "false") << ")" << dendl;
+  ldout(cct, 1) << fmt::format(FMT_STRING("HandoffHelperImpl: set_signature_v2({})"), (enabled ? "true" : "false")) << dendl;
   std::unique_lock<std::shared_mutex> g(m_config_);
   enable_signature_v2_ = enabled;
 }
 
 void HandoffHelperImpl::set_chunked_upload_mode(CephContext* const cct, bool enabled)
 {
-  ldout(cct, 1) << "HandoffHelperImpl::set_chunked_upload_mode(" << (enabled ? "true" : "false") << ")" << dendl;
+  ldout(cct, 1) << fmt::format(FMT_STRING("HandoffHelperImpl::set_chunked_upload_mode({})"), (enabled ? "true" : "false")) << dendl;
   std::unique_lock<std::shared_mutex> g(m_config_);
   enable_chunked_upload_ = enabled;
 }
@@ -714,7 +571,7 @@ static std::string authorization_mode_to_string(AuthParamMode mode)
 void HandoffHelperImpl::set_authorization_mode(CephContext* const cct, AuthParamMode mode)
 {
   std::unique_lock<std::shared_mutex> g(m_config_);
-  ldout(cct, 1) << "HandoffHelperImpl: set_authorization_mode(" << authorization_mode_to_string(mode) << ")" << dendl;
+  ldout(cct, 1) << fmt::format(FMT_STRING("HandoffHelperImpl: set_authorization_mode({})"), authorization_mode_to_string(mode)) << dendl;
   authorization_mode_ = mode;
 }
 
@@ -959,32 +816,26 @@ HandoffAuthResult HandoffHelperImpl::auth(const DoutPrefixProvider* dpp_in,
     return HandoffAuthResult(-EACCES, "chunked upload is disabled");
   }
 
-  // Depending on configuration, call the gRPC or HTTP arm to complete the
-  // handoff.
-  if (grpc_mode_) {
-    auto result = _grpc_auth(dpp, auth, authorization_param, session_token, access_key_id, string_to_sign, signature, s, y);
+  // Perform the gRPC-specific parts of the auth* call.
+  auto result = _grpc_auth(dpp, auth, authorization_param, session_token, access_key_id, string_to_sign, signature, s, y);
 
-    if (result.is_err()) {
-      return result;
-    }
-    // If we're chunked, we need a signing key from the Authenticator.
-    if (!is_chunked) {
-      return result;
-    } else {
-      auto sk = get_signing_key(dpp, auth, s, y);
-      if (!sk.has_value()) {
-        ldpp_dout(dpp, 0) << "failed to fetch signing key for chunked upload"
-                          << dendl;
-        return HandoffAuthResult(
-            -EACCES, "failed to fetch signing key for chunked upload");
-      }
-      result.set_signing_key(*sk);
-      ldpp_dout(dpp, 10) << "chunked upload signing key saved" << dendl;
-      return result;
-    }
-
+  if (result.is_err()) {
+    return result;
+  }
+  // If we're chunked, we need a signing key from the Authenticator.
+  if (!is_chunked) {
+    return result;
   } else {
-    return _http_auth(dpp, auth, authorization_param, session_token, access_key_id, string_to_sign, signature, s, y);
+    auto sk = get_signing_key(dpp, auth, s, y);
+    if (!sk.has_value()) {
+      ldpp_dout(dpp, 0) << "failed to fetch signing key for chunked upload"
+                        << dendl;
+      return HandoffAuthResult(
+          -EACCES, "failed to fetch signing key for chunked upload");
+    }
+    result.set_signing_key(*sk);
+    ldpp_dout(dpp, 10) << "chunked upload signing key saved" << dendl;
+    return result;
   }
 };
 
@@ -1069,9 +920,10 @@ HandoffAuthResult HandoffHelperImpl::_grpc_auth(const DoutPrefixProvider* dpp_in
 }
 
 std::optional<std::vector<uint8_t>>
-HandoffHelperImpl::get_signing_key(const DoutPrefixProvider *dpp,
-                                   const std::string auth,
-                                   const req_state *const s, optional_yield y) {
+HandoffHelperImpl::get_signing_key(const DoutPrefixProvider* dpp,
+    const std::string auth,
+    const req_state* const s, optional_yield y)
+{
 
   authenticator::v1::GetSigningKeyRequest req;
   req.set_transaction_id(s->trans_id);
@@ -1097,67 +949,6 @@ HandoffHelperImpl::get_signing_key(const DoutPrefixProvider *dpp,
   }
   ldpp_dout(dpp, 5) << "fetched signing key" << dendl;
   return std::make_optional(result.signing_key());
-}
-
-HandoffAuthResult HandoffHelperImpl::_http_auth(const DoutPrefixProvider* dpp,
-    const std::string& auth,
-    const std::optional<AuthorizationParameters>& authorization_param,
-    [[maybe_unused]] const std::string_view& session_token,
-    const std::string_view& access_key_id,
-    const std::string_view& string_to_sign,
-    const std::string_view& signature,
-    [[maybe_unused]] const req_state* const s,
-    [[maybe_unused]] optional_yield y)
-{
-  // Build our JSON request for the authenticator.
-  auto request_json = PrepareHandoffRequest(s, string_to_sign, access_key_id, auth, session_token, authorization_param);
-
-  ceph::bufferlist resp_bl;
-
-  // verify_func_ is initialised at construction time and is const, we *do
-  // not* need to synchronise access.
-  HandoffHTTPVerifyResult vres;
-  if (http_verify_func_) {
-    vres = (*http_verify_func_)(dpp, request_json, &resp_bl, y);
-  } else {
-    vres = http_verify_standard(dpp, request_json, &resp_bl, y);
-  }
-
-  if (vres.result() < 0) {
-    ldpp_dout(dpp, 0) << fmt::format(FMT_STRING("handoff verify HTTP request failed with exit code {} ({})"), vres.result(), strerror(-vres.result()))
-                      << dendl;
-    return HandoffAuthResult(-EACCES,
-        fmt::format(FMT_STRING("Handoff HTTP request failed with code {} ({})"), vres.result(), strerror(-vres.result())),
-        HandoffAuthResult::error_type::TRANSPORT_ERROR);
-  }
-
-  // Parse the JSON response.
-  HandoffResponse resp = ParseHandoffResponse(dpp, resp_bl);
-  if (!resp.success) {
-    // Neutral error, the authentication system itself is failing.
-    return HandoffAuthResult(-ERR_INTERNAL_ERROR, resp.message, HandoffAuthResult::error_type::INTERNAL_ERROR);
-  }
-
-  // Return an error, but only after attempting to parse the response
-  // for a useful error message.
-  auto status = vres.http_code();
-  ldpp_dout(dpp, 20) << fmt::format(FMT_STRING("fetch '{}' status {}"), vres.query_url(), status) << dendl;
-
-  // These error code responses mimic rgw_auth_keystone.cc.
-  switch (status) {
-  case 200:
-    return HandoffAuthResult(resp.uid, resp.message);
-  case 401:
-    return HandoffAuthResult(-ERR_SIGNATURE_NO_MATCH, resp.message);
-  case 404:
-    return HandoffAuthResult(-ERR_INVALID_ACCESS_KEY, resp.message);
-  case RGWHTTPClient::HTTP_STATUS_NOSTATUS:
-    ldpp_dout(dpp, 5) << fmt::format(FMT_STRING("Handoff fetch '{}' unknown status {}"), vres.query_url(), status) << dendl;
-    return HandoffAuthResult(-EACCES, resp.message);
-  default:
-    ldpp_dout(dpp, 0) << fmt::format(FMT_STRING("Handoff fetch '{}' returned unexpected HTTP status code {}"), vres.query_url(), status) << dendl;
-    return HandoffAuthResult(-EACCES, resp.message);
-  }
 }
 
 } // namespace rgw
