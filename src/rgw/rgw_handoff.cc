@@ -28,16 +28,9 @@
 #include <cstring>
 #include <fmt/format.h>
 #include <iostream>
-#include <optional>
-#include <string>
 #include <string_view>
 
-#include <time.h>
-
-#include "include/ceph_assert.h"
-
 #include "common/dout.h"
-#include "rgw/rgw_http_client_curl.h"
 
 #define dout_subsys ceph_subsys_rgw
 
