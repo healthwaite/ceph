@@ -49,11 +49,6 @@ public:
     INTERNAL_ERROR,
   };
 
-  enum class user_type {
-    USER,
-    ANONYMOUS,
-  };
-
 public:
   /**
    * @brief Construct a success-type result for a regular user.
@@ -76,31 +71,13 @@ public:
    * @param signing_key The signing key associated with the request, an
    * HMAC-SHA256 value as raw bytes.
    */
-  HandoffAuthResult(const std::string &userid, const std::string &message,
-                    const std::vector<uint8_t> &signing_key)
-      : userid_{userid}
-      , signing_key_{signing_key}
-      , message_{message}
-      , is_err_{false}
-      , err_type_{error_type::NO_ERROR} {};
-
-  /**
-   * @brief Construct a success-type result for an anonymous user.
-   *
-   * @param type user_type::ANONYMOUS
-   * @param message human-readable status.
-   */
-  HandoffAuthResult(user_type type, const std::string& message)
-      : type_ { user_type::ANONYMOUS }
-      , userid_ {}
+  HandoffAuthResult(const std::string& userid, const std::string& message,
+      const std::vector<uint8_t>& signing_key)
+      : userid_ { userid }
+      , signing_key_ { signing_key }
       , message_ { message }
       , is_err_ { false }
-      , err_type_ { error_type::NO_ERROR }
-  {
-    if (type != user_type::ANONYMOUS) {
-      throw std::invalid_argument("HandoffAuthResult: type must be ANONYMOUS");
-    }
-  };
+      , err_type_ { error_type::NO_ERROR } {};
 
   /**
    * @brief Construct a failure-type result.
@@ -121,7 +98,6 @@ public:
       , is_err_ { true }
       , err_type_ { err_type } {};
 
-  bool is_anonymous() const noexcept { return type_ == user_type::ANONYMOUS; }
   bool is_err() const noexcept { return is_err_; }
   bool is_ok() const noexcept { return !is_err_; }
   error_type err_type() const noexcept { return err_type_; }
@@ -134,7 +110,8 @@ public:
    *
    * @return std::string the signing key, encoded as raw bytes.
    */
-  std::optional<std::vector<uint8_t>> signing_key() const noexcept {
+  std::optional<std::vector<uint8_t>> signing_key() const noexcept
+  {
     return signing_key_;
   }
   bool has_signing_key() { return signing_key_.has_value(); }
@@ -163,18 +140,13 @@ public:
     if (is_err()) {
       return fmt::format(FMT_STRING("error={} message={}"), errorcode_, message_);
     } else {
-      if (is_anonymous()) {
-        return fmt::format(FMT_STRING("(anonymous) message={}"), message_);
-      } else {
-        return fmt::format(FMT_STRING("userid='{}' message={}"), userid_, message_);
-      }
+      return fmt::format(FMT_STRING("userid='{}' message={}"), userid_, message_);
     }
   }
 
   friend std::ostream& operator<<(std::ostream& os, const HandoffAuthResult& ep);
 
 private:
-  user_type type_ = user_type::USER;
   std::string userid_ = "";
   std::optional<std::vector<uint8_t>> signing_key_;
   int errorcode_ = 0;
