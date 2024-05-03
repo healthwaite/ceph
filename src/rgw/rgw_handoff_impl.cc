@@ -92,7 +92,7 @@ namespace rgw {
  */
 AuthorizationParameters::AuthorizationParameters(const DoutPrefixProvider* dpp_in, const req_state* s) noexcept
 {
-  auto hdpp = HandoffDoutPrefixPipe(*dpp_in, "AuthorizationParameters");
+  HandoffDoutPrefixPipe hdpp(*dpp_in, "AuthorizationParameters");
   auto dpp = &hdpp;
   valid_ = false;
 
@@ -716,7 +716,7 @@ HandoffAuthResult HandoffHelperImpl::auth(const DoutPrefixProvider* dpp_in,
   // Construct a custom log prefix provider with some per-request state
   // information. This should make it easier to correlate logs on busy
   // servers.
-  auto hdpp = HandoffDoutStateProvider(*dpp_in, s);
+  HandoffDoutStateProvider hdpp(*dpp_in, s);
   // All the APIs expect a *DoutPrefixProvider.
   auto dpp = &hdpp;
 
@@ -849,7 +849,7 @@ HandoffAuthResult HandoffHelperImpl::_grpc_auth(const DoutPrefixProvider* dpp_in
     [[maybe_unused]] const req_state* const s,
     [[maybe_unused]] optional_yield y)
 {
-  auto hdpp = HandoffDoutPrefixPipe(*dpp_in, "grpc_auth");
+  HandoffDoutPrefixPipe hdpp(*dpp_in, "grpc_auth");
   auto dpp = &hdpp;
 
   authenticator::v1::AuthenticateRESTRequest req;

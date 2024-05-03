@@ -54,7 +54,7 @@ namespace rgw {
  * existing log prefix, use:
  *
  * ```
- * auto hdpp = HandoffDoutPrefixPipe(*dpp_in, foo);
+ * HandoffDoutPrefixPipe hdpp(*dpp_in, foo);
  * auto dpp = &hdpp;
  * ```
  *
@@ -83,7 +83,7 @@ public:
  * Pass in the request state.
  *
  * ```
- * auto hdpp = HandoffDoutStateProvider(*dpp_in, s);
+ * HandoffDoutStateProvider hdpp(*dpp_in, s);
  * auto dpp = &hdpp;
  * ```
  */
