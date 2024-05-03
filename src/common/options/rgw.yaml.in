@@ -1091,24 +1091,6 @@ options:
   services:
   - rgw
   with_legacy: true
-- name: rgw_handoff_http_uri
-  type: str
-  level: advanced
-  desc: URI for the S3 authentication handoff service via HTTP.
-  long_desc: The HTTP(S) server to use.
-  default: http://127.0.0.1:8001
-  services:
-  - rgw
-  with_legacy: true
-- name: rgw_handoff_verify_ssl
-  type: bool
-  level: advanced
-  desc: Should handoff verify the remote HTTP server TLS certificate.
-  long_desc: In HTTP mode, verify the remote TLS certificate.
-  default: true
-  services:
-  - rgw
-  with_legacy: true
 - name: rgw_opa_url
   type: str
   level: advanced
