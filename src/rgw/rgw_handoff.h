@@ -18,8 +18,7 @@
  * DO NOT INCLUDE "rgw_handoff_impl.h" from here!
  */
 
-#ifndef RGW_HANDOFF_H
-#define RGW_HANDOFF_H
+#pragma once
 
 #include <fmt/format.h>
 #include <iosfwd>
@@ -27,6 +26,7 @@
 
 #include "common/async/yield_context.h"
 #include "common/dout.h"
+#include "rgw/driver/rados/rgw_rados.h"
 #include "rgw/rgw_common.h"
 
 namespace rgw {
@@ -223,5 +223,3 @@ public:
 };
 
 } /* namespace rgw */
-
-#endif /* RGW_HANDOFF_H */

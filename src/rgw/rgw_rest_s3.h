@@ -1142,8 +1142,8 @@ public:
  * in a separate class as it stands.
  */
 class HandoffEngine : public AWSEngine {
-  static std::shared_ptr<HandoffHelper> handoff_helper;
-  static std::mutex mtx;
+  std::shared_ptr<HandoffHelper> handoff_helper_;
+  std::mutex mtx_;
 
   /**
    * @brief One-time initialisation of the Handoff engine.
@@ -1157,7 +1157,7 @@ class HandoffEngine : public AWSEngine {
    * @param store The store abstraction later.
    *
    */
-  static void init(CephContext* const cct, rgw::sal::Driver* store);
+  void init(CephContext* const cct, rgw::sal::Driver* store);
 
   using acl_strategy_t = rgw::auth::RemoteApplier::acl_strategy_t;
   using auth_info_t = rgw::auth::RemoteApplier::AuthInfo;
@@ -1237,13 +1237,41 @@ public:
    * @return false The engine is uninitialised and must be configured using
    * init().
    */
-  static bool valid();
+  bool valid();
 
   /**
    * @brief Free any resources used by the HandoffEngine.
    */
-  static void shutdown();
+  void shutdown();
+
+  /**
+   * @brief Get a shared_ptr to the helper object.
+   *
+   * This is intended to allow other components the ability to access the
+   * shared HandoffHelper object, such as for anonymous authorization. There's
+   * no sense in having multiple sets of gRPC channel state pointing at the
+   * same server.
+   *
+   * @return std::shared_ptr<HandoffHelper> The helper. Will be nullptr if
+   * init() has not yet been called.
+   */
+  std::shared_ptr<HandoffHelper> get_helper()
+  {
+    return handoff_helper_;
+  }
 };
+
+/**
+ * @brief Surface the std::once_flag-protected global HandoffHelper
+ * shared_ptr.
+ *
+ * Ideally we'd expose this as a member on the StrategyRegistry, but
+ * unfortunately the AWSExternalAuthStrategy object is buried layers-deep
+ * under the StrategyRegistry and we can't easily get to it. (See
+ * rgw_appmain.cc::init_frontends2().)
+ * It's easier to just have a single global shared_ptr.
+ */
+extern std::shared_ptr<HandoffHelper> g_handoff_helper;
 
 class LocalEngine : public AWSEngine {
   rgw::sal::Driver* driver;

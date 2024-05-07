@@ -6224,10 +6224,12 @@ void rgw::auth::s3::LDAPEngine::shutdown() {
 
 // Begin Handoff Engine.
 
-std::shared_ptr<rgw::HandoffHelper> rgw::auth::s3::HandoffEngine::handoff_helper;
+std::shared_ptr<rgw::HandoffHelper> rgw::auth::s3::g_handoff_helper;
 
 void rgw::auth::s3::HandoffEngine::init(CephContext* const cct, rgw::sal::Driver* store)
 {
+  // This can be called more than once. Only log our present-but-disabled
+  // state exactly once.
   static std::once_flag logged_presence;
   if (!cct->_conf->rgw_s3_auth_use_handoff) {
     std::call_once(logged_presence, [&]() {
@@ -6236,21 +6238,28 @@ void rgw::auth::s3::HandoffEngine::init(CephContext* const cct, rgw::sal::Driver
     return;
   }
 
+  // This can be called more than once. Only init our HandoffHelper exactly
+  // once, and only set the g_handoff_helper shared_ptr once.
   static std::once_flag hhinit;
   std::call_once(hhinit, [&]() {
     ldout(cct, 1) << "Akamai Handoff Authentication present and enabled" << dendl;
-    handoff_helper = std::make_shared<rgw::HandoffHelper>();
-    handoff_helper->init(cct, store);
+    handoff_helper_ = std::make_shared<rgw::HandoffHelper>();
+    handoff_helper_->init(cct, store);
+    // Set a globally-accessible shared_ptr to the one true HandoffHelper.
+    g_handoff_helper = handoff_helper_;
   });
 }
 
 void rgw::auth::s3::HandoffEngine::shutdown()
 {
-  // Nothing yet.
+  // Clear the global shared_ptr. If everyone else has shed their pointers,
+  // we'll cleanly destruct when the ExternalAuthStrategy is destroyed.
+  // If we're not init()'ed, this is a no-op.
+  g_handoff_helper.reset();
 }
 
 bool rgw::auth::s3::HandoffEngine::valid() {
-  return (handoff_helper != nullptr);
+  return (handoff_helper_ != nullptr);
 }
 
 rgw::auth::RemoteApplier::acl_strategy_t
@@ -6306,7 +6315,7 @@ rgw::auth::s3::HandoffEngine::authenticate(
     }
   }*/
 
-  HandoffAuthResult auth_result = handoff_helper->auth(dpp,
+  HandoffAuthResult auth_result = handoff_helper_->auth(dpp,
       session_token,
       access_key_id,
       string_to_sign,

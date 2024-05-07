@@ -44,6 +44,7 @@
 #include "rgw/rgw_sal.h"
 #include "rgw_auth_registry.h"
 
+#include "rgw_rest_s3.h"
 #include "test_rgw_grpc_util.h"
 
 // These are 'standard' protobufs for the 'Richer error model'

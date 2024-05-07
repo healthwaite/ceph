@@ -5,6 +5,8 @@
 
 #include <memory>
 
+#include "rgw/rgw_handoff.h"
+
 class ActiveRateLimiter;
 class OpsLogSink;
 class RGWREST;
@@ -40,6 +42,7 @@ struct RGWProcessEnv {
   OpsLogSink *olog = nullptr;
   std::unique_ptr<rgw::auth::StrategyRegistry> auth_registry;
   ActiveRateLimiter* ratelimiting = nullptr;
+  std::shared_ptr<rgw::HandoffHelper> handoff_helper;
 
 #ifdef WITH_ARROW_FLIGHT
   // managed by rgw:flight::FlightFrontend in rgw_flight_frontend.cc

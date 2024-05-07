@@ -410,6 +410,9 @@ int rgw::AppMain::init_frontends2(RGWLib* rgwlib)
   env.auth_registry = rgw::auth::StrategyRegistry::create(
       dpp->get_cct(), *implicit_tenant_context, env.driver);
   env.ratelimiting = ratelimiter.get();
+  // Store the handoff helper created by ExternalAuthStrategy. This may be
+  // null, that's ok.
+  env.handoff_helper = rgw::auth::s3::g_handoff_helper;
 
   int fe_count = 0;
   for (multimap<string, RGWFrontendConfig *>::iterator fiter = fe_map.begin();
