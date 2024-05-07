@@ -1086,6 +1086,9 @@ struct req_init_state {
 #include "rgw_auth.h"
 
 class RGWObjectCtx;
+namespace rgw {
+class HandoffHelper; // Forward declaration.
+}
 
 /** Store all the state necessary to complete and respond to an HTTP request*/
 struct req_state : DoutPrefixProvider {
@@ -1188,6 +1191,8 @@ struct req_state : DoutPrefixProvider {
   boost::optional<rgw::IAM::Policy> iam_policy;
   boost::optional<PublicAccessBlockConfiguration> bucket_access_conf;
   std::vector<rgw::IAM::Policy> iam_user_policies;
+
+  std::shared_ptr<::rgw::HandoffHelper> handoff_helper;
 
   /* Is the request made by an user marked as a system one?
    * Being system user means we also have the admin status. */
