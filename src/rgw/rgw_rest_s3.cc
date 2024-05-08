@@ -6633,7 +6633,10 @@ rgw::auth::s3::S3AnonymousEngine::authenticate(const DoutPrefixProvider* dpp, co
   } else {
 
     if (s->handoff_helper) {
-      ldpp_dout(dpp, 1) << fmt::format(FMT_STRING("XXX handoff_helper: here")) << dendl;
+      auto result = s->handoff_helper->anonymous_authorize(dpp, s, y);
+      if (!result.is_ok()) {
+        return result_t::deny(result.code());
+      }
     }
 
     RGWUserInfo user_info;

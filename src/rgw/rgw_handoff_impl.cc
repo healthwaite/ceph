@@ -902,6 +902,48 @@ HandoffAuthResult HandoffHelperImpl::_grpc_auth(const DoutPrefixProvider* dpp_in
   return result;
 }
 
+HandoffAuthResult HandoffHelperImpl::anonymous_authorize(const DoutPrefixProvider* dpp_in,
+    const req_state* const s,
+    optional_yield y)
+{
+  // Construct a custom log prefix provider with some per-request state
+  // information. This should make it easier to correlate logs on busy
+  // servers.
+  HandoffDoutStateProvider hdpp(*dpp_in, s);
+  // All the APIs expect a *DoutPrefixProvider.
+  auto dpp = &hdpp;
+
+  ceph_assert(s->cio != nullptr); // Give a helpful message to unit tests.
+
+  ldpp_dout(dpp, 1) << fmt::format(FMT_STRING(
+                                       "anonymous_authorize(): decoded_uri='{}' domain={}"),
+      s->decoded_uri, s->info.domain)
+                    << dendl;
+
+  // Make sure runtime configuration is defined throughout this method.
+  std::shared_lock<std::shared_mutex> g(m_config_);
+
+  std::optional<AuthorizationParameters> authorization_param;
+
+  authorization_param = AuthorizationParameters(dpp, s);
+  // Log the result. It's safe to dereference the optional, as the constructor
+  // always returns an object (though it may be invalid w.r.t. its valid()
+  // method).
+  ldpp_dout(dpp, 20) << *authorization_param << dendl;
+
+  if (!(authorization_param->valid())) {
+    // This shouldn't happen with a valid request. If it does, log it and
+    // re-nullopt the authorization parameters.
+    ldpp_dout(dpp, 0) << "AuthorizationParameters not available" << dendl;
+    authorization_param = std::nullopt;
+  }
+
+  // Perform the gRPC-specific parts of the auth* call.
+  auto result = _grpc_auth(dpp, "", authorization_param, "", "", "", "", s, y);
+
+  return result;
+};
+
 std::optional<std::vector<uint8_t>>
 HandoffHelperImpl::get_signing_key(const DoutPrefixProvider* dpp,
     const std::string auth,

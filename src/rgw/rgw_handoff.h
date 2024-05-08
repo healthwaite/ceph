@@ -220,6 +220,10 @@ public:
       const std::string_view& signature,
       const req_state* const s,
       optional_yield y);
+
+  HandoffAuthResult anonymous_authorize(const DoutPrefixProvider* dpp,
+      const req_state* const s,
+      optional_yield y);
 };
 
 } /* namespace rgw */

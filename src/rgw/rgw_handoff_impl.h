@@ -778,6 +778,18 @@ public:
       optional_yield y);
 
   /**
+   * @brief XXX XXX
+   *
+   * @param dpp
+   * @param s
+   * @param y
+   * @return HandoffAuthResult
+   */
+  HandoffAuthResult anonymous_authorize(const DoutPrefixProvider* dpp,
+      const req_state* const s,
+      optional_yield y);
+
+  /**
    * @brief Attempt to retrieve a signing key from the Authenticator.
    *
    * Request the signing key from the Authenticator. The signing key has a

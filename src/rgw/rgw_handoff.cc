@@ -74,4 +74,11 @@ HandoffAuthResult HandoffHelper::auth(const DoutPrefixProvider* dpp,
   return impl_->auth(dpp, session_token, access_key_id, string_to_sign, signature, s, y);
 };
 
+HandoffAuthResult HandoffHelper::anonymous_authorize(const DoutPrefixProvider* dpp,
+    const req_state* const s,
+    optional_yield y)
+{
+  return impl_->anonymous_authorize(dpp, s, y);
+};
+
 } /* namespace rgw */
