@@ -6624,3 +6624,24 @@ bool rgw::auth::s3::S3AnonymousEngine::is_applicable(
 
   return route == AwsRoute::QUERY_STRING && version == AwsVersion::UNKNOWN;
 }
+
+rgw::auth::Engine::result_t
+rgw::auth::s3::S3AnonymousEngine::authenticate(const DoutPrefixProvider* dpp, const req_state* const s, optional_yield y) const
+{
+  if (!is_applicable(s)) {
+    return result_t::deny(-EPERM);
+  } else {
+
+    if (s->handoff_helper) {
+      ldpp_dout(dpp, 1) << fmt::format(FMT_STRING("XXX handoff_helper: here")) << dendl;
+    }
+
+    RGWUserInfo user_info;
+    rgw_get_anon_user(user_info);
+
+    auto apl = apl_factory->create_apl_local(cct, s, user_info,
+        rgw::auth::LocalApplier::NO_SUBUSER,
+        std::nullopt, rgw::auth::LocalApplier::NO_ACCESS_KEY);
+    return result_t::grant(std::move(apl));
+  }
+}

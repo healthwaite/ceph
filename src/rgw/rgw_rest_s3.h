@@ -1355,6 +1355,8 @@ public:
   /* Let's reuse the parent class' constructor. */
   using rgw::auth::AnonymousEngine::AnonymousEngine;
 
+  Engine::result_t authenticate(const DoutPrefixProvider* dpp, const req_state* s, optional_yield y) const override final;
+
   const char* get_name() const noexcept override {
     return "rgw::auth::s3::S3AnonymousEngine";
   }
