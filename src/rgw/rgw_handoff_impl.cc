@@ -237,7 +237,7 @@ HandoffAuthResult AuthServiceClient::Auth(const AuthenticateRESTRequest& req)
   using namespace authenticator::v1;
 
   if (status.ok()) {
-    return HandoffAuthResult(resp.user_id(), status.error_message());
+    return HandoffAuthResult(resp.canonical_user_id(), status.error_message());
   }
   // Error conditions are returned via the Richer error model
   // (https://grpc.io/docs/guides/error/). Create a google::rpc::Status

@@ -588,7 +588,7 @@ class TestAuthImpl final : public authenticator::v1::AuthenticatorService::Servi
       ldpp_dout(&dpp_, 20) << __func__ << ": exit SIGNATURE MISMATCH" << dendl;
       return grpc_error(grpc::StatusCode::UNAUTHENTICATED, s3err_type::S3ErrorDetails_Type_TYPE_SIGNATURE_DOES_NOT_MATCH, 403, "signature mismatch");
     }
-    response->set_user_id(info->userid);
+    response->set_canonical_user_id(info->userid);
     ldpp_dout(&dpp_, 20) << __func__ << ": exit OK" << dendl;
     return grpc::Status::OK;
   }
