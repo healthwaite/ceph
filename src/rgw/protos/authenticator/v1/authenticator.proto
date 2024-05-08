@@ -52,6 +52,9 @@ message S3ErrorDetails {
     // The provided token must be refreshed.
     // 400 Bad Request.
     TYPE_TOKEN_REFRESH_REQUIRED = 14;
+    // Authorization attempted for a bucket that does not exist
+    // 404 Not Found.
+    TYPE_NO_SUCH_BUCKET = 15;
   }
 
   Type type = 1;
@@ -99,15 +102,29 @@ message AuthenticateRESTRequest {
   // The internal rgw transaction ID, may be useful for log correlation and
   // perhaps additional authentication.
   optional string transaction_id = 8;
+  // A map of all relevant x-akamai-* headers from the user's S3 REST request.
+  map<string, string> x_akamai_headers = 9;
+  // When enabled, the Authenticator service will skip its timestamp validation logic. This is intended for use with
+  // RGW only, as RGW converts Presigned URL requests to REST requests for authentication. The problem with this is that
+  // timestamp are validated differently for Presigned URLs, so we instead skip timestamp validation logic for RGW since
+  // RGW already validates timestamps. You should not enable this unless you're absolutely sure.
+  optional bool skip_timestamp_validation = 10;
 }
 
 // Response message for REST authentications.
 message AuthenticateRESTResponse {
-  // The user ID of the signer. This will be set to an assumed user if STS was used.
-  string user_id = 1;
+  // The canonical user ID of the account of the user to authenticate as.
+  string canonical_user_id = 1;
   // The user ID of the signer. This will be set to the assuming user/service if STS was used. This will be omitted if
   // STS was not used.
-  optional string original_user_id = 2;
+  //  optional string original_user_id = 2;
+  reserved 2;
+  // The ARN of the user to authenticate as.
+  string user_arn = 3;
+  // When STS is used, this is the ARN of the assuming user. This field if omitted when STS is not used.
+  optional string assuming_user_arn = 4;
+  // The ARN of the account of the user to authenticate as.
+  string account_arn = 5;
 }
 
 // Request message for authenticating Presigned URL S3 requests.
@@ -127,15 +144,29 @@ message AuthenticatePresignedURLRequest {
   // The internal rgw transaction ID, may be useful for log correlation and
   // perhaps additional authentication.
   optional string transaction_id = 4;
+  // A map of all relevant x-amz-* headers from the user's presigned URL S3 request.
+  map<string, string> x_amz_headers = 5;
+  // A map of all relevant x-akamai-* headers from the user's presigned URL S3 request.
+  map<string, string> x_akamai_headers = 6;
+  // When enabled, the Authenticator service will skip its timestamp validation logic. This is intended for use with
+  // RGW only. You should not enable this unless you're absolutely sure.
+  optional bool skip_timestamp_validation = 7;
 }
 
 // Response message for Presigned URL authentications.
 message AuthenticatePresignedURLResponse {
-  // The user ID of the signer. This will be set to an assumed user if STS was used.
-  string user_id = 1;
+  // The canonical user ID of the account of the user to authenticate as.
+  string canonical_user_id = 1;
   // The user ID of the signer. This will be set to the assuming user/service if STS was used. This will be omitted if
   // STS was not used.
-  optional string original_user_id = 2;
+  //  optional string original_user_id = 2;
+  reserved 2;
+  // The ARN of the user to authenticate as.
+  string user_arn = 3;
+  // When STS is used, this is the ARN of the assuming user. This field if omitted when STS is not used.
+  optional string assuming_user_arn = 4;
+  // The ARN of the account of the user to authenticate as.
+  string account_arn = 5;
 }
 
 message GetSigningKeyRequest {
