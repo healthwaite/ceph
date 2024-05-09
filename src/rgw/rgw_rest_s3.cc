@@ -6632,7 +6632,7 @@ rgw::auth::s3::S3AnonymousEngine::authenticate(const DoutPrefixProvider* dpp, co
     return result_t::deny(-EPERM);
   } else {
 
-    if (s->handoff_helper) {
+    if (s->handoff_helper && s->handoff_helper->anonymous_authorization_enabled()) {
       auto result = s->handoff_helper->anonymous_authorize(dpp, s, y);
       if (!result.is_ok()) {
         return result_t::deny(result.code());

@@ -81,4 +81,9 @@ HandoffAuthResult HandoffHelper::anonymous_authorize(const DoutPrefixProvider* d
   return impl_->anonymous_authorize(dpp, s, y);
 };
 
+bool HandoffHelper::anonymous_authorization_enabled() const
+{
+  return impl_->anonymous_authorization_enabled();
+};
+
 } /* namespace rgw */

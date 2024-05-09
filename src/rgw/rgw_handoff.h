@@ -224,6 +224,14 @@ public:
   HandoffAuthResult anonymous_authorize(const DoutPrefixProvider* dpp,
       const req_state* const s,
       optional_yield y);
+
+  /**
+   * @brief Return true if anonymous authorization is enabled, false otherwise.
+   *
+   * @return true Anonymous authorization is enabled.
+   * @return false Anonymous authorization is disabled.
+   */
+  bool anonymous_authorization_enabled() const;
 };
 
 } /* namespace rgw */

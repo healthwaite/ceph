@@ -518,6 +518,19 @@ void HandoffHelperImpl::set_chunked_upload_mode(CephContext* const cct, bool ena
   enable_chunked_upload_ = enabled;
 }
 
+void HandoffHelperImpl::set_anonymous_authorization(CephContext* const cct, bool enabled)
+{
+  ldout(cct, 1) << fmt::format(FMT_STRING("HandoffHelperImpl::set_anonymous_authorization({})"), (enabled ? "true" : "false")) << dendl;
+  std::unique_lock<std::shared_mutex> g(m_config_);
+  enable_anonymous_authorization_ = enabled;
+}
+
+bool HandoffHelperImpl::anonymous_authorization_enabled() const
+{
+  std::shared_lock<std::shared_mutex> g(m_config_);
+  return enable_anonymous_authorization_;
+}
+
 std::optional<std::string> HandoffHelperImpl::synthesize_auth_header(
     const DoutPrefixProvider* dpp,
     const req_state* s)
