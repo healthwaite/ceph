@@ -218,20 +218,24 @@ int rgw_process_authenticated(RGWHandler_REST * const handler,
     }
   }
 
-  ldpp_dout(op, 2) << "verifying op permissions" << dendl;
-  {
-    auto span = tracing::rgw::tracer.add_span("verify_permission", s->trace);
-    std::swap(span, s->trace);
-    ret = op->verify_permission(y);
-    std::swap(span, s->trace);
-  }
-  if (ret < 0) {
-    if (s->system_request) {
-      dout(2) << "overriding permissions due to system operation" << dendl;
-    } else if (s->auth.identity->is_admin_of(s->user->get_id())) {
-      dout(2) << "overriding permissions due to admin operation" << dendl;
-    } else {
-      return ret;
+  if (s->handoff_helper && s->handoff_helper->skip_local_authorization(s)) {
+    ldpp_dout(op, 2) << "skipping verifying op permissions" << dendl;
+  } else {
+    {
+      ldpp_dout(op, 2) << "verifying op permissions" << dendl;
+      auto span = tracing::rgw::tracer.add_span("verify_permission", s->trace);
+      std::swap(span, s->trace);
+      ret = op->verify_permission(y);
+      std::swap(span, s->trace);
+    }
+    if (ret < 0) {
+      if (s->system_request) {
+        dout(2) << "overriding permissions due to system operation" << dendl;
+      } else if (s->auth.identity->is_admin_of(s->user->get_id())) {
+        dout(2) << "overriding permissions due to admin operation" << dendl;
+      } else {
+        return ret;
+      }
     }
   }
 

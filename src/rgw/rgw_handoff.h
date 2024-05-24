@@ -232,6 +232,8 @@ public:
    * @return false Anonymous authorization is disabled.
    */
   bool anonymous_authorization_enabled() const;
+
+  bool skip_local_authorization(req_state* s) const;
 };
 
 } /* namespace rgw */

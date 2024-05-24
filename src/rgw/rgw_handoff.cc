@@ -86,4 +86,8 @@ bool HandoffHelper::anonymous_authorization_enabled() const
   return impl_->anonymous_authorization_enabled();
 };
 
+bool HandoffHelper::skip_local_authorization(req_state* s [[maybe_unused]]) const {
+  return true;
+};
+
 } /* namespace rgw */
