@@ -57,8 +57,9 @@ For example, with FDB in a container on a shared docker network:
     make shell EXTRA_ARGS='--network kvrgw-perf-net -v /tmp/fdb.cluster:/tmp/fdb.cluster \
         -e FDB_CLUSTER_FILE=/tmp/fdb.cluster -e KVRGW_DATA=/tmp/kvrgw-data'
 
-The build image has no `fdbcli`; either pass `--no-fdb-stats` or mount an `fdbcli` binary and
-set `fdbcli_path`.
+The build image includes `fdbcli` (`/opt/foundationdb/usr/bin/fdbcli`, the default
+`fdbcli_path`), so FDB statistics are collected without extra setup; pass `--no-fdb-stats` to
+skip them.
 
 Then, in that shell (from `src/rgw/kvrgw_poc`):
 

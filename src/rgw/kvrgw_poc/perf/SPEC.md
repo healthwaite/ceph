@@ -812,9 +812,8 @@ should be done in the build container.
   endif()
   ```
 - `perf/Dockerfile.build` provides `grpc-devel grpc-plugins protobuf-devel
-  protobuf-compiler` (EPEL 9) alongside the FDB client libraries. The image does
-  not contain `fdbcli`; the FDB sampler (§8.2) needs it on the machine running the
-  controller (`fdbcli_path`), or run with `--no-fdb-stats`.
+  protobuf-compiler` (EPEL 9) alongside the FDB client package, which provides
+  `fdbcli` at `/opt/foundationdb/usr/bin/fdbcli` for the FDB sampler (§8.2).
 
 ## 10. Testing and acceptance
 
