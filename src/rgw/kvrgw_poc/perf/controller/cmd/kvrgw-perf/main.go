@@ -222,7 +222,7 @@ func runReport(args []string) int {
 		}
 	}
 	if dir == "" {
-		fmt.Fprintln(os.Stderr, "usage: kvrgw-perf report <results-dir> [--warmup D] [--window D] [--deviation N] [--per-server]")
+		fmt.Fprintln(os.Stderr, "usage: kvrgw-perf report <results-dir> [--warmup D] [--window D] [--detailed] [--deviation N] [--per-server]")
 		return 2
 	}
 	d, err := time.ParseDuration(*warmup)
