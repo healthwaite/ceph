@@ -66,7 +66,7 @@ run-put-object:
 # Pages through listings; buckets are split across workers (bucket b => worker b % workers).
 run-list-objects:
   #worker_count: 1
-  #threads_per_worker: 1
+  threads_per_worker: 16
   #verify_threads: 4
   #ops: 0
   duration: 30s
@@ -98,6 +98,7 @@ run-put-object-overwrite-versioned:
 
 # DESTRUCTIVE: deletes loaded objects in batches (prompts unless --yes).
 run-delete-multi:
+  threads_per_worker: 16
   #ops: 1000000
   duration: 30s
   page_size: 1000            # max keys per delete_multi call

@@ -15,7 +15,36 @@ class DeleteMultiOp : public Operation {
     deleted_.assign(static_cast<size_t>(ctx.cfg.threads_per_worker), 0);
     std::vector<uint64_t> all;
     for (uint64_t b = 0; b < ctx.cfg.num_buckets; ++b) all.push_back(b);
-    return check_buckets(ctx, all);
+    std::string err = check_buckets(ctx, all);
+    if (!err.empty()) return err;
+    if (ctx.cfg.has_ops()) {
+      // Each thread stops at the end of its range, so --ops must not ask any thread for more
+      // delete_multi calls than it needs to cover its range.
+      for (int t = 0; t < ctx.cfg.threads_per_worker; ++t) {
+        const uint64_t gtid = static_cast<uint64_t>(ctx.worker_index * ctx.cfg.threads_per_worker + t);
+        const uint64_t quota = ctx.ops_quota(gtid);
+        const uint64_t need = batches_needed(ctx, thread_range(ctx, gtid));
+        if (quota > need) {
+          return "ops (" + std::to_string(ctx.cfg.ops) + ") is too large: thread " + std::to_string(gtid) +
+                 " would run " + std::to_string(quota) + " delete_multi calls but only " +
+                 std::to_string(need) + " cover its keys (page_size " + std::to_string(ctx.cfg.page_size) +
+                 "); each call deletes up to page_size keys, so lower --ops";
+        }
+      }
+    }
+    return {};
+  }
+
+  // delete_multi calls needed to cover range r (batches never cross a bucket boundary).
+  static uint64_t batches_needed(const RunContext &ctx, const Range &r)
+  {
+    uint64_t n = 0;
+    for (uint64_t first = r.start; first < r.end(); ++n) {
+      const uint64_t bucket = bucket_for_index(first, ctx.cfg.num_objects, ctx.cfg.num_buckets);
+      const Range br = bucket_range(bucket, ctx.cfg.num_buckets, ctx.cfg.num_objects);
+      first = std::min({r.end(), br.end(), first + static_cast<uint64_t>(ctx.cfg.page_size)});
+    }
+    return n;
   }
 
   // Id range deleted by global thread `gtid`.
@@ -35,7 +64,7 @@ class DeleteMultiOp : public Operation {
     if (r.count == 0) return;
     ThreadStats &ts = ctx.stats->thread(tid);
     const uint64_t quota = ctx.cfg.has_ops() ? ctx.ops_quota(gtid) : UINT64_MAX;
-    uint64_t calls = 0, total_deleted = 0, pos = 0;
+    uint64_t calls = 0, total_deleted = 0, pos = 0;  // pos: offset in range of the next key
     std::vector<std::string> keys;
     std::vector<kvrgw::KvRgwServiceImpl::DeleteMultiKeyOutcome> outcomes;
     while (!ctx.stopped() && calls < quota && !ctx.expired()) {
@@ -77,8 +106,8 @@ class DeleteMultiOp : public Operation {
       ts.add_units(Metric::KeysDeleted, keys.size());
       total_deleted += keys.size();
       deleted_[static_cast<size_t>(tid)] = std::min(total_deleted, r.count);
-      pos = (last - r.start) % r.count;
-      if (last == r.end()) pos = 0;
+      pos = last - r.start;
+      if (last == r.end()) break;  // whole range deleted: this thread is done
     }
   }
 

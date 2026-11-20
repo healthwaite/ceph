@@ -251,8 +251,10 @@ Inserts brand-new keys never present in `load` or any earlier run.
   prompt. Prompt happens before any worker is started.
 - Split buckets/objects over workers/threads as in `load`. Each thread calls
   `delete_multi` over batches of up to `page_size` consecutive keys from its
-  range; when it reaches the end it starts again (note: on versioned buckets
-  re-deleting creates delete markers; this is acceptable and expected).
+  range and stops when it has deleted the whole range (the run ends once every
+  thread is done, even with `--duration` still remaining). `--ops` counts
+  `delete_multi` calls and must not exceed what a thread needs to cover its range;
+  otherwise init fails with an error (lower `--ops`).
 - Extra metric: `keys_deleted` (counter; keys/s).
 - Any per-key error in a `delete_multi` outcome (or a failed call) is a hard
   failure: the worker fails and so does the invocation. This guarantees that
