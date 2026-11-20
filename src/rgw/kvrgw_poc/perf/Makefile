@@ -33,6 +33,9 @@ DIST          := $(PERF_DIR)/dist
 STAGE_DIR     := $(DIST)/image
 # Image tag: short git sha, with -dirty if the kvrgw_poc tree has uncommitted changes.
 TAG           ?= $(shell git -C "$(POC_DIR)" rev-parse --short HEAD 2>/dev/null || echo dev)$(shell git -C "$(POC_DIR)" diff --quiet HEAD -- . 2>/dev/null || echo -dirty)
+# Evaluate the tag once: `?=` is recursive and would re-run git on every use, so a commit made
+# part-way through a deploy would give the image, tarball and kvrgw-perf.image different tags.
+TAG           := $(TAG)
 TARBALL       := $(DIST)/kvrgw-perf-$(TAG).tar.gz
 
 FDB_ROOT   ?= /opt/foundationdb
@@ -79,7 +82,8 @@ image: docker-image
 save: image
 	$(require_host)
 	rm -f "$(DIST)"/kvrgw-perf-*.tar.gz
-	$(DOCKER) save "$(RUNTIME_IMAGE):$(TAG)" | gzip > "$(TARBALL)"
+	$(DOCKER) save -o "$(TARBALL).tar" "$(RUNTIME_IMAGE):$(TAG)"
+	gzip -c "$(TARBALL).tar" > "$(TARBALL)" && rm -f "$(TARBALL).tar"
 	echo "$(RUNTIME_IMAGE):$(TAG)" > "$(DIST)/kvrgw-perf.image"
 	@ls -lh "$(TARBALL)"
 
