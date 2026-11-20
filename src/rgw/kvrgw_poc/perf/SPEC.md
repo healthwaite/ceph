@@ -686,6 +686,7 @@ All timestamps are Unix milliseconds UTC (`unix_ts_ms`) from the controller's cl
 | `cpu.csv` | `unix_ts_ms,source,cores` — `source` = `worker-<i>` (CPU of the worker process, in cores, from `/proc/<pid>/stat` utime+stime delta) or `system` (whole-host CPU busy in cores-equivalent from `/proc/stat` delta) |
 | `fdb_cluster.csv` | `unix_ts_ms, txn_hz, reads_hz, writes_hz, conflict_hz, worst_queue_ss, worst_queue_log, limiting_queue_ss, durability_lag_s` |
 | `fdb_process.csv` | long format, one row per (sample, process, role): `unix_ts_ms, addr, role, cpu_cores, mem_bytes, rss_bytes, input_hz, durable_hz, stored_bytes, kvstore_bytes, data_lag_s, durability_lag_s, queue_disk_bytes, queue_mem_bytes, disk_busy, disk_reads_hz, disk_writes_hz` (fields not applicable to a role are empty) |
+| `fdb_cpu.csv` | one row per (sample, process) for **every** process: `unix_ts_ms, addr, class, roles, cpu_cores`; `roles` is every role the process holds, sorted and joined with `;` (`none` if it holds none). The report sums mean CPU per role from it (a process counts under each of its roles and once in the total), prints the storage spread, and warns when the hottest storage process exceeds 1.8x the median. Results without this file fall back to the grouped `SS`/`LOG`/`SL` lines. |
 | `fdb_status_start.json` | one raw `status json` snapshot taken at `invocation_start` (cluster configuration: redundancy, engine, process layout) |
 | `controller.log`, `worker-<i>.log` | logs |
 

@@ -83,3 +83,31 @@ func TestProcStat(t *testing.T) {
 		t.Fatalf("system cores %v", c)
 	}
 }
+
+func TestParseStatusFullCPURows(t *testing.T) {
+	data, err := os.ReadFile("testdata/status.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, cpu, err := ParseStatusFull(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One row per process, including the storage-class process with no roles.
+	if len(cpu) != 5 {
+		t.Fatalf("cpu rows=%d %+v", len(cpu), cpu)
+	}
+	byAddr := map[string]CPURow{}
+	for _, r := range cpu {
+		byAddr[r.Addr] = r
+	}
+	if r := byAddr["10.0.0.1:4501"]; r.Cores != 0.6 || len(r.Roles) != 1 || r.Roles[0] != "storage" || r.Class != "storage" {
+		t.Fatalf("storage: %+v", r)
+	}
+	if r := byAddr["10.0.0.3:4503"]; len(r.Roles) != 2 || r.Roles[0] != "commit_proxy" || r.Roles[1] != "resolver" {
+		t.Fatalf("multi-role must list every role, sorted: %+v", r)
+	}
+	if r := byAddr["10.0.0.4:4504"]; len(r.Roles) != 1 || r.Roles[0] != "none" || r.Cores != 0.01 {
+		t.Fatalf("no roles => none: %+v", r)
+	}
+}

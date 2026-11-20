@@ -74,6 +74,7 @@ type data struct {
 	cpu            map[string][]sample
 	fdbCluster     map[string][]sample // column -> series
 	fdbProc        map[procKey]map[string][]sample
+	fdbCPU         map[string]*cpuProc // process address -> CPU samples (fdb_cpu.csv)
 	sum            *results.Summary
 	intervalMs     int64
 	hasFDB         bool
@@ -117,7 +118,8 @@ func pu(s string) uint64  { v, _ := strconv.ParseUint(s, 10, 64); return v }
 
 func load(dir string) (*data, error) {
 	d := &data{dir: dir, wend: map[int64]int64{}, hist: map[string]map[int64]stats.Hist{}, server: map[string][]sample{},
-		cpu: map[string][]sample{}, fdbCluster: map[string][]sample{}, fdbProc: map[procKey]map[string][]sample{}}
+		cpu: map[string][]sample{}, fdbCluster: map[string][]sample{}, fdbProc: map[procKey]map[string][]sample{},
+		fdbCPU: map[string]*cpuProc{}}
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("cannot read results directory %q", dir)
 	}
@@ -219,6 +221,19 @@ func load(dir string) (*data, error) {
 					d.fdbProc[k][hdr[i]] = append(d.fdbProc[k][hdr[i]], sample{pi(r[0]), pf(r[i])})
 				}
 			}
+		}
+	}
+	if _, rows, err := readCSV(filepath.Join(dir, "fdb_cpu.csv")); err == nil {
+		for _, r := range rows {
+			if len(r) < 5 {
+				continue
+			}
+			p := d.fdbCPU[r[1]]
+			if p == nil {
+				p = &cpuProc{roles: strings.Split(r[3], ";")}
+				d.fdbCPU[r[1]] = p
+			}
+			p.samples = append(p.samples, sample{pi(r[0]), pf(r[4])})
 		}
 	}
 	return d, nil
@@ -1158,7 +1173,7 @@ func (d *data) printFDB(w io.Writer, o Options, from, to int64) {
 			fmt.Fprintf(w, " LOG (%d)   input=%s/s   q_disk=%s   cpu=%s\n", len(ps), rng(ps, "input_hz", bytesStr),
 				rng(ps, "queue_disk_bytes", bytesStr), rng(ps, "cpu_cores", f2))
 		}
-		if ps := groups["other"]; len(ps) > 0 {
+		if ps := groups["other"]; len(ps) > 0 && len(d.fdbCPU) == 0 {
 			rs := map[string]bool{}
 			for _, p := range ps {
 				for _, r := range strings.Split(p.key.role, ",") {
@@ -1172,6 +1187,11 @@ func (d *data) printFDB(w io.Writer, o Options, from, to int64) {
 			sort.Strings(names)
 			fmt.Fprintf(w, " SL  (%d)   cpu=%s (%s)\n", len(ps), rng(ps, "cpu_cores", f2), strings.Join(names, ", "))
 		}
+	}
+
+	d.printFDBCPU(w, from, to)
+	if o.Detailed {
+		d.printFDBCPUWindows(w, o, from, to)
 	}
 
 	banner(w, "Health")
@@ -1218,6 +1238,10 @@ func (d *data) printFDB(w io.Writer, o Options, from, to int64) {
 		} else {
 			fmt.Fprintf(w, " [OK] TLog queue stable (first half %s, second half %s)\n", bytesStr(a), bytesStr(b))
 		}
+	}
+	// Hot storage process: per-process CPU much above the median.
+	if msg := d.storageImbalanceWarning(from, to); msg != "" {
+		fmt.Fprintf(w, " [WARN] %s\n", msg)
 	}
 	// Ratekeeper limiting queue (~50% of the 1.5GB storage hard limit).
 	if v := inSamples(d.fdbCluster["limiting_queue_ss"], from, to); len(v) > 0 {

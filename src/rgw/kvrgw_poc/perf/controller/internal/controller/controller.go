@@ -190,6 +190,13 @@ func (v *invocation) startFDB(cctx context.Context, wg *sync.WaitGroup) {
 		return
 	}
 	s.Cluster, s.Process = cl, pr
+	// Per-process CPU for every process is optional: the run works without it.
+	cpu, e3 := v.dir.OpenCSV("fdb_cpu.csv", results.FDBCPUHeader...)
+	if e3 != nil {
+		v.warn("cannot create fdb_cpu.csv: %v", e3)
+	} else {
+		s.CPU = cpu
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -199,6 +206,9 @@ func (v *invocation) startFDB(cctx context.Context, wg *sync.WaitGroup) {
 		}
 		cl.Close()
 		pr.Close()
+		if cpu != nil {
+			cpu.Close()
+		}
 	}()
 }
 

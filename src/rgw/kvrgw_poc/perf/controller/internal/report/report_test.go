@@ -366,3 +366,143 @@ func TestDefaultOmitsPerWindowTables(t *testing.T) {
 		t.Fatalf("expected a per-window table in each of the four sections:\n%s", det)
 	}
 }
+
+// withCPU adds an fdb_cpu.csv (one row per process per FDB sample) to a fixture directory.
+func withCPU(t *testing.T, dir string, hotStorage string, step ...int) {
+	t.Helper()
+	every := 1
+	if len(step) > 0 {
+		every = step[0] // keep every Nth FDB sample (to make the CPU sampling slower)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "fdb_cluster.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	out.WriteString(strings.Join(results.FDBCPUHeader, ",") + "\n")
+	for i, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		if i == 0 {
+			continue
+		}
+		if (i-1)%every != 0 {
+			continue
+		}
+		ts := strings.SplitN(line, ",", 2)[0]
+		for _, p := range [][]string{
+			{"10.0.0.1:4501", "storage", "coordinator;storage", "0.5"},
+			{"10.0.0.2:4502", "storage", "storage", "0.6"},
+			{"10.0.0.3:4503", "storage", "storage", hotStorage},
+			{"10.0.0.9:4600", "transaction", "log", "0.5"},
+			{"10.0.0.8:4700", "stateless", "commit_proxy;resolver", "0.2"},
+			{"10.0.0.7:4500", "coordinator", "coordinator", "0.08"},
+		} {
+			fmt.Fprintf(&out, "%s,%s,%s,%s,%s\n", ts, p[0], p[1], p[2], p[3])
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fdb_cpu.csv"), []byte(out.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFDBCPUByRole(t *testing.T) {
+	dir := fixture(t, false)
+	base, _ := render(t, dir, Options{Warmup: 5 * time.Second})
+	if !strings.Contains(base, "SL  (1)") || strings.Contains(base, "CPU by role") {
+		t.Fatalf("without fdb_cpu.csv the old SL line stays and no CPU table appears:\n%s", base)
+	}
+	withCPU(t, dir, "0.97")
+	out, _ := render(t, dir, Options{Warmup: 5 * time.Second})
+	for _, want := range []string{"CPU by role   ", "mean cores per process over the run"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q:\n%s", want, out)
+		}
+	}
+	// A process with several roles counts under each, once in the total.
+	for _, row := range [][]string{
+		{"storage", "2.07", "3", "0.690"},
+		{"coordinator", "0.58", "2", "0.290"},
+		{"log", "0.50", "1", "0.500"},
+		{"commit_proxy", "0.20", "1", "0.200"},
+		{"resolver", "0.20", "1", "0.200"},
+	} {
+		if !hasRow(out, row...) {
+			t.Fatalf("missing role row %v:\n%s", row, out)
+		}
+	}
+	if !strings.Contains(out, "2.85      6     0.475   0.71 cores per 1,000 committed txn/s") {
+		t.Fatalf("total row (6 processes, 2.85 cores, 4000 txn/s):\n%s", out)
+	}
+	if !strings.Contains(out, "min=0.500 median=0.600 mean=0.690 max=0.970 stddev=0.202") ||
+		!strings.Contains(out, "max/median 1.6x   hottest: 10.0.0.3:4503 0.97, 10.0.0.2:4502 0.60, 10.0.0.1:4501 0.50") {
+		t.Fatalf("storage spread:\n%s", out)
+	}
+	if strings.Contains(out, "SL  (") || strings.Contains(out, "storage CPU imbalance") {
+		t.Fatalf("SL line is replaced by the table; 1.6x is below the 1.8 threshold:\n%s", out)
+	}
+}
+
+func TestStorageCPUImbalanceWarning(t *testing.T) {
+	dir := fixture(t, false)
+	withCPU(t, dir, "1.5") // median 0.6, hottest 1.5 => 2.5x
+	out, _ := render(t, dir, Options{Warmup: 5 * time.Second})
+	want := "[WARN] storage CPU imbalance: hottest 10.0.0.3:4503 at 1.50 cores is 2.5x the median (0.60)"
+	if !strings.Contains(out, want) {
+		t.Fatalf("missing %q:\n%s", want, out)
+	}
+	// Just under the threshold does not warn: 1.02 / 0.6 = 1.7 (the test is "above 1.8").
+	dir = fixture(t, false)
+	withCPU(t, dir, "1.02")
+	out, _ = render(t, dir, Options{Warmup: 5 * time.Second})
+	if strings.Contains(out, "storage CPU imbalance") {
+		t.Fatalf("a ratio of 1.7 must not warn:\n%s", out)
+	}
+}
+
+func cpuRow(out, label string) []string {
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), label) {
+			return strings.Fields(strings.TrimSpace(l)[len(label):])
+		}
+	}
+	return nil
+}
+
+func TestFDBCPUPerWindow(t *testing.T) {
+	dir := fixture(t, false)
+	withCPU(t, dir, "0.97")
+	// 5s windows: each holds five 1s samples, and the per-process CPU is constant.
+	out, _ := render(t, dir, Options{Warmup: 5 * time.Second, Window: 5 * time.Second, Detailed: true})
+	if !strings.Contains(out, "CPU per-window statistics   3 windows of 5s") {
+		t.Fatalf("heading:\n%s", out)
+	}
+	for label, want := range map[string]string{
+		"total (cores)":           "2.85", // 0.5+0.6+0.97+0.5+0.2+0.08, each process once
+		"storage (cores)":         "2.07",
+		"log (cores)":             "0.50",
+		"storage max/median":      "1.62", // 0.97 / 0.60
+		"hottest storage (cores)": "0.97",
+	} {
+		f := cpuRow(out, label)
+		if len(f) < 8 || f[0] != want || f[1] != want || f[2] != want || f[3] != want {
+			t.Fatalf("%s: want %s in min/max/avg/median, got %v\n%s", label, want, f, out)
+		}
+	}
+	// The default report has the by-role table but not the per-window one.
+	def, _ := render(t, dir, Options{Warmup: 5 * time.Second})
+	if strings.Contains(def, "CPU per-window statistics") || !strings.Contains(def, "CPU by role") {
+		t.Fatalf("per-window CPU must be --detailed only:\n%s", def)
+	}
+}
+
+func TestFDBCPUPerWindowNeedsFastEnoughSampling(t *testing.T) {
+	dir := fixture(t, false)
+	withCPU(t, dir, "0.97", 3) // one sample every 3s, but 1s windows
+	out, _ := render(t, dir, Options{Warmup: 5 * time.Second, Detailed: true})
+	if !strings.Contains(out, "CPU per-window statistics   not shown") ||
+		!strings.Contains(out, "[WARN] FDB CPU is sampled every ~3s, which is longer than the 1s window") {
+		t.Fatalf("expected the not-shown warning:\n%s", out)
+	}
+	if !strings.Contains(out, "CPU by role") {
+		t.Fatalf("the run-totals table does not depend on the window:\n%s", out)
+	}
+}

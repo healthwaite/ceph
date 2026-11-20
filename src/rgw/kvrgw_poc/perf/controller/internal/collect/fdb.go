@@ -20,6 +20,14 @@ type ClusterSample struct {
 	WorstQueueSS, WorstQueueLog, LimitingQueueSS, DurLagSecs float64
 }
 
+// CPURow is the CPU of one process in one sample, with every role it holds. Unlike ProcessRow
+// it covers all processes (coordinators, masters, ... too) and has one row per process.
+type CPURow struct {
+	Addr, Class string
+	Roles       []string // sorted, de-duplicated; ["none"] if the process holds no role
+	Cores       float64
+}
+
 // ProcessRow is one (process, role) row; Vals only holds fields applicable to the role.
 type ProcessRow struct {
 	Addr string
@@ -65,6 +73,12 @@ func numOr0(m any, path ...string) float64 {
 
 // ParseStatus extracts cluster and per-process rows from `status json` output.
 func ParseStatus(data []byte) (ClusterSample, []ProcessRow, error) {
+	cs, rows, _, err := ParseStatusFull(data)
+	return cs, rows, err
+}
+
+// ParseStatusFull is ParseStatus plus one CPURow for every process in the cluster.
+func ParseStatusFull(data []byte) (ClusterSample, []ProcessRow, []CPURow, error) {
 	var cs ClusterSample
 	// fdbcli may print warnings before the JSON document.
 	if i := bytes.IndexByte(data, '{'); i > 0 {
@@ -72,11 +86,11 @@ func ParseStatus(data []byte) (ClusterSample, []ProcessRow, error) {
 	}
 	var top obj
 	if err := json.Unmarshal(data, &top); err != nil {
-		return cs, nil, fmt.Errorf("status json: %w", err)
+		return cs, nil, nil, fmt.Errorf("status json: %w", err)
 	}
 	cl, ok := top["cluster"].(obj)
 	if !ok {
-		return cs, nil, fmt.Errorf("status json: no cluster section")
+		return cs, nil, nil, fmt.Errorf("status json: no cluster section")
 	}
 	cs.TxnHz = numOr0(cl, "workload", "transactions", "committed", "hz")
 	cs.ReadsHz = numOr0(cl, "workload", "operations", "reads", "hz")
@@ -95,9 +109,28 @@ func ParseStatus(data []byte) (ClusterSample, []ProcessRow, error) {
 	sort.Strings(ids)
 
 	var rows []ProcessRow
+	var cpuRows []CPURow
 	for _, id := range ids {
 		p, _ := procs[id].(obj)
 		addr, _ := p["address"].(string)
+		class, _ := p["class_type"].(string)
+		seen := map[string]bool{}
+		for _, ri := range func() []any { r, _ := p["roles"].([]any); return r }() {
+			if r, ok := ri.(obj); ok {
+				if name, _ := r["role"].(string); name != "" {
+					seen[name] = true
+				}
+			}
+		}
+		labels := make([]string, 0, len(seen))
+		for n := range seen {
+			labels = append(labels, n)
+		}
+		sort.Strings(labels)
+		if len(labels) == 0 {
+			labels = []string{"none"}
+		}
+		cpuRows = append(cpuRows, CPURow{Addr: addr, Class: class, Roles: labels, Cores: numOr0(p, "cpu", "usage_cores")})
 		common := func() map[string]float64 {
 			v := map[string]float64{
 				"cpu_cores":      numOr0(p, "cpu", "usage_cores"),
@@ -140,7 +173,6 @@ func ParseStatus(data []byte) (ClusterSample, []ProcessRow, error) {
 				other = append(other, name)
 			}
 		}
-		class, _ := p["class_type"].(string)
 		wantOther := class == "stateless"
 		for _, n := range other {
 			if n == "commit_proxy" || n == "grv_proxy" || n == "resolver" {
@@ -155,7 +187,7 @@ func ParseStatus(data []byte) (ClusterSample, []ProcessRow, error) {
 			rows = append(rows, ProcessRow{addr, role, common()})
 		}
 	}
-	return cs, rows, nil
+	return cs, rows, cpuRows, nil
 }
 
 // FDBSampler polls fdbcli status json.
@@ -165,6 +197,7 @@ type FDBSampler struct {
 	Interval    time.Duration
 	Cluster     *results.CSV
 	Process     *results.CSV
+	CPU         *results.CSV // optional: per-process CPU for every process
 	Logf        func(format string, args ...any)
 
 	Samples, Failures atomic.Int64
@@ -202,8 +235,9 @@ func (s *FDBSampler) Run(ctx context.Context) {
 			out, err := s.Status(ctx)
 			var cs ClusterSample
 			var rows []ProcessRow
+			var cpuRows []CPURow
 			if err == nil {
-				cs, rows, err = ParseStatus(out)
+				cs, rows, cpuRows, err = ParseStatusFull(out)
 			}
 			if err != nil {
 				if ctx.Err() != nil {
@@ -231,6 +265,11 @@ func (s *FDBSampler) Run(ctx context.Context) {
 					}
 				}
 				s.Process.Row(rec...)
+			}
+			if s.CPU != nil {
+				for _, r := range cpuRows {
+					s.CPU.Row(ms, r.Addr, r.Class, strings.Join(r.Roles, ";"), results.F(r.Cores))
+				}
 			}
 		}
 	}

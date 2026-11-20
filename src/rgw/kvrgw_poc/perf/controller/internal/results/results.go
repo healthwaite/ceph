@@ -93,7 +93,10 @@ var (
 	ServerStatsHeader = []string{"unix_ts_ms", "window", "name", "value"}
 	CPUHeader         = []string{"unix_ts_ms", "source", "cores"}
 	FDBClusterHeader  = []string{"unix_ts_ms", "txn_hz", "reads_hz", "writes_hz", "conflict_hz", "worst_queue_ss", "worst_queue_log", "limiting_queue_ss", "durability_lag_s"}
-	FDBProcessHeader  = []string{"unix_ts_ms", "addr", "role", "cpu_cores", "mem_bytes", "rss_bytes", "input_hz", "durable_hz", "stored_bytes", "kvstore_bytes", "data_lag_s", "durability_lag_s", "queue_disk_bytes", "queue_mem_bytes", "disk_busy", "disk_reads_hz", "disk_writes_hz"}
+	// FDBCPUHeader: one row per process per sample (roles joined with ";"), so CPU can be summed
+	// per role without double counting processes that hold several roles.
+	FDBCPUHeader     = []string{"unix_ts_ms", "addr", "class", "roles", "cpu_cores"}
+	FDBProcessHeader = []string{"unix_ts_ms", "addr", "role", "cpu_cores", "mem_bytes", "rss_bytes", "input_hz", "durable_hz", "stored_bytes", "kvstore_bytes", "data_lag_s", "durability_lag_s", "queue_disk_bytes", "queue_mem_bytes", "disk_busy", "disk_reads_hz", "disk_writes_hz"}
 )
 
 var _ = fmt.Sprint

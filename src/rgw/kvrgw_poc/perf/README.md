@@ -113,7 +113,7 @@ Local mode (the only mode in v1) spawns `worker_count` workers on `127.0.0.1:<ba
 `--cpus 0-15` splits a CPU pool across them with `taskset`.
 
 Results directory: `config.resolved.json kvrgw.yaml events.csv metrics.csv errors.csv hist.csv server_stats.csv
-cpu.csv fdb_cluster.csv fdb_process.csv fdb_status_start.json summary.json controller.log
+cpu.csv fdb_cluster.csv fdb_process.csv fdb_cpu.csv fdb_status_start.json summary.json controller.log
 worker-<i>.log` (spec section 8.1). FDB files are present only if `fdbcli` works.
 
 Exit codes: 0 success, 1 benchmark/verify failure or worker error, 2 usage.
@@ -122,6 +122,11 @@ Exit codes: 0 success, 1 benchmark/verify failure or worker error, 2 usage.
 
 - Keys use a 70-character prefix charset (the spec text says 68; the listed charset has 70
   characters, so prefix work items = 70 first characters).
+- `fdb_cpu.csv` records the CPU of every FDB process (not just storage, log and stateless ones) with all
+  of its roles. The report's "CPU by role" table sums each process's mean CPU per role (a process with
+  several roles counts under each, once in the total), gives total cores per 1,000 committed txn/s, and
+  shows how evenly storage CPU is spread (min/median/mean/max/stddev, max/median, the hottest processes).
+  Health warns when the hottest storage process is more than 1.8x the median.
 - `run-put-object-overwrite` overwrites every loaded key (each thread loops over its whole slice).
   `run-put-object-overwrite-versioned` overwrites only `num_objects_to_overwrite` keys in total,
   shared evenly across all workers x threads (it must be `<= num_objects`). The limit matters
