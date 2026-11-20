@@ -30,6 +30,32 @@ or, non-interactively from the host, `make shell CMD='make build'` (and `CMD='ma
 gRPC/protobuf are not needed and nothing here is built. The first `go build`/`go test` downloads
 Go modules, so the container needs network access.
 
+## Running on another machine
+
+To run the harness somewhere that has Docker and an FDB cluster but no build environment, package it
+as a runtime image and ship it. On the host:
+
+    make image             # build, stage dist/image, docker build kvrgw-perf:<git sha>[-dirty]
+    make save              # dist/kvrgw-perf-<tag>.tar.gz plus dist/kvrgw-perf.image
+    make deploy            # rsync both and deploy/kvrgw-perf-run.sh to client:~/dev/kvrgw-perf
+                           # (DEPLOY_HOST=... DEPLOY_DIR=... override the destination)
+
+On the target machine:
+
+    cd ~/dev/kvrgw-perf && ./kvrgw-perf-run.sh     # shell in the container
+    kvrgw-perf load                                # then run kvrgw-perf as usual
+    ./kvrgw-perf-run.sh kvrgw-perf run-put-object --duration 60s   # or one command
+
+`kvrgw-perf-run.sh` runs `docker load` the first time (or when a new tarball arrives), then
+`docker run` with host networking, the host's `/etc/foundationdb/fdb.cluster` mounted read-only at the
+same path, `./perf-results` mounted as the results directory, and
+`--security-opt seccomp=unconfined` (needed for glibc 2.34+ images on Docker older than 20.10.10).
+Override with `CLUSTER_FILE`, `RESULTS_DIR` and `DOCKER_RUN_ARGS` (set it to empty to drop the seccomp
+option). The image has `kvrgw-perf`, `kvrgw-perf-worker` and `fdbcli` on `PATH`, and sets
+`FDB_CLUSTER_FILE` and `KVRGW_DATA`. Perf mode never writes object data, but the runtime creates its
+data directory, so `KVRGW_DATA` is just a writable path inside the container (`/tmp/kvrgw-data`).
+Old tarballs are not removed from the target; delete them as needed.
+
 ### Regenerating the Go gRPC stubs
 
 The generated Go stubs in `controller/gen/perf/v1/` are checked in. After editing

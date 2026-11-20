@@ -1,0 +1,27 @@
+# Runtime image for the kvrgw-perf harness: controller, worker and fdbcli, flat in /opt/kvrgw
+# (the layout the controller searches: worker, kvrgw-perf.yaml and fdbcli next to it).
+# Built by `make image` from the artifacts that `make stage` copies into dist/image; it does
+# NOT contain an FDB server. Mount the host cluster file at /etc/foundationdb/fdb.cluster.
+FROM rockylinux:9
+
+RUN dnf install -y epel-release \
+    && dnf install -y --enablerepo=crb grpc-cpp yaml-cpp openssl-libs util-linux \
+    && dnf clean all
+
+COPY . /opt/kvrgw/
+
+ENV PATH=/opt/kvrgw:${PATH} \
+    LD_LIBRARY_PATH=/opt/kvrgw \
+    FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster \
+    KVRGW_DATA=/tmp/kvrgw-data \
+    HOME=/tmp
+
+# Perf mode never writes object data, but the runtime still creates its data directory,
+# so KVRGW_DATA only has to be writable. Fail the image build if a library is missing
+# (e.g. the EPEL gRPC runtime drifted from the version the build image linked against).
+RUN ! ldd /opt/kvrgw/kvrgw-perf-worker | grep 'not found' \
+    && ! ldd /opt/kvrgw/kvrgw-perf | grep 'not found' \
+    && mkdir -p /work && chmod 777 /work
+
+WORKDIR /work
+CMD ["/bin/bash"]
