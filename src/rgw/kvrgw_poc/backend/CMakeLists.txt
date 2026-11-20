@@ -9,7 +9,8 @@ endif()
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(FDB_ROOT "${CMAKE_SOURCE_DIR}/../third_party/fdb")
+set(FDB_ROOT "${CMAKE_SOURCE_DIR}/../third_party/fdb" CACHE PATH
+    "FoundationDB client installation prefix containing usr/include and usr/lib64")
 set(FDB_INCLUDE_DIR "${FDB_ROOT}/usr/include")
 set(FDB_LIB_DIR "${FDB_ROOT}/usr/lib64")
 
@@ -454,3 +455,11 @@ add_test(NAME batch_mixed_test COMMAND batch_mixed_test)
 add_test(NAME d_write_test COMMAND d_write_test)
 add_test(NAME put_condition_test COMMAND put_condition_test)
 add_test(NAME create_bucket_test COMMAND create_bucket_test)
+
+# Optional gRPC perf harness (perf/): worker + Go controller. Off by default so the
+# default build does not need gRPC/protobuf.
+option(KVRGW_BUILD_PERF_HARNESS "Build gRPC perf controller/worker" OFF)
+if(KVRGW_BUILD_PERF_HARNESS)
+  add_subdirectory(${CMAKE_SOURCE_DIR}/../perf ${CMAKE_BINARY_DIR}/perf)
+endif()
+>>>>>>> e037f4d490a (rgw/kvrgw: add gRPC perf harness (kvrgw-perf controller + worker))

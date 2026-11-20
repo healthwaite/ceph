@@ -1,0 +1,27 @@
+{"client":{},"cluster":{
+ "workload":{"transactions":{"committed":{"hz":4130.5},"conflicted":{"hz":0.4}},
+             "operations":{"reads":{"hz":900.0},"writes":{"hz":38600.0}}},
+ "qos":{"worst_queue_bytes_storage_server":12400000,"worst_queue_bytes_log_server":5000000,
+        "limiting_queue_bytes_storage_server":3000000,
+        "limiting_durability_lag_storage_server":{"seconds":0.4}},
+ "processes":{
+  "a1":{"address":"10.0.0.1:4501","class_type":"storage","cpu":{"usage_cores":0.6},
+        "memory":{"used_bytes":2100000000,"rss_bytes":2000000000},
+        "disk":{"busy":0.2,"reads":{"hz":10},"writes":{"hz":20}},
+        "roles":[{"role":"storage","input_bytes":{"hz":1000},"durable_bytes":{"hz":900},
+                  "stored_bytes":5000,"kvstore_used_bytes":6000,
+                  "data_lag":{"seconds":0.3},"durability_lag":{"seconds":0.5},
+                  "queue_disk_used_bytes":777}]},
+  "a2":{"address":"10.0.0.2:4502","class_type":"transaction","cpu":{"usage_cores":0.5},
+        "memory":{"used_bytes":1000},
+        "disk":{"busy":0.1,"reads":{"hz":1},"writes":{"hz":2}},
+        "roles":[{"role":"log","input_bytes":{"hz":70},"durable_bytes":{"hz":69},
+                  "queue_disk_used_bytes":900,"queue_memory_bytes":50}]},
+  "a3":{"address":"10.0.0.3:4503","class_type":"stateless","cpu":{"usage_cores":0.2},
+        "memory":{"used_bytes":3000,"rss_bytes":2900},"disk":{"busy":0},
+        "roles":[{"role":"commit_proxy"},{"role":"resolver"}]},
+  "a4":{"address":"10.0.0.4:4504","class_type":"stateless","cpu":{"usage_cores":0.01},
+        "memory":{"used_bytes":3000},"roles":[]},
+  "a5":{"address":"10.0.0.5:4505","class_type":"storage","cpu":{"usage_cores":0.0},
+        "memory":{"used_bytes":10},"roles":[]}
+ }}}

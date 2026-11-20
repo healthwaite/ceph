@@ -1,0 +1,155 @@
+{
+ "num_buckets": 1184,
+ "index": [
+  {
+   "micros": 0,
+   "bucket": 0
+  },
+  {
+   "micros": 1,
+   "bucket": 1
+  },
+  {
+   "micros": 2,
+   "bucket": 2
+  },
+  {
+   "micros": 63,
+   "bucket": 63
+  },
+  {
+   "micros": 64,
+   "bucket": 64
+  },
+  {
+   "micros": 65,
+   "bucket": 64
+  },
+  {
+   "micros": 100,
+   "bucket": 82
+  },
+  {
+   "micros": 127,
+   "bucket": 95
+  },
+  {
+   "micros": 128,
+   "bucket": 96
+  },
+  {
+   "micros": 129,
+   "bucket": 96
+  },
+  {
+   "micros": 255,
+   "bucket": 127
+  },
+  {
+   "micros": 256,
+   "bucket": 128
+  },
+  {
+   "micros": 1000,
+   "bucket": 190
+  },
+  {
+   "micros": 1023,
+   "bucket": 191
+  },
+  {
+   "micros": 1024,
+   "bucket": 192
+  },
+  {
+   "micros": 4095,
+   "bucket": 255
+  },
+  {
+   "micros": 4096,
+   "bucket": 256
+  },
+  {
+   "micros": 12345,
+   "bucket": 304
+  },
+  {
+   "micros": 65535,
+   "bucket": 383
+  },
+  {
+   "micros": 65536,
+   "bucket": 384
+  },
+  {
+   "micros": 1000000,
+   "bucket": 509
+  },
+  {
+   "micros": 123456789,
+   "bucket": 730
+  },
+  {
+   "micros": 4294967296,
+   "bucket": 896
+  },
+  {
+   "micros": 1099511627775,
+   "bucket": 1151
+  },
+  {
+   "micros": 1099511627776,
+   "bucket": 1152
+  },
+  {
+   "micros": 1125899906842624,
+   "bucket": 1183
+  }
+ ],
+ "midpoint": [
+  {
+   "bucket": 0,
+   "mid": 0
+  },
+  {
+   "bucket": 1,
+   "mid": 1
+  },
+  {
+   "bucket": 63,
+   "mid": 63
+  },
+  {
+   "bucket": 64,
+   "mid": 65
+  },
+  {
+   "bucket": 65,
+   "mid": 67
+  },
+  {
+   "bucket": 95,
+   "mid": 127
+  },
+  {
+   "bucket": 96,
+   "mid": 130
+  },
+  {
+   "bucket": 200,
+   "mid": 1296
+  },
+  {
+   "bucket": 500,
+   "mid": 860160
+  },
+  {
+   "bucket": 1000,
+   "mid": 43486543872
+  },
+  {
+   "bucket": 1183,
+   "mid": 2181843386368
+  }
+ ]
+}

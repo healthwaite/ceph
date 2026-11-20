@@ -1,0 +1,117 @@
+syntax = "proto3";
+package perf.v1;
+
+option go_package = "kvrgw-perf/gen/perf/v1;perfv1";
+
+service Worker {
+  // Resolve config, start/attach runtime, create buckets (load, worker 0 only),
+  // check preconditions. Streams exactly one terminal PhaseEvent{READY}.
+  rpc Init(InitRequest) returns (stream PhaseEvent);
+  // Run the benchmark. First client message carries run_control; later may send Cancel.
+  // Streams periodic PhaseEvent{progress} and a terminal PhaseEvent{DONE}.
+  rpc RunBenchmark(stream RunControl) returns (stream PhaseEvent);
+  // Run the operation's Verify step (if any). Terminal PhaseEvent{DONE}; failures in .error
+  // and details in .verify.
+  rpc Verify(VerifyRequest) returns (stream PhaseEvent);
+  // Release resources. Terminal PhaseEvent{DONE}.
+  rpc Cleanup(CleanupRequest) returns (stream PhaseEvent);
+}
+
+message InitRequest {
+  string operation = 1;        // "load", "run-put-object", ...
+  bytes config_json = 2;       // fully resolved config
+  int32 worker_index = 3;
+  int32 worker_count = 4;
+  string benchmark_id = 5;     // unique per invocation
+  int64 run_start_unix_s = 6;  // controller wall clock; used in put-object keys & versioned verify
+}
+message RunControl {
+  string benchmark_id = 1;     // first message only
+  int64 run_start_unix_ns = 2; // first message only: aligns windows across workers
+  int64 report_interval_ms = 3;// first message only; 0 disables progress
+  oneof msg { Cancel cancel = 4; }
+}
+message Cancel {}
+message VerifyRequest {
+  string benchmark_id = 1;
+  // Indexed by global_thread_id (length total_threads), assembled by the controller from
+  // each worker's RunSummary: put_count (run-put-object) or delete_progress (run-delete-multi).
+  // Empty for other operations.
+  repeated uint64 thread_counts = 2;
+}
+message CleanupRequest { string benchmark_id = 1; }
+
+message PhaseEvent {
+  enum State { READY = 0; DONE = 1; }
+  State state = 1;
+  string error = 2;            // non-empty => phase failed
+  ProgressReport progress = 3; // periodic events carry no phase transition
+  VerifyResult verify = 4;     // set on Verify's DONE
+  RunSummary run_summary = 5;  // set on RunBenchmark's DONE
+}
+message RunSummary {
+  int32 worker_index = 1;
+  repeated uint64 thread_counts = 2; // indexed by thread_id within the worker
+}
+message ProgressReport {
+  int32 worker_index = 1;
+  int64 window = 2;            // 0-based, from run_start_unix_ns
+  int64 window_duration_ns = 3;// shorter for final partial window
+  repeated OpStats window_stats = 4;
+  repeated OpStats cumulative_stats = 5; // full snapshot, not delta
+  int64 cumulative_as_of_unix_ns = 6;
+  ServerStats server_stats = 7; // cumulative snapshot of in-process kvrgw stats
+  map<string, string> error_descriptions = 8; // error code name -> human-readable text
+}
+// Snapshot of the worker's in-process kvrgw statistics (the same counters the
+// legacy admin socket exposed via get-latency / get-batch-stats / get-error-stats).
+// All values are cumulative since process start; the controller diffs them.
+// Read them directly from the runtime objects in-process; no admin socket is used.
+message ServerStats {
+  repeated ServerOpStats ops = 1;   // only op types with count > 0
+  uint64 batch_commits = 2;         // attempted_batch_commits
+  uint64 batch_entries = 3;         // attempted_entries_batched
+  uint64 batch_wait_us_total = 4;   // attempted_total_wait_us
+  uint64 batch_queue_size_total = 5;// total_queue_size_at_extract
+  uint64 batch_conflict_pushbacks = 6;
+  uint64 txn_retries = 7;           // if exposed; else 0
+  uint64 txn_hard_failures = 8;     // if exposed; else 0
+  map<string, uint64> errors = 9;   // KvrgwErrorCode name -> count, non-zero only
+}
+message ServerOpStats {
+  string op = 1;                    // e.g. "PutObject", "ListObjects"
+  uint64 count = 2;
+  uint64 total_us = 3;
+  uint64 fdb_us = 4;
+  uint64 fdb_get_us = 5;
+  uint64 fdb_commit_us = 6;
+  uint64 fdb_scan_us = 7;
+  uint64 disk_us = 8;
+}
+message OpStats {
+  string operation_type = 1;   // "put_object","list_objects","delete_multi",
+                               // plus counter-style types: "keys_listed","keys_deleted"
+  uint64 count = 2;            // successes; latency covers only these
+  uint64 errors = 3;
+  uint64 sum_micros = 4;
+  Histogram latency = 5;       // empty for counter-style types (count = units)
+  map<string, uint64> error_codes = 6; // errors by code name (sum == errors, same window/cumulative scope)
+}
+message Histogram { repeated uint32 bucket_index = 1; repeated uint64 bucket_count = 2; }
+message VerifyResult {
+  repeated BucketVerify buckets = 1; // one per bucket owned by this worker
+  uint64 keys_checked = 2;           // total keys seen
+  uint64 bad_key = 3;
+  uint64 out_of_range = 4;
+  uint64 unexpected = 5;
+  uint64 duplicate = 6;
+  uint64 other_failures = 7;         // e.g. version-count mismatches, list errors
+  repeated string samples = 8;       // capped failure descriptions
+}
+message BucketVerify {
+  string bucket = 1;
+  uint64 expected = 2;
+  uint64 found = 3;
+  uint64 missing = 4;
+  repeated string missing_keys = 5;  // capped (first ~100), full object keys
+}
