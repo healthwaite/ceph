@@ -23,7 +23,7 @@ kvrgw:
 # ---- common settings ------------------------------------------------------------------
 base:
   # data set
-  num_objects: 1000000       # total objects loaded
+  num_objects: 1_000_000_000 # total objects loaded
   num_buckets: 10            # bucket names are <bucket_name_prefix>-<i>
   bucket_name_prefix: rgwkv
   padding_bytes: 200         # random key-prefix length (key = prefix + 20-digit id)
@@ -32,7 +32,7 @@ base:
   # parallelism
   worker_count: 32           # worker processes (local mode), one runtime each
   threads_per_worker: 128
-  verify_threads: 4          # scan threads per worker during Verify
+  verify_threads: 16         # scan threads per worker during Verify
   # reporting and collectors
   report_interval_ms: 10000  # progress-window length (0 = one report for the whole run)
   fdb_stats: true            # sample `fdbcli status json` (--no-fdb-stats to disable)
@@ -46,8 +46,8 @@ base:
 # num_objects objects. Fails if a bucket already exists, unless `force` (--force) is set:
 # then existing buckets and objects are kept and load puts its keys into them.
 load:
-  #worker_count: 4
-  #threads_per_worker: 32
+  #worker_count: 1
+  #threads_per_worker: 1
   #verify_threads: 4
   force: false
 
