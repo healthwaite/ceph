@@ -1,0 +1,44 @@
+ARG GO_VERSION=1.25
+FROM golang:${GO_VERSION} AS go
+
+FROM rockylinux:9
+
+ARG FDB_VERSION=7.3.69
+ARG FDB_SHA256=8678144b4433e24bd4f82c64cdbcf7c0b89ae66449dfbb95b9ce77a69faf7b7e
+
+RUN test "$(uname -m)" = x86_64 \
+    && dnf install -y dnf-plugins-core epel-release \
+    && dnf config-manager --set-enabled crb
+
+RUN dnf install -y \
+        ca-certificates cmake cpio curl-minimal gcc-toolset-14-gcc-c++ git make \
+        grpc-devel grpc-plugins nlohmann-json-devel openssl-devel \
+        pkgconf-pkg-config protobuf-devel protobuf-compiler rpm-build \
+        yaml-cpp-devel \
+    && dnf clean all
+
+RUN curl -fSL --retry 3 \
+        "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients-${FDB_VERSION}-1.el7.x86_64.rpm" \
+        -o /tmp/fdb-clients.rpm \
+    && echo "${FDB_SHA256}  /tmp/fdb-clients.rpm" | sha256sum -c - \
+    && mkdir -p /opt/foundationdb \
+    && rpm2cpio /tmp/fdb-clients.rpm > /tmp/fdb-clients.cpio \
+    && cd /opt/foundationdb \
+    && cpio -idmu < /tmp/fdb-clients.cpio \
+    && test -f usr/include/foundationdb/fdb_c.h \
+    && test -f usr/lib64/libfdb_c.so \
+    && rm /tmp/fdb-clients.rpm /tmp/fdb-clients.cpio
+
+COPY --from=go /usr/local/go /usr/local/go
+
+ENV PATH="/opt/rh/gcc-toolset-14/root/usr/bin:/usr/local/go/bin:${PATH}" \
+    GCC_TOOLSET_ENABLE=/opt/rh/gcc-toolset-14/enable \
+    FDB_ROOT=/opt/foundationdb \
+    BUILD_JOBS=3 \
+    CGO_ENABLED=1 \
+    HOME=/tmp \
+    GOPATH=/tmp/go \
+    GOCACHE=/tmp/go-build
+
+WORKDIR /workspace/src/rgw/kvrgw_poc/perf
+CMD ["/bin/bash"]
