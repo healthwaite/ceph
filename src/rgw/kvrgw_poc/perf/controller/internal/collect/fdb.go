@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -18,6 +19,68 @@ import (
 type ClusterSample struct {
 	TxnHz, ReadsHz, WritesHz, ConflictHz                     float64
 	WorstQueueSS, WorstQueueLog, LimitingQueueSS, DurLagSecs float64
+	DiskUsedBytes, KVBytes                                   float64 // cluster.data total_disk_used_bytes / total_kv_size_bytes
+}
+
+// RoleRow is one line of the cluster configuration table: the processes holding a role and
+// their combined CPU. A process holding several roles counts under each.
+type RoleRow struct {
+	Role  string
+	Cores float64
+	Procs int
+}
+
+// RoleTable sums per-process CPU by role, by cores descending.
+func RoleTable(rows []CPURow) []RoleRow {
+	by := map[string]*RoleRow{}
+	for _, r := range rows {
+		for _, role := range r.Roles {
+			rr := by[role]
+			if rr == nil {
+				rr = &RoleRow{Role: role}
+				by[role] = rr
+			}
+			rr.Cores += r.Cores
+			rr.Procs++
+		}
+	}
+	out := make([]RoleRow, 0, len(by))
+	for _, rr := range by {
+		out = append(out, *rr)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Cores != out[j].Cores {
+			return out[i].Cores > out[j].Cores
+		}
+		return out[i].Role < out[j].Role
+	})
+	return out
+}
+
+// FormatRoleTable renders the table as aligned text lines, each prefixed with indent.
+func FormatRoleTable(rows []RoleRow, indent string) string {
+	width := 4
+	for _, r := range rows {
+		if len(r.Role) > width {
+			width = len(r.Role)
+		}
+	}
+	width += 2
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s%-*s%8s%7s\n", indent, width, "role", "cores", "procs")
+	for _, r := range rows {
+		fmt.Fprintf(&b, "%s%-*s%8.2f%7d\n", indent, width, r.Role, r.Cores, r.Procs)
+	}
+	return b.String()
+}
+
+// ParseConfig returns the role table of a `status json` document.
+func ParseConfig(data []byte) ([]RoleRow, error) {
+	_, _, cpu, err := ParseStatusFull(data)
+	if err != nil {
+		return nil, err
+	}
+	return RoleTable(cpu), nil
 }
 
 // CPURow is the CPU of one process in one sample, with every role it holds. Unlike ProcessRow
@@ -100,6 +163,9 @@ func ParseStatusFull(data []byte) (ClusterSample, []ProcessRow, []CPURow, error)
 	cs.WorstQueueLog = numOr0(cl, "qos", "worst_queue_bytes_log_server")
 	cs.LimitingQueueSS = numOr0(cl, "qos", "limiting_queue_bytes_storage_server")
 	cs.DurLagSecs = numOr0(cl, "qos", "limiting_durability_lag_storage_server", "seconds")
+
+	cs.DiskUsedBytes = numOr0(cl, "data", "total_disk_used_bytes")
+	cs.KVBytes = numOr0(cl, "data", "total_kv_size_bytes")
 
 	procs, _ := cl["processes"].(obj)
 	ids := make([]string, 0, len(procs))
@@ -201,6 +267,17 @@ type FDBSampler struct {
 	Logf        func(format string, args ...any)
 
 	Samples, Failures atomic.Int64
+
+	mu    sync.Mutex
+	last  ClusterSample
+	hasLs bool
+}
+
+// Last returns the most recent successful cluster sample.
+func (s *FDBSampler) Last() (ClusterSample, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.last, s.hasLs
 }
 
 // Status runs `fdbcli status json` with a 5s outer timeout.
@@ -251,10 +328,13 @@ func (s *FDBSampler) Run(ctx context.Context) {
 				continue
 			}
 			s.Samples.Add(1)
+			s.mu.Lock()
+			s.last, s.hasLs = cs, true
+			s.mu.Unlock()
 			ms := results.I(now.UnixMilli())
 			s.Cluster.Row(ms, results.F(cs.TxnHz), results.F(cs.ReadsHz), results.F(cs.WritesHz),
 				results.F(cs.ConflictHz), results.F(cs.WorstQueueSS), results.F(cs.WorstQueueLog),
-				results.F(cs.LimitingQueueSS), results.F(cs.DurLagSecs))
+				results.F(cs.LimitingQueueSS), results.F(cs.DurLagSecs), results.F(cs.DiskUsedBytes), results.F(cs.KVBytes))
 			for _, r := range rows {
 				rec := []string{ms, r.Addr, r.Role}
 				for _, c := range ProcessColumns {

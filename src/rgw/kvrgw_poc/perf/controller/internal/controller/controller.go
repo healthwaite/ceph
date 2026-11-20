@@ -77,6 +77,8 @@ type invocation struct {
 	errDescs                       map[string]string
 	workerSums                     []*pb.RunSummary
 	benchEndMs                     int64
+	fdbStart, fdbEnd               *collect.ClusterSample
+	fdbConfig                      []collect.RoleRow
 }
 
 func (v *invocation) fail(format string, a ...any) {
@@ -175,14 +177,20 @@ func (v *invocation) startFDB(cctx context.Context, wg *sync.WaitGroup) {
 	s := &collect.FDBSampler{Path: cfg.FdbcliPath, ClusterFile: cfg.FdbClusterFile,
 		Interval: time.Duration(cfg.FdbSampleIntervalMs) * time.Millisecond, Logf: v.lg.Printf}
 	raw, err := s.Status(cctx)
+	var startCS collect.ClusterSample
+	var startCPU []collect.CPURow
 	if err == nil {
-		_, _, err = collect.ParseStatus(raw)
+		startCS, _, startCPU, err = collect.ParseStatusFull(raw)
 	}
 	if err != nil {
 		v.warn("FDB stats disabled: fdbcli status failed: %v", err)
 		return
 	}
 	os.WriteFile(v.dir.File("fdb_status_start.json"), raw, 0o644)
+	v.fdbStart = &startCS
+	v.fdbConfig = collect.RoleTable(startCPU)
+	fmt.Fprintf(v.out, "FDB cluster configuration (CPU at start):\n%s", collect.FormatRoleTable(v.fdbConfig, "  "))
+	fmt.Fprintf(v.out, "FDB disk used at start: %s\n", humanBytes(startCS.DiskUsedBytes))
 	cl, e1 := v.dir.OpenCSV("fdb_cluster.csv", results.FDBClusterHeader...)
 	pr, e2 := v.dir.OpenCSV("fdb_process.csv", results.FDBProcessHeader...)
 	if e1 != nil || e2 != nil {
@@ -201,6 +209,9 @@ func (v *invocation) startFDB(cctx context.Context, wg *sync.WaitGroup) {
 	go func() {
 		defer wg.Done()
 		s.Run(cctx)
+		if l, ok := s.Last(); ok {
+			v.fdbEnd = &l
+		}
 		if n := s.Failures.Load(); n > 0 {
 			v.warn("%d FDB status samples failed (%d ok)", n, s.Samples.Load())
 		}

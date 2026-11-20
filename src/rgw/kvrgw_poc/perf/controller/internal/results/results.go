@@ -92,7 +92,7 @@ var (
 	HistHeader        = []string{"window", "op_type", "bucket_index", "count"}
 	ServerStatsHeader = []string{"unix_ts_ms", "window", "name", "value"}
 	CPUHeader         = []string{"unix_ts_ms", "source", "cores"}
-	FDBClusterHeader  = []string{"unix_ts_ms", "txn_hz", "reads_hz", "writes_hz", "conflict_hz", "worst_queue_ss", "worst_queue_log", "limiting_queue_ss", "durability_lag_s"}
+	FDBClusterHeader  = []string{"unix_ts_ms", "txn_hz", "reads_hz", "writes_hz", "conflict_hz", "worst_queue_ss", "worst_queue_log", "limiting_queue_ss", "durability_lag_s", "disk_used_bytes", "kv_bytes"}
 	// FDBCPUHeader: one row per process per sample (roles joined with ";"), so CPU can be summed
 	// per role without double counting processes that hold several roles.
 	FDBCPUHeader     = []string{"unix_ts_ms", "addr", "class", "roles", "cpu_cores"}

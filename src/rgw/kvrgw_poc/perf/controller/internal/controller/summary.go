@@ -67,6 +67,13 @@ func (v *invocation) printFinal(s *results.Summary) {
 			fmt.Fprintln(v.out, line)
 		}
 	}
+	if v.fdbStart != nil {
+		fmt.Fprintf(v.out, "  fdb disk used: start=%s", humanBytes(v.fdbStart.DiskUsedBytes))
+		if v.fdbEnd != nil {
+			fmt.Fprintf(v.out, "  end=%s  (+%s)", humanBytes(v.fdbEnd.DiskUsedBytes), humanBytes(v.fdbEnd.DiskUsedBytes-v.fdbStart.DiskUsedBytes))
+		}
+		fmt.Fprintln(v.out)
+	}
 	if vs := s.Verify; vs != nil {
 		st := "PASS"
 		if !vs.Pass {
@@ -92,4 +99,21 @@ func (v *invocation) printFinal(s *results.Summary) {
 	} else {
 		fmt.Fprintf(v.out, "  RESULT: OK\n")
 	}
+}
+
+func humanBytes(b float64) string {
+	neg := ""
+	if b < 0 {
+		neg, b = "-", -b
+	}
+	for _, u := range []string{"B", "KB", "MB", "GB", "TB"} {
+		if b < 1000 || u == "TB" {
+			if u == "B" {
+				return fmt.Sprintf("%s%.0f%s", neg, b, u)
+			}
+			return fmt.Sprintf("%s%.2f%s", neg, b, u)
+		}
+		b /= 1000
+	}
+	return ""
 }

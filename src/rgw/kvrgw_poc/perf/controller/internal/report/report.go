@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"kvrgw-perf/internal/collect"
 	"kvrgw-perf/internal/results"
 	"kvrgw-perf/internal/stats"
 )
@@ -78,6 +79,9 @@ type data struct {
 	sum            *results.Summary
 	intervalMs     int64
 	hasFDB         bool
+	fdbConfig      []collect.RoleRow // cluster configuration at the start (fdb_status_start.json)
+	fdbStartDisk   float64
+	hasStartDisk   bool
 }
 
 type errRow struct {
@@ -205,6 +209,12 @@ func load(dir string) (*data, error) {
 			for i := 1; i < len(r) && i < len(hdr); i++ {
 				d.fdbCluster[hdr[i]] = append(d.fdbCluster[hdr[i]], sample{pi(r[0]), pf(r[i])})
 			}
+		}
+	}
+	if raw, err := os.ReadFile(filepath.Join(dir, "fdb_status_start.json")); err == nil {
+		if cs, _, cpu, err := collect.ParseStatusFull(raw); err == nil {
+			d.fdbConfig = collect.RoleTable(cpu)
+			d.fdbStartDisk, d.hasStartDisk = cs.DiskUsedBytes, true
 		}
 	}
 	if hdr, rows, err := readCSV(filepath.Join(dir, "fdb_process.csv")); err == nil && hdr != nil {
@@ -1131,6 +1141,13 @@ func (d *data) printFDB(w io.Writer, o Options, from, to int64) {
 		fmt.Fprintf(w, " %-22s%9s%9s%9s%9s\n", c.label, num(s.Min), num(s.Max), num(s.Avg), num(s.Median))
 	}
 
+	d.printFDBDisk(w)
+	if len(d.fdbConfig) > 0 {
+		subHeading(w, "Cluster configuration", "at start of run",
+			"cores is the CPU in use at the start; a process holding several roles counts under each")
+		fmt.Fprint(w, collect.FormatRoleTable(d.fdbConfig, " "))
+	}
+
 	procs := d.procStats(from, to)
 	banner(w, "FDB by role")
 	fmt.Fprintln(w)
@@ -1412,4 +1429,32 @@ func (d *data) series(op string, from, to int64, k int) []opSample {
 		out = append(out, s)
 	}
 	return out
+}
+
+// printFDBDisk prints the disk space used by FDB at the start and end of the run.
+func (d *data) printFDBDisk(w io.Writer) {
+	ser := d.fdbCluster["disk_used_bytes"]
+	if len(ser) == 0 && !d.hasStartDisk {
+		return
+	}
+	var start, end float64
+	switch {
+	case d.hasStartDisk:
+		start = d.fdbStartDisk
+	case len(ser) > 0:
+		start = ser[0].v
+	}
+	if len(ser) > 0 {
+		end = ser[len(ser)-1].v
+	}
+	subHeading(w, "Disk space used", "", "total_disk_used_bytes from FDB status, summed over the cluster, including replicas")
+	fmt.Fprintf(w, " start %s", bytesStr(start))
+	if len(ser) > 0 {
+		sign := "+"
+		if end < start {
+			sign = "-"
+		}
+		fmt.Fprintf(w, "   end %s   change %s%s", bytesStr(end), sign, bytesStr(math.Abs(end-start)))
+	}
+	fmt.Fprintln(w)
 }
