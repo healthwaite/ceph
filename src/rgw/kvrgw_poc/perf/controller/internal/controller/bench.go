@@ -206,7 +206,7 @@ func (v *invocation) handleWindows(wins []*stats.Window) {
 			if stats.IsCounter(op) {
 				v.metricsCSV.Row(results.I(ts), results.I(w.Index), op, results.U(m.Count), results.U(m.Errors),
 					results.F(rate), "", "", "", "", "", "", results.U(c[0]), results.U(c[1]))
-				parts = append(parts, fmt.Sprintf("%s %s/s", op, human(rate)))
+				parts = append(parts, fmt.Sprintf("%s %s/s total=%s", op, human(rate), human(float64(c[0]))))
 				continue
 			}
 			var mean float64
@@ -221,8 +221,8 @@ func (v *invocation) handleWindows(wins []*stats.Window) {
 			for k := range idx {
 				v.histCSV.Row(results.I(w.Index), op, results.I(int64(idx[k])), results.U(cnt[k]))
 			}
-			parts = append(parts, fmt.Sprintf("%s %s ops/s p50=%s p99=%s err=%d%s", op, human(rate),
-				fmtUs(m.Hist.Quantile(0.5)), fmtUs(m.Hist.Quantile(0.99)), m.Errors, errNote))
+			parts = append(parts, fmt.Sprintf("%s %s ops/s total=%s p50=%s p99=%s err=%d%s", op, human(rate),
+				human(float64(c[0])), fmtUs(m.Hist.Quantile(0.5)), fmtUs(m.Hist.Quantile(0.99)), m.Errors, errNote))
 		}
 		for _, name := range sortedKeys(w.Server) {
 			v.serverCSV.Row(results.I(ts), results.I(w.Index), name, results.U(w.Server[name]))
