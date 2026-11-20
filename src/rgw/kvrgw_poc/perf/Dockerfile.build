@@ -31,7 +31,7 @@ RUN curl -fSL --retry 3 \
 
 COPY --from=go /usr/local/go /usr/local/go
 
-ENV PATH="/opt/rh/gcc-toolset-14/root/usr/bin:/usr/local/go/bin:${PATH}" \
+ENV PATH="/opt/rh/gcc-toolset-14/root/usr/bin:/usr/local/go/bin:/opt/foundationdb/usr/bin:${PATH}" \
     GCC_TOOLSET_ENABLE=/opt/rh/gcc-toolset-14/enable \
     FDB_ROOT=/opt/foundationdb \
     BUILD_JOBS=3 \

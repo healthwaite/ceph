@@ -58,8 +58,8 @@ For example, with FDB in a container on a shared docker network:
         -e FDB_CLUSTER_FILE=/tmp/fdb.cluster -e KVRGW_DATA=/tmp/kvrgw-data'
 
 The build image includes `fdbcli` (`/opt/foundationdb/usr/bin/fdbcli`, the default
-`fdbcli_path`), so FDB statistics are collected without extra setup; pass `--no-fdb-stats` to
-skip them.
+`fdbcli_path`, and on `PATH`), so FDB statistics are collected without extra setup; pass
+`--no-fdb-stats` to skip them.
 
 Then, in that shell (from `src/rgw/kvrgw_poc`):
 
