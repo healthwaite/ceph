@@ -27,6 +27,49 @@ class Lister {
                            const std::string &token, ListPage *out) = 0;
 };
 
+// One entry of a bucket's version listing, reduced to what verification needs.
+struct VersionEntry {
+  std::string key;
+  bool null_version = false;  // the null version id: the single version of a never-versioned object
+  bool delete_marker = false;
+};
+
+struct VersionPage {
+  std::vector<VersionEntry> entries;
+  bool truncated = false;
+  std::string next_key_marker;
+  std::string next_version_marker;  // opaque to the lister
+};
+
+// Pages through a bucket's versions (list_object_versions).
+class VersionPager {
+ public:
+  virtual ~VersionPager() = default;
+  // Returns an error description, empty on success.
+  virtual std::string page(const std::string &prefix, uint32_t max_keys,
+                           const std::string &key_marker, const std::string &version_marker,
+                           VersionPage *out) = 0;
+};
+
+struct Failures;
+
+// A Lister over a VersionPager. Every entry yields its key, so a key with more than one version
+// shows up as a duplicate in verify_bucket_load. Any entry that is not a lone null version
+// (a real version id, or a delete marker) means the bucket has been versioned: it is recorded
+// in `f` as a failure. Used to verify that overwrites replaced objects instead of versioning them.
+class VersionScanLister : public Lister {
+ public:
+  VersionScanLister(VersionPager &pager, Failures &f, std::string bucket)
+      : pager_(pager), f_(f), bucket_(std::move(bucket)) {}
+  std::string list(const std::string &prefix, uint32_t max_keys, const std::string &token,
+                   ListPage *out) override;
+
+ private:
+  VersionPager &pager_;
+  Failures &f_;
+  std::string bucket_;
+};
+
 class AtomicBitset {
  public:
   explicit AtomicBitset(uint64_t nbits = 0) { resize(nbits); }

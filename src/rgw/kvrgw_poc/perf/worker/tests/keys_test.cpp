@@ -1,6 +1,7 @@
 #include "keys.hpp"
 #include "test_util.hpp"
 
+#include <initializer_list>
 #include <set>
 
 using namespace perfw;
@@ -73,6 +74,41 @@ static void test_index_range()
   CHECK(index_range(3, 8, 3).count == 0);  // num_objects < total_threads
 }
 
+static void test_overwrite_window()
+{
+  for (uint64_t n : {1ULL, 10ULL, 17ULL, 1000ULL}) {
+    for (uint64_t t : {1ULL, 3ULL, 4ULL, 16ULL}) {
+      // 0 = no limit: every thread overwrites its whole range.
+      uint64_t sum = 0;
+      for (uint64_t g = 0; g < t; ++g) {
+        auto w = overwrite_window(g, t, n, 0);
+        CHECK(w.start == index_range(g, t, n).start && w.count == index_range(g, t, n).count);
+        sum += w.count;
+      }
+      CHECK(sum == n);
+      // A total <= n is shared across all threads and never clamped: windows sum to the total.
+      for (uint64_t total : std::initializer_list<uint64_t>{1, n / 2 + 1, n}) {
+        uint64_t got = 0;
+        for (uint64_t g = 0; g < t; ++g) {
+          auto w = overwrite_window(g, t, n, total);
+          CHECK(w.start == index_range(g, t, n).start);          // starts at its range
+          CHECK(w.count <= index_range(g, t, n).count);          // within its range
+          CHECK(w.count == block_range(g, t, total).count || total < t);  // even share
+          got += w.count;
+        }
+        CHECK(got == total);
+      }
+      // A total above num_objects is clamped to the ranges: everything, nothing more.
+      uint64_t got = 0;
+      for (uint64_t g = 0; g < t; ++g) got += overwrite_window(g, t, n, n * 3).count;
+      CHECK(got == n);
+    }
+  }
+  // 1,000,000 shared over 8 workers x 32 threads = 256 threads: 3906 or 3907 keys each.
+  CHECK(overwrite_window(0, 256, 10000000, 1000000).count == 3907);
+  CHECK(overwrite_window(255, 256, 10000000, 1000000).count == 3906);
+}
+
 static void test_ownership()
 {
   for (int wc : {1, 2, 3, 4, 7}) {
@@ -96,6 +132,7 @@ int main()
   test_determinism_and_format();
   test_bucket_for_index();
   test_index_range();
+  test_overwrite_window();
   test_ownership();
   std::puts("keys_test OK");
 }

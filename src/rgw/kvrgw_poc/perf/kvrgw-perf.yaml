@@ -30,8 +30,8 @@ base:
   object_size_bytes: 8192    # payload size
   tenant_name: kv-poc
   # parallelism
-  worker_count: 4            # worker processes (local mode), one runtime each
-  threads_per_worker: 32
+  worker_count: 32           # worker processes (local mode), one runtime each
+  threads_per_worker: 128
   verify_threads: 4          # scan threads per worker during Verify
   # reporting and collectors
   report_interval_ms: 10000  # progress-window length (0 = one report for the whole run)
@@ -42,12 +42,14 @@ base:
   cpu_sample_interval_ms: 5000
 
 # ---- per-command sections (each lists what is tunable for that command) ---------------
-# Fixed op count; no ops/duration. Creates the buckets (versioning enabled) and loads
-# num_objects objects. Fails if a bucket already exists.
+# Fixed op count; no ops/duration. Creates the buckets (left UNVERSIONED) and loads
+# num_objects objects. Fails if a bucket already exists, unless `force` (--force) is set:
+# then existing buckets and objects are kept and load puts its keys into them.
 load:
-  worker_count: 4
-  threads_per_worker: 32
-  verify_threads: 4
+  #worker_count: 4
+  #threads_per_worker: 32
+  #verify_threads: 4
+  force: false
 
 # For the run-* commands exactly one of `ops` (total across the cluster) / `duration`
 # must be set. The files below use `duration`; `--ops N` on the CLI replaces it, and
@@ -55,30 +57,40 @@ load:
 
 # Inserts brand-new keys (never present from load or earlier runs).
 run-put-object:
-  worker_count: 1
-  threads_per_worker: 1
-  verify_threads: 4
-  ops: 0
+  #worker_count: 1
+  #threads_per_worker: 1
+  #verify_threads: 4
+  #ops: 0
   duration: 30s
 
 # Pages through listings; buckets are split across workers (bucket b => worker b % workers).
 run-list-objects:
-  worker_count: 1
-  threads_per_worker: 1
-  verify_threads: 4
-  ops: 0
+  #worker_count: 1
+  #threads_per_worker: 1
+  #verify_threads: 4
+  #ops: 0
   duration: 30s
   page_size: 1000            # keys per list call
   single_thread_mode: false  # true: one worker, one thread, bucket 0 only
 
-# Repeatedly overwrites the first num_objects_to_overwrite keys of each thread's range.
+# Repeatedly overwrites every loaded key (each thread loops over its whole slice of the keys).
+# Needs never-versioned buckets, as `load` creates them, so every put replaces the object in
+# place. Init fails if versioning is enabled or suspended; a run aborts if a put creates a
+# version; verify fails if any key has version history (a non-null version or a delete marker).
 run-put-object-overwrite:
   #ops: 1000000
-  ops: 0
   duration: 30s
-  num_objects_to_overwrite: 100000
 
-# As above, and verifies the number of versions written per key. Requires versioned buckets.
+# Overwrites a limited set of keys and verifies the number of versions written per key.
+# Asks for confirmation (--yes skips it) and then ENABLES versioning on the buckets, which cannot
+# be switched back off; old versions are not reclaimed, and run-put-object-overwrite can no longer
+# be used on these buckets (use a new bucket_name_prefix and load). num_objects_to_overwrite is the TOTAL number of keys overwritten,
+# shared evenly across all workers * threads (e.g. 1000000 over 8 x 32 threads = ~3906 keys per
+# thread); it must be <= num_objects. The limit matters for two reasons: the version-count check
+# only means something if each key is overwritten repeatedly, so keep the set small enough that
+# the run loops over it several times (a set much larger than the number of puts leaves most keys
+# with 0 or 1 versions and checks little); and verification does one list_object_versions call
+# per overwritten key, so the size of the set bounds how long verification takes.
 run-put-object-overwrite-versioned:
   #ops: 1000000
   duration: 30s

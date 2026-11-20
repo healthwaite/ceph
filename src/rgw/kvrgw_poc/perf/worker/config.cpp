@@ -34,6 +34,7 @@ std::string parse_config(const std::string &json_text, const std::string &operat
     get(j, "page_size", c.page_size);
     get(j, "single_thread_mode", c.single_thread_mode);
     get(j, "num_objects_to_overwrite", c.num_objects_to_overwrite);
+    get(j, "force", c.force);
   } catch (const std::exception &e) {
     return std::string("config parse error: ") + e.what();
   }
@@ -56,10 +57,12 @@ std::string parse_config(const std::string &json_text, const std::string &operat
   } else if (c.has_ops() || c.has_duration()) {
     return "ops/duration are not valid for load";
   }
-  if ((operation == "run-put-object-overwrite" ||
-       operation == "run-put-object-overwrite-versioned") &&
-      c.num_objects_to_overwrite == 0) {
-    return "num_objects_to_overwrite must be > 0";
+  // run-put-object-overwrite has no limit; the versioned variant overwrites a limited total.
+  if (operation == "run-put-object-overwrite-versioned") {
+    if (c.num_objects_to_overwrite == 0) return "num_objects_to_overwrite must be > 0";
+    if (c.num_objects_to_overwrite > c.num_objects) {
+      return "num_objects_to_overwrite must be <= num_objects";
+    }
   }
   *out = std::move(c);
   return {};

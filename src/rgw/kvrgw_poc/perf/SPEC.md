@@ -103,13 +103,17 @@ Creates `num_buckets` buckets and loads `num_objects` objects across them.
 
 - Bucket names: `<bucket_name_prefix>-<i>` for `i` in `[0, num_buckets)`
   (default prefix `rgwkv`, e.g. `rgwkv-3`).
-- Buckets must have **versioning enabled** (`create_bucket` then
-  `put_bucket_versioning` Enabled).
+- Buckets are left **unversioned** (`create_bucket` only; no `put_bucket_versioning`).
+  `run-put-object-overwrite` needs that; `run-put-object-overwrite-versioned` enables
+  versioning itself after a confirmation.
 - Bucket creation is done by **worker 0 during `Init`** (the controller does not
   talk to kvrgw). Other workers' `Init` does not touch buckets. Because the
   controller waits for READY from *all* workers before starting `RunBenchmark`,
   buckets exist before any put. `KVRGW_ERR_BUCKET_ALREADY_EXISTS` is a hard error
-  in `load` (the caller must clean up).
+  in `load` (the caller must clean up), unless `force: true` / `--force` is set: then existing
+  buckets and their objects are kept, only missing buckets are created, and load puts its keys
+  (new versions of existing keys). Verify then needs the same `num_objects`, `num_buckets` and
+  `padding_bytes` as the earlier load, or leftover keys fail it as out of range.
 - Object index space is `[0, num_objects)`. Global object index `i` maps to bucket
   `bucket_for_index(i)` (contiguous blocks; first `num_objects % num_buckets`
   buckets get one extra object — see §5.3).
@@ -188,19 +192,44 @@ Inserts brand-new keys never present in `load` or any earlier run.
   bucket 0 is verified.
 
 #### `run-put-object-overwrite`
-- Key range split across workers/threads as in `load`. Each thread takes the first
-  `num_objects_to_overwrite` keys **of its range** (clamped to range size) and
-  continually loops overwriting them via `put_object`.
-- Verify (§5.4): same as `load` verify; the overwritten keys are a subset of the
-  load set and must still each appear exactly once in `list_objects`.
-- Config: `num_objects_to_overwrite`.
-- Note: load buckets are versioned, so overwrites create new versions; that is
-  expected.
+- Key range split across workers/threads as in `load`. Each thread continually loops
+  over its **whole range** overwriting the keys in order via `put_object`, so every
+  loaded key is overwritten. There is no limit option; `num_objects_to_overwrite` is
+  rejected for this command (it applies to `-versioned` only).
+- **Requires never-versioned buckets**, so that every put replaces the object in place:
+  - Init fails unless `get_bucket_versioning` is DISABLED (ENABLED, or SUSPENDED which means it
+    was enabled before, are refused with a hint to use a new `bucket_name_prefix` and load).
+  - Every put is checked: the runtime reports a version id in `PutObjectResult` only when the put
+    created a version (versioning ENABLED), so a put returning one aborts the run.
+  - The runtime stores no "ever enabled" flag and `put_bucket_versioning` accepts any state, so
+    the state alone cannot prove a bucket was never versioned; verify therefore also scans.
+- Verify (§5.4): same as `load` verify (the overwritten keys are the load set and must each
+  appear exactly once), but listing goes through `list_object_versions`, and any entry that is
+  not a lone null version (a real version id, or a delete marker) is an additional failure, so
+  leftover version history from an earlier versioned use of the buckets is caught. A key with
+  two versions is listed twice and so also counts as a duplicate.
+- Note: load buckets are unversioned, so an overwrite replaces the object in place (the
+  replaced object goes to the runtime's garbage collection); it does not create a version.
 
 #### `run-put-object-overwrite-versioned`
-- Same key selection as `run-put-object-overwrite`.
-- **Init must fail** if any involved bucket does not have versioning enabled
-  (`get_bucket_versioning`).
+- Key selection: as `run-put-object-overwrite`, but limited. `num_objects_to_overwrite`
+  is the **total** number of keys overwritten, shared evenly across all
+  `workers * threads` (remainder to the first threads; must be `<= num_objects`, so no
+  thread is ever clamped). Each thread overwrites the first `share` keys of its own range,
+  e.g. 1,000,000 over 8 workers x 32 threads is 3,906 or 3,907 keys per thread.
+- **Why the limit matters.** (1) The verify compares each key's version count with how
+  often the run wrote it, which only means something if keys are written repeatedly; a set
+  much larger than the number of puts the run can do leaves most keys with 0 or 1 versions
+  and checks almost nothing, so choose a set small enough to be looped over several times.
+  (2) Verification makes one `list_object_versions` call per overwritten key, so the size of
+  the set bounds how long verification takes. (It does *not* bound memory: verification keeps
+  only a put count per thread.)
+- **Enables versioning.** The controller prompts before any worker starts (`--yes` skips it):
+  "run-put-object-overwrite-versioned will ENABLE versioning on buckets rgwkv-0..9. Versioning
+  cannot be switched back off, and old versions are not reclaimed. You will not be able to run
+  run-put-object-overwrite (non-versioned) again for this key-set. Continue? [y/N]". Init then
+  requires the buckets to exist, and worker 0 calls `put_bucket_versioning(Enabled)` on each
+  (the other workers need not wait: the benchmark starts only after every worker's init).
 - Each thread loops over its overwrite keys writing new versions. It tracks only
   `full_loops` completed and `last_index` (index within the overwrite window of
   the last key written), no per-key counters. Expected versions for the key at
@@ -619,7 +648,7 @@ read.**
 
 - Go module `kvrgw-perf`, dependencies: grpc, protobuf, yaml.v3, zerolog (or std
   `log/slog`), cobra (or std flag).
-- CLI: `kvrgw-perf [--config file.yaml] [--workers N] [--threads M] [--worker-binary path] [--base-port 9090] [--cpus LIST] [--run-dir DIR] [--yes] [--no-verify] [--no-fdb-stats] [--fdb-cluster-file PATH] <command> [flags]`
+- CLI: `kvrgw-perf [--config file.yaml] [--workers N] [--threads M] [--worker-binary path] [--base-port 19090] [--cpus LIST] [--run-dir DIR] [--yes] [--no-verify] [--no-fdb-stats] [--fdb-cluster-file PATH] <command> [flags]`
   with commands `load`, `run-put-object`, `run-list-objects`,
   `run-put-object-overwrite`, `run-put-object-overwrite-versioned`,
   `run-delete-multi`, plus `report <results-dir> [--warmup D] [--deviation N] [--per-server]` (§8.3). `--ops`/`--duration`, `--page-size`,
@@ -839,8 +868,9 @@ should be done in the build container.
   2. Each `run-*` for a few seconds → verify passes, results dir contains all
      §8.1 files (FDB files only if `fdbcli` works), CSV has expected rows,
      errors == 0, and `kvrgw-perf report <dir> --warmup 2s` prints all sections.
-  3. Negative: `run-put-object-overwrite-versioned` against a non-versioned bucket
-     fails in Init; `run-delete-multi` aborts without `--yes` on "n".
+  3. Negative: `run-put-object-overwrite` against a versioned bucket (e.g. after
+     `run-put-object-overwrite-versioned`) fails in Init; `run-put-object-overwrite-versioned`
+     and `run-delete-multi` abort without `--yes` on "n" (and `n` leaves the buckets unversioned).
   4. Default build (option OFF) still builds `libkvrgw` and `kv-rgw-backend`
      without gRPC installed.
 

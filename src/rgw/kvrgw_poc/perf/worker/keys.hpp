@@ -63,6 +63,19 @@ Range block_range(uint64_t part, uint64_t parts, uint64_t total);
 inline Range index_range(uint64_t gtid, uint64_t total_threads, uint64_t num_objects) {
   return block_range(gtid, total_threads, num_objects);
 }
+// Overwrite window of thread `gtid`: the first part of its own index range, sized so that the
+// windows of all `total_threads` threads add up to `total_to_overwrite` (shared evenly, the
+// remainder going to the first threads) and never exceed the thread's range. 0 means no limit:
+// the whole range. With total_to_overwrite <= num_objects no thread is ever clamped.
+inline Range overwrite_window(uint64_t gtid, uint64_t total_threads, uint64_t num_objects,
+                              uint64_t total_to_overwrite) {
+  Range r = index_range(gtid, total_threads, num_objects);
+  if (total_to_overwrite != 0) {
+    const uint64_t share = block_range(gtid, total_threads, total_to_overwrite).count;
+    if (share < r.count) r.count = share;
+  }
+  return r;
+}
 inline Range bucket_range(uint64_t bucket, uint64_t num_buckets, uint64_t num_objects) {
   return block_range(bucket, num_buckets, num_objects);
 }

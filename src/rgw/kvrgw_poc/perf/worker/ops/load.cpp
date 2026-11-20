@@ -11,27 +11,29 @@ class LoadOp : public Operation {
   std::string init(RunContext &ctx) override
   {
     if (ctx.worker_index != 0) return {};
-    // KvRgwServiceImpl::create_bucket is idempotent, so detect pre-existing buckets explicitly:
-    // load into existing buckets is a hard error (the caller must clean up).
+    // KvrgwServiceImpl::create_bucket is idempotent, so detect pre-existing buckets explicitly:
+    // load into existing buckets is a hard error (the caller must clean up) unless --force,
+    // which keeps them (and their objects, and their versioning state) and only creates the missing ones.
+    std::vector<bool> existing(ctx.cfg.num_buckets, false);
     for (uint64_t b = 0; b < ctx.cfg.num_buckets; ++b) {
       bool exists = false;
       auto ec = ctx.svc->bucket_exists(ctx.tenant, ctx.bucket(b), &exists);
       if (ec != kvrgw::KVRGW_ERR_OK) {
         return "bucket_exists " + ctx.bucket(b) + ": " + describe_error(ec);
       }
-      if (exists) {
-        return "bucket " + ctx.bucket(b) + " already exists (clean up before load)";
+      if (exists && !ctx.cfg.force) {
+        return "bucket " + ctx.bucket(b) + " already exists (clean up before load, or use --force)";
       }
+      existing[b] = exists;
     }
+    // Buckets are left unversioned: run-put-object-overwrite needs never-versioned buckets, and
+    // run-put-object-overwrite-versioned enables versioning itself.
     for (uint64_t b = 0; b < ctx.cfg.num_buckets; ++b) {
+      if (existing[b]) continue;
       auto ec = ctx.svc->create_bucket(ctx.tenant, ctx.bucket(b));
       if (ec != kvrgw::KVRGW_ERR_OK) {
         return "create_bucket " + ctx.bucket(b) + ": " + describe_error(ec) +
                (ec == kvrgw::KVRGW_ERR_BUCKET_ALREADY_EXISTS ? " (clean up before load)" : "");
-      }
-      ec = ctx.svc->put_bucket_versioning(ctx.tenant, ctx.bucket(b), kvrgw::VERSIONING_ENABLED);
-      if (ec != kvrgw::KVRGW_ERR_OK) {
-        return "put_bucket_versioning " + ctx.bucket(b) + ": " + describe_error(ec);
       }
     }
     return {};

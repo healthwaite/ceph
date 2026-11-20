@@ -62,8 +62,30 @@ std::string ServiceLister::list(const std::string &prefix, uint32_t max_keys,
   return {};
 }
 
+std::string ServiceVersionPager::page(const std::string &prefix, uint32_t max_keys,
+                                      const std::string &key_marker,
+                                      const std::string &version_marker, VersionPage *out)
+{
+  kvrgw::version_id_t vid_marker{};
+  if (!version_marker.empty()) {
+    vid_marker = kvrgw::version_id_t(static_cast<uint32_t>(std::stoul(version_marker)));
+  }
+  kvrgw::KvRgwServiceImpl::ListObjectVersionsResult res;
+  auto ec = svc_.list_object_versions(tenant_, bucket_, prefix, max_keys, key_marker, vid_marker, &res);
+  if (ec != kvrgw::KVRGW_ERR_OK) return describe_error(ec);
+  out->entries.clear();
+  out->entries.reserve(res.versions.size());
+  for (auto &v : res.versions) {
+    out->entries.push_back({std::move(v.key), v.version_id.is_null(), v.is_delete_marker});
+  }
+  out->truncated = res.is_truncated;
+  out->next_key_marker = std::move(res.next_key_marker);
+  out->next_version_marker = std::to_string(res.next_version_id_marker.raw());
+  return {};
+}
+
 bool put_with_retry(RunContext &ctx, ThreadStats &ts, const std::string &bucket,
-                    const std::string &key)
+                    const std::string &key, bool *created_version)
 {
   constexpr int kAttempts = 10;
   kvrgw::KvrgwErrorCode last = kvrgw::KVRGW_ERR_OK;
@@ -80,6 +102,9 @@ bool put_with_retry(RunContext &ctx, ThreadStats &ts, const std::string &bucket,
     }
     if (res.error_code == kvrgw::KVRGW_ERR_OK) {
       ts.record(Metric::PutObject, static_cast<uint64_t>(elapsed_us(t0)));
+      if (created_version) {
+        *created_version = res.version_id.is_valid() && !res.version_id.is_null();
+      }
       return true;
     }
     last = res.error_code;
@@ -97,12 +122,16 @@ bool put_with_retry(RunContext &ctx, ThreadStats &ts, const std::string &bucket,
 std::string verify_load_family(RunContext &ctx, const std::vector<uint64_t> &buckets,
                                const std::function<Range(uint64_t)> &range_of_bucket,
                                const std::function<bool(uint64_t, uint64_t)> &present,
-                               VerifyReport *out)
+                               VerifyReport *out, bool scan_versions)
 {
   Failures f;
   auto prefixes = prefix_items(ctx.cfg.padding_bytes);
   for (uint64_t b : buckets) {
-    ServiceLister lister(*ctx.svc, ctx.tenant, ctx.bucket(b));
+    ServiceLister key_lister(*ctx.svc, ctx.tenant, ctx.bucket(b));
+    ServiceVersionPager pager(*ctx.svc, ctx.tenant, ctx.bucket(b));
+    VersionScanLister version_lister(pager, f, ctx.bucket(b));
+    Lister &lister = scan_versions ? static_cast<Lister &>(version_lister)
+                                   : static_cast<Lister &>(key_lister);
     Range r = range_of_bucket(b);
     LoadSpace sp;
     sp.start = r.start;
@@ -117,7 +146,7 @@ std::string verify_load_family(RunContext &ctx, const std::vector<uint64_t> &buc
 }
 
 std::string check_buckets(RunContext &ctx, const std::vector<uint64_t> &buckets,
-                          bool require_versioning)
+                          VersioningCheck versioning)
 {
   for (uint64_t b : buckets) {
     bool exists = false;
@@ -126,14 +155,19 @@ std::string check_buckets(RunContext &ctx, const std::vector<uint64_t> &buckets,
       return "bucket_exists " + ctx.bucket(b) + ": " + describe_error(ec);
     }
     if (!exists) return "bucket " + ctx.bucket(b) + " does not exist (run load first)";
-    if (require_versioning) {
+    if (versioning != VersioningCheck::kAny) {
       kvrgw::VersioningState st{};
       ec = ctx.svc->get_bucket_versioning(ctx.tenant, ctx.bucket(b), &st);
       if (ec != kvrgw::KVRGW_ERR_OK) {
         return "get_bucket_versioning " + ctx.bucket(b) + ": " + describe_error(ec);
       }
-      if (st != kvrgw::VERSIONING_ENABLED) {
+      if (versioning == VersioningCheck::kEnabled && st != kvrgw::VERSIONING_ENABLED) {
         return "bucket " + ctx.bucket(b) + " does not have versioning enabled";
+      }
+      if (versioning == VersioningCheck::kUnversioned && st != kvrgw::VERSIONING_DISABLED) {
+        return "bucket " + ctx.bucket(b) + " has versioning " +
+               (st == kvrgw::VERSIONING_ENABLED ? "enabled" : "suspended (it was enabled before)") +
+               "; this command needs a never-versioned bucket (use a new bucket_name_prefix and load)";
       }
     }
   }

@@ -34,11 +34,12 @@ commands:
 global flags:
   --config FILE          harness config (default: ./kvrgw-perf.yaml, else next to the binary)
   --workers N            worker_count          --threads M   threads_per_worker
-  --worker-binary PATH   kvrgw-perf-worker     --base-port P (default 9090)
+  --worker-binary PATH   kvrgw-perf-worker     --base-port P (default 19090)
   --cpus LIST            CPU pool to pin workers to, e.g. 0-15
   --run-dir DIR          results directory (default perf-results/<UTC ts>-<command>)
   --yes                  skip confirmation prompts
   --no-verify            skip the Verify step
+  --force                load only: proceed even if the target buckets already exist
   --no-fdb-stats         do not sample FDB status
   --fdb-cluster-file P   cluster file for fdbcli
   any config key as --kebab-case (e.g. --num-objects, --page-size, --ops, --duration 30s)
@@ -65,7 +66,7 @@ func registerGlobals(fs *flag.FlagSet, g *globals, ov *config.Overrides) {
 func main() { os.Exit(run(os.Args[1:])) }
 
 func run(args []string) int {
-	g := &globals{basePort: 9090}
+	g := &globals{basePort: 19090}
 	ov := config.NewOverrides()
 	fs := flag.NewFlagSet("kvrgw-perf", flag.ContinueOnError)
 	registerGlobals(fs, g, ov)
@@ -130,8 +131,16 @@ func run(args []string) int {
 	}
 	warnings := cfg.ApplyCommandRules(command)
 
-	if command == "run-delete-multi" && !g.yes {
-		fmt.Print("run-delete-multi deletes objects created by load and cannot be undone. Continue? [y/N] ")
+	// Commands with irreversible effects ask for confirmation before any worker starts.
+	prompt := ""
+	switch command {
+	case "run-delete-multi":
+		prompt = "run-delete-multi deletes objects created by load and cannot be undone. Continue? [y/N] "
+	case "run-put-object-overwrite-versioned":
+		prompt = cfg.VersionedOverwritePrompt()
+	}
+	if prompt != "" && !g.yes {
+		fmt.Print(prompt)
 		ans, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 		if a := strings.ToLower(strings.TrimSpace(ans)); a != "y" && a != "yes" {
 			fmt.Fprintln(os.Stderr, "aborted")

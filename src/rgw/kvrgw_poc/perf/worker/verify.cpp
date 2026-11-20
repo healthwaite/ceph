@@ -37,6 +37,38 @@ std::vector<std::string> Failures::samples() const
   return samples_;
 }
 
+std::string VersionScanLister::list(const std::string &prefix, uint32_t max_keys,
+                                    const std::string &token, ListPage *out)
+{
+  // The continuation token carries both markers: key '\0' version marker.
+  std::string key_marker, version_marker;
+  if (const auto nul = token.find('\0'); nul != std::string::npos) {
+    key_marker = token.substr(0, nul);
+    version_marker = token.substr(nul + 1);
+  } else {
+    key_marker = token;
+  }
+  VersionPage p;
+  if (auto err = pager_.page(prefix, max_keys, key_marker, version_marker, &p); !err.empty()) {
+    return err;
+  }
+  out->keys.clear();
+  out->keys.reserve(p.entries.size());
+  for (auto &e : p.entries) {
+    if (!e.null_version || e.delete_marker) {
+      ++f_.other;
+      f_.sample("bucket " + bucket_ + " has version history: " +
+                (e.delete_marker ? "delete marker" : "non-null version") + " for key " + e.key);
+    }
+    out->keys.push_back(std::move(e.key));
+  }
+  out->truncated = p.truncated;
+  out->next_token = p.next_key_marker;
+  out->next_token.push_back('\0');
+  out->next_token += p.next_version_marker;
+  return {};
+}
+
 void scan_prefixes(Lister &lister, const std::string &bucket,
                    const std::vector<std::string> &prefixes, int threads, Failures &f,
                    const std::function<void(const std::string &)> &on_key)

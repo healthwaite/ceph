@@ -34,6 +34,132 @@ class FakeLister : public Lister {
   void add(const std::string &k) { keys.insert(std::lower_bound(keys.begin(), keys.end(), k), k); }
 };
 
+// In-memory pager over (key, version-count) pairs: key k has `n` versions, the first is null
+// unless `versioned`. Sorted by key; pages by entry with (key, index) markers.
+class FakePager : public VersionPager {
+ public:
+  struct Item { std::string key; int versions = 1; bool versioned = false; bool marker = false; };
+  std::vector<Item> items;  // sorted
+  uint32_t page_size = 3;
+  std::string page(const std::string &prefix, uint32_t, const std::string &key_marker,
+                   const std::string &version_marker, VersionPage *out) override
+  {
+    // flatten to entries
+    struct Flat { std::string key; int idx; bool null_version; bool dm; };
+    std::vector<Flat> flat;
+    for (const auto &it : items) {
+      if (it.key.compare(0, prefix.size(), prefix) != 0) continue;
+      for (int i = 0; i < it.versions; ++i) {
+        flat.push_back({it.key, i, !it.versioned && i == 0, it.marker && i == it.versions - 1});
+      }
+    }
+    size_t pos = 0;
+    if (!key_marker.empty()) {
+      const int want = version_marker.empty() ? 0 : std::stoi(version_marker);
+      while (pos < flat.size() && !(flat[pos].key == key_marker && flat[pos].idx == want)) ++pos;
+    }
+    out->entries.clear();
+    for (; pos < flat.size() && out->entries.size() < page_size; ++pos) {
+      out->entries.push_back({flat[pos].key, flat[pos].null_version, flat[pos].dm});
+    }
+    out->truncated = pos < flat.size();
+    if (out->truncated) {
+      out->next_key_marker = flat[pos].key;
+      out->next_version_marker = std::to_string(flat[pos].idx);
+    }
+    return {};
+  }
+};
+
+static void test_version_scan()
+{
+  // Clean never-versioned bucket: exactly one null version per key, across page boundaries.
+  {
+    FakePager p;
+    for (auto &k : {"a1", "a2", "a3", "a4", "a5", "a6", "a7"}) p.items.push_back({k});
+    Failures f;
+    VersionScanLister l(p, f, "b");
+    uint64_t n = 0;
+    std::string token;
+    for (;;) {
+      ListPage pg;
+      CHECK(l.list("a", 1000, token, &pg).empty());
+      n += pg.keys.size();
+      if (!pg.truncated) break;
+      token = pg.next_token;
+    }
+    CHECK(n == 7);
+    CHECK(f.other == 0);
+  }
+  // A key with two versions (one non-null) and a delete marker are both flagged, and the
+  // multi-version key is yielded twice so verify_bucket_load reports it as a duplicate.
+  {
+    FakePager p;
+    p.items.push_back({"a1"});
+    p.items.push_back({"a2", 2, true});          // two real versions
+    p.items.push_back({"a3", 1, false, true});   // null version that is a delete marker
+    Failures f;
+    VersionScanLister l(p, f, "b");
+    std::vector<std::string> keys;
+    std::string token;
+    for (;;) {
+      ListPage pg;
+      CHECK(l.list("a", 1000, token, &pg).empty());
+      keys.insert(keys.end(), pg.keys.begin(), pg.keys.end());
+      if (!pg.truncated) break;
+      token = pg.next_token;
+    }
+    CHECK(keys.size() == 4);  // a1, a2, a2, a3
+    CHECK(f.other == 3);      // a2 x2 (non-null), a3 (delete marker)
+    CHECK(f.samples().size() == 3);
+  }
+  // Wired into verify_bucket_load: a complete, never-versioned key set verifies; version
+  // history (a second version of one key) fails it as a duplicate plus a version-history failure.
+  {
+    const auto prefixes = prefix_items(8);
+    LoadSpace sp;
+    sp.start = 100;
+    sp.count = 60;
+    sp.padding = 8;
+    auto make = [&](bool history) {
+      FakePager p;
+      std::vector<std::string> keys;
+      for (uint64_t i = 100; i < 160; ++i) keys.push_back(load_key(i, 8));
+      std::sort(keys.begin(), keys.end());
+      for (auto &k : keys) p.items.push_back({k});
+      if (history) p.items[17].versions = 2;
+      return p;
+    };
+    {
+      FakePager p = make(false);
+      Failures f;
+      VersionScanLister l(p, f, "b");
+      auto r = verify_bucket_load(l, "b", sp, prefixes, 3, f);
+      CHECK(r.missing == 0 && r.found == 60);
+      CHECK(f.duplicate + f.other + f.bad_key + f.out_of_range == 0);
+    }
+    {
+      FakePager p = make(true);
+      Failures f;
+      VersionScanLister l(p, f, "b");
+      verify_bucket_load(l, "b", sp, prefixes, 3, f);
+      CHECK(f.duplicate == 1);  // the key with two versions is listed twice
+      CHECK(f.other == 1);      // its second version is not the null version
+    }
+  }
+  // Pager errors propagate.
+  {
+    struct Bad : VersionPager {
+      std::string page(const std::string &, uint32_t, const std::string &, const std::string &,
+                       VersionPage *) override { return "boom"; }
+    } bad;
+    Failures f;
+    VersionScanLister l(bad, f, "b");
+    ListPage pg;
+    CHECK(l.list("a", 10, "", &pg) == "boom");
+  }
+}
+
 static LoadSpace space(uint64_t start, uint64_t count)
 {
   LoadSpace s;
@@ -160,5 +286,6 @@ int main()
   test_load_unexpected_for_delete();
   test_put();
   test_versions_formula();
+  test_version_scan();
   std::puts("verify_test OK");
 }

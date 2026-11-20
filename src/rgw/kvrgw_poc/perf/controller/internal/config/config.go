@@ -51,9 +51,15 @@ type Config struct {
 	Ops      uint64 `yaml:"ops" json:"ops,omitempty"`
 	Duration string `yaml:"duration" json:"duration,omitempty"`
 
-	PageSize              int    `yaml:"page_size" json:"page_size"`
-	SingleThreadMode      bool   `yaml:"single_thread_mode" json:"single_thread_mode"`
+	PageSize         int  `yaml:"page_size" json:"page_size"`
+	SingleThreadMode bool `yaml:"single_thread_mode" json:"single_thread_mode"`
+	// NumObjectsToOverwrite (run-put-object-overwrite-versioned only) is the total number of
+	// keys overwritten, shared evenly across all workers * threads.
 	NumObjectsToOverwrite uint64 `yaml:"num_objects_to_overwrite" json:"num_objects_to_overwrite"`
+
+	// Force (load only): proceed even if some target buckets already exist. Existing buckets
+	// and objects are kept; load puts its keys into them (new versions of existing keys).
+	Force bool `yaml:"force" json:"force"`
 
 	// Kvrgw is the runtime (kvrgw.yaml) configuration; it comes from the top-level `kvrgw:`
 	// section of the file, not from base/command sections.
@@ -104,8 +110,8 @@ func Defaults() Config {
 		ReportIntervalMs: 1000,
 		FdbStats:         true, FdbClusterFile: os.Getenv("FDB_CLUSTER_FILE"), FdbcliPath: "/opt/foundationdb/usr/bin/fdbcli",
 		FdbSampleIntervalMs: 5000, CpuSampleIntervalMs: 1000,
-		PageSize: 1000, NumObjectsToOverwrite: 100000,
-		Kvrgw: KvrgwConfig{MaxInline: 256, MaxKvStore: 4096, BatchSize: 5, BatchTimeoutUs: 1000, BatchThreads: 8},
+		PageSize: 1000,
+		Kvrgw:    KvrgwConfig{MaxInline: 256, MaxKvStore: 4096, BatchSize: 5, BatchTimeoutUs: 1000, BatchThreads: 8},
 	}
 }
 
@@ -268,12 +274,37 @@ func (c *Config) Validate(command string) error {
 			return fmt.Errorf("%s requires exactly one of --ops or --duration", command)
 		}
 	}
-	if command == "run-put-object-overwrite" || command == "run-put-object-overwrite-versioned" {
+	if c.Force && command != "load" {
+		return fmt.Errorf("--force only applies to load")
+	}
+	if command == "run-put-object-overwrite-versioned" {
 		if c.NumObjectsToOverwrite == 0 {
 			return fmt.Errorf("%s requires num_objects_to_overwrite > 0", command)
 		}
+		if c.NumObjectsToOverwrite > c.NumObjects {
+			return fmt.Errorf("num_objects_to_overwrite (%d) must be <= num_objects (%d)", c.NumObjectsToOverwrite, c.NumObjects)
+		}
+	} else if c.NumObjectsToOverwrite != 0 {
+		return fmt.Errorf("num_objects_to_overwrite only applies to run-put-object-overwrite-versioned (run-put-object-overwrite overwrites every key)")
 	}
 	return nil
+}
+
+// BucketRange names the target buckets compactly, e.g. "rgwkv-0..9" (or "rgwkv-0" for one).
+func (c *Config) BucketRange() string {
+	if c.NumBuckets <= 1 {
+		return fmt.Sprintf("%s-0", c.BucketNamePrefix)
+	}
+	return fmt.Sprintf("%s-0..%d", c.BucketNamePrefix, c.NumBuckets-1)
+}
+
+// VersionedOverwritePrompt is the confirmation shown before run-put-object-overwrite-versioned,
+// which enables versioning on the buckets.
+func (c *Config) VersionedOverwritePrompt() string {
+	return fmt.Sprintf("run-put-object-overwrite-versioned will ENABLE versioning on buckets %s. "+
+		"Versioning cannot be switched back off, and old versions are not reclaimed. "+
+		"You will not be able to run run-put-object-overwrite (non-versioned) again for this key-set. "+
+		"Continue? [y/N] ", c.BucketRange())
 }
 
 // ApplyCommandRules adjusts the config for command-specific semantics. It returns
@@ -313,6 +344,7 @@ type workerJSON struct {
 	PageSize              int    `json:"page_size"`
 	SingleThreadMode      bool   `json:"single_thread_mode"`
 	NumObjectsToOverwrite uint64 `json:"num_objects_to_overwrite"`
+	Force                 bool   `json:"force"`
 }
 
 // WorkerJSON renders the config sent in InitRequest.config_json.
@@ -325,7 +357,7 @@ func (c *Config) WorkerJSON() ([]byte, error) {
 		c.NumObjects, c.NumBuckets, c.BucketNamePrefix, c.PaddingBytes, c.ObjectSizeBytes,
 		c.ThreadsPerWorker, c.VerifyThreads, c.TenantName,
 		c.ReportIntervalMs, c.Ops, d.Milliseconds(), c.PageSize,
-		c.SingleThreadMode, c.NumObjectsToOverwrite,
+		c.SingleThreadMode, c.NumObjectsToOverwrite, c.Force,
 	})
 }
 

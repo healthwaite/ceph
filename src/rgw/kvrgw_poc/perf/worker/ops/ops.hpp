@@ -117,21 +117,47 @@ class ServiceLister : public Lister {
   std::string bucket_;
 };
 
+// VersionPager backed by KvRgwServiceImpl::list_object_versions.
+class ServiceVersionPager : public VersionPager {
+ public:
+  ServiceVersionPager(kvrgw::KvRgwServiceImpl &svc, kvrgw::tenant_id_t tenant, std::string bucket)
+      : svc_(svc), tenant_(tenant), bucket_(std::move(bucket)) {}
+  std::string page(const std::string &prefix, uint32_t max_keys, const std::string &key_marker,
+                   const std::string &version_marker, VersionPage *out) override;
+
+ private:
+  kvrgw::KvRgwServiceImpl &svc_;
+  kvrgw::tenant_id_t tenant_;
+  std::string bucket_;
+};
+
 // put_object with up to 10 attempts on the same key. Successful attempt is timed and recorded;
 // each failure counts as an error. On exhaustion fails the context and returns false.
+// If `created_version` is non-null it is set to whether the successful put created a new
+// version (the runtime reports a version id only for a put into a versioning-enabled bucket;
+// a put that replaced the current object in place reports none).
 bool put_with_retry(RunContext &ctx, ThreadStats &ts, const std::string &bucket,
-                    const std::string &key);
+                    const std::string &key, bool *created_version = nullptr);
 
 // Verify every bucket in `buckets` (load-style) using ctx.cfg.verify_threads.
-// `range_of_bucket(b)` -> id space; `present` may be null.
+// `range_of_bucket(b)` -> id space; `present` may be null. With `scan_versions` the keys are
+// listed through list_object_versions and any version history (a version id other than the null
+// version, a delete marker, or a key with more than one version) is also a failure.
 std::string verify_load_family(RunContext &ctx, const std::vector<uint64_t> &buckets,
                                const std::function<Range(uint64_t)> &range_of_bucket,
                                const std::function<bool(uint64_t bucket, uint64_t id)> &present,
-                               VerifyReport *out);
+                               VerifyReport *out, bool scan_versions = false);
 
-// Check that all buckets exist (and optionally have versioning enabled).
+// What check_buckets requires of each bucket's versioning state.
+enum class VersioningCheck {
+  kAny,         // only that the bucket exists
+  kEnabled,     // versioning must be enabled
+  kUnversioned  // versioning must be DISABLED (never enabled; suspended means it once was)
+};
+
+// Check that all buckets exist and satisfy `versioning`.
 std::string check_buckets(RunContext &ctx, const std::vector<uint64_t> &buckets,
-                          bool require_versioning);
+                          VersioningCheck versioning = VersioningCheck::kAny);
 
 // Abbreviated key for messages: head + "..." + tail (the tail holds the key id).
 std::string short_key(const std::string &key);

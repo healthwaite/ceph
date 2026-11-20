@@ -11,7 +11,7 @@ class ListObjectsOp : public Operation {
   std::string init(RunContext &ctx) override
   {
     mine_ = my_buckets(ctx);
-    return check_buckets(ctx, mine_, false);
+    return check_buckets(ctx, mine_);
   }
 
   void run_thread(RunContext &ctx, int tid) override

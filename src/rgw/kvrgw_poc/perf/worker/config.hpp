@@ -24,6 +24,7 @@ struct Config {
   int page_size = 1000;
   bool single_thread_mode = false;
   uint64_t num_objects_to_overwrite = 0;
+  bool force = false;  // load: tolerate pre-existing buckets
 
   int total_threads() const { return worker_count * threads_per_worker; }
   bool has_ops() const { return ops > 0; }

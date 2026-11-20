@@ -11,7 +11,7 @@ class PutObjectOp : public Operation {
     counts_.assign(static_cast<size_t>(ctx.cfg.threads_per_worker), 0);
     std::vector<uint64_t> all;
     for (uint64_t b = 0; b < ctx.cfg.num_buckets; ++b) all.push_back(b);
-    return check_buckets(ctx, all, false);
+    return check_buckets(ctx, all);
   }
 
   void run_thread(RunContext &ctx, int tid) override

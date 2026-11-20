@@ -31,6 +31,7 @@ var flagKeys = map[string]string{
 	"ops":                    "ops", "duration": "duration", "page-size": "page_size",
 	"single-thread-mode":       "single_thread_mode",
 	"num-objects-to-overwrite": "num_objects_to_overwrite",
+	"force":                    "force",
 }
 
 // Register adds a string flag for every config key to fs (bool-like flags accept
@@ -38,7 +39,7 @@ var flagKeys = map[string]string{
 func (o *Overrides) Register(fs *flag.FlagSet) {
 	for name := range flagKeys {
 		n := name
-		if n == "single-thread-mode" {
+		if n == "single-thread-mode" || n == "force" {
 			continue
 		}
 		fs.Func(n, "config override for "+flagKeys[n], func(v string) error {
@@ -52,6 +53,13 @@ func (o *Overrides) Register(fs *flag.FlagSet) {
 			v = "true"
 		}
 		o.vals["single_thread_mode"] = v
+		return nil
+	})
+	fs.BoolFunc("force", "load: proceed even if the target buckets already exist (nothing is deleted)", func(v string) error {
+		if v == "" {
+			v = "true"
+		}
+		o.vals["force"] = v
 		return nil
 	})
 	fs.BoolFunc("no-fdb-stats", "disable FDB status sampling", func(v string) error {
@@ -162,6 +170,8 @@ func Set(c *Config, key, v string) error {
 		return b(&c.SingleThreadMode)
 	case "num_objects_to_overwrite":
 		return u(&c.NumObjectsToOverwrite)
+	case "force":
+		return b(&c.Force)
 	default:
 		return fmt.Errorf("unknown config key %q", key)
 	}

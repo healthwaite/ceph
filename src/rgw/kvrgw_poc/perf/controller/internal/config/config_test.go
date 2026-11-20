@@ -1,6 +1,7 @@
 package config
 
 import (
+	"flag"
 	"os"
 	"reflect"
 	"strings"
@@ -102,9 +103,27 @@ func TestOpsDurationRules(t *testing.T) {
 	if c.Duration != "" || c.Ops != 100 {
 		t.Fatalf("%+v", c)
 	}
+	// num_objects_to_overwrite: required (and a total <= num_objects) for the versioned
+	// command, rejected for every other command.
 	c = Defaults()
+	c.Ops = 1
+	if err := c.Validate("run-put-object-overwrite-versioned"); err == nil {
+		t.Fatal("versioned overwrite needs num_objects_to_overwrite")
+	}
+	c.NumObjects, c.NumObjectsToOverwrite = 1000, 1001
+	if err := c.Validate("run-put-object-overwrite-versioned"); err == nil {
+		t.Fatal("num_objects_to_overwrite > num_objects must fail")
+	}
+	c.NumObjectsToOverwrite = 1000
+	if err := c.Validate("run-put-object-overwrite-versioned"); err != nil {
+		t.Fatalf("valid versioned overwrite: %v", err)
+	}
 	if err := c.Validate("run-put-object-overwrite"); err == nil {
-		t.Fatal("overwrite needs num_objects_to_overwrite")
+		t.Fatal("num_objects_to_overwrite must be rejected for run-put-object-overwrite")
+	}
+	c.NumObjectsToOverwrite = 0
+	if err := c.Validate("run-put-object-overwrite"); err != nil {
+		t.Fatalf("run-put-object-overwrite needs no limit: %v", err)
 	}
 }
 
@@ -152,7 +171,7 @@ func TestShippedConfigIsComplete(t *testing.T) {
 	for i := 0; i < rt.NumField(); i++ {
 		key := strings.Split(rt.Field(i).Tag.Get("yaml"), ",")[0]
 		if key == "-" || key == "" || key == "ops" || key == "duration" ||
-			key == "page_size" || key == "single_thread_mode" || key == "num_objects_to_overwrite" {
+			key == "page_size" || key == "single_thread_mode" || key == "num_objects_to_overwrite" || key == "force" {
 			continue // command-specific keys live in the command sections
 		}
 		if _, ok := base[key]; !ok {
@@ -205,5 +224,52 @@ func TestKvrgwYAML(t *testing.T) {
 	f, _ := ParseFile([]byte("kvrgw:\n  bogus: 1\n"))
 	if _, err := Resolve(f, "load"); err == nil {
 		t.Fatal("unknown kvrgw key must fail")
+	}
+}
+
+func TestForceFlag(t *testing.T) {
+	// --force (bare) and --force=false register on a FlagSet and reach the worker config.
+	ov := NewOverrides()
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	ov.Register(fs)
+	if err := fs.Parse([]string{"--force"}); err != nil {
+		t.Fatal(err)
+	}
+	c := Defaults()
+	if err := ov.Apply(&c); err != nil || !c.Force {
+		t.Fatalf("--force not applied: %v %+v", err, c.Force)
+	}
+	if err := c.Validate("load"); err != nil {
+		t.Fatalf("force is valid for load: %v", err)
+	}
+	if err := c.Validate("run-put-object"); err == nil {
+		t.Fatal("force must be rejected for run-* commands")
+	}
+	j, err := c.WorkerJSON()
+	if err != nil || !strings.Contains(string(j), `"force":true`) {
+		t.Fatalf("worker json: %s %v", j, err)
+	}
+	if Defaults().Force {
+		t.Fatal("force must default to false")
+	}
+}
+
+func TestBucketRangeAndVersionedPrompt(t *testing.T) {
+	c := Defaults()
+	c.BucketNamePrefix, c.NumBuckets = "rgwkv", 10
+	if got := c.BucketRange(); got != "rgwkv-0..9" {
+		t.Fatal(got)
+	}
+	c.NumBuckets = 1
+	if got := c.BucketRange(); got != "rgwkv-0" {
+		t.Fatal(got)
+	}
+	c.NumBuckets = 10
+	want := "run-put-object-overwrite-versioned will ENABLE versioning on buckets rgwkv-0..9. " +
+		"Versioning cannot be switched back off, and old versions are not reclaimed. " +
+		"You will not be able to run run-put-object-overwrite (non-versioned) again for this key-set. " +
+		"Continue? [y/N] "
+	if got := c.VersionedOverwritePrompt(); got != want {
+		t.Fatalf("prompt:\n%q\nwant:\n%q", got, want)
 	}
 }

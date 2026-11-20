@@ -109,7 +109,7 @@ See SPEC.md section 5.1 for the key table.
 Each invocation is independent: `load` once, then any number of `run-*`, using the same
 layout config. `run-*` commands take exactly one of `--ops N` / `--duration D`.
 
-Local mode (the only mode in v1) spawns `worker_count` workers on `127.0.0.1:<base-port+i>`;
+Local mode (the only mode in v1) spawns `worker_count` workers on `127.0.0.1:<base-port+i>` (base port 19090 by default, `--base-port` to change);
 `--cpus 0-15` splits a CPU pool across them with `taskset`.
 
 Results directory: `config.resolved.json kvrgw.yaml events.csv metrics.csv errors.csv hist.csv server_stats.csv
@@ -122,8 +122,29 @@ Exit codes: 0 success, 1 benchmark/verify failure or worker error, 2 usage.
 
 - Keys use a 70-character prefix charset (the spec text says 68; the listed charset has 70
   characters, so prefix work items = 70 first characters).
+- `run-put-object-overwrite` overwrites every loaded key (each thread loops over its whole slice).
+  `run-put-object-overwrite-versioned` overwrites only `num_objects_to_overwrite` keys in total,
+  shared evenly across all workers x threads (it must be `<= num_objects`). The limit matters
+  because the version-count check is only meaningful if each key is overwritten repeatedly, so keep
+  the set small enough for the run to loop over it several times, and because verification makes one
+  `list_object_versions` call per overwritten key, so the set size bounds verify time.
+- `load` leaves the buckets **unversioned**. `run-put-object-overwrite` requires that: init fails if a
+  bucket's versioning is enabled or suspended (suspended means it was enabled once), a run aborts as
+  soon as a put reports a new version (the runtime returns a version id only for a put into a
+  versioning-enabled bucket), and verify lists through `list_object_versions` and fails on any version
+  history (a non-null version, a delete marker, or a key with more than one version). The runtime does
+  not record whether versioning was ever enabled and does not forbid going back to disabled, so state
+  alone cannot prove "never versioned"; the version scan is what catches leftovers.
+  `run-put-object-overwrite-versioned` asks for confirmation (`--yes` skips it) and then enables versioning
+  on the buckets. That cannot be undone, old versions are never reclaimed, and `run-put-object-overwrite`
+  will refuse those buckets afterwards; `load` into a new `--bucket-name-prefix` to get unversioned ones.
 - `create_bucket` is idempotent in the runtime, so `load` checks `bucket_exists` first and
-  fails if any target bucket already exists.
+  fails if any target bucket already exists. `load --force` (config key `force`, `load` only)
+  proceeds anyway: existing buckets and objects are kept (nothing is deleted), only missing
+  buckets are created (their versioning state is left alone). Keys are put again, replacing
+  existing objects in place if the bucket is unversioned. Verify expects exactly the keys this load writes, so use the same `num_objects`,
+  `num_buckets` and `padding_bytes` as the earlier load; with different values the leftover keys
+  are reported as "out of range" and verify fails (use `--no-verify` to skip it).
 - The versioned-overwrite verify counts versions with `last_modified_unix >=` the second of
   the synchronised benchmark start (`RunControl.run_start_unix_ns`) instead of the
   invocation start second. It is never earlier, and it keeps back-to-back invocations from
