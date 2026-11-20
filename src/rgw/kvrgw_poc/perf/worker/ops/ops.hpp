@@ -38,6 +38,11 @@ struct RunContext {
   SteadyClock::time_point start_tp;
   SteadyClock::time_point deadline;
 
+  // Verify progress, read by the service while verify() runs. verify_keys_total is the number
+  // of keys this worker expects to check (0 until known, or if it can't be known up front).
+  std::atomic<uint64_t> verify_keys_checked{0};
+  std::atomic<uint64_t> verify_keys_total{0};
+
   std::atomic<bool> cancel{false};
   std::atomic<bool> failed{false};
   std::mutex err_mu;

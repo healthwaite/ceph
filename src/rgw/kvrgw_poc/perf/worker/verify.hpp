@@ -85,13 +85,20 @@ class AtomicBitset {
 };
 
 struct Failures {
-  std::atomic<uint64_t> keys_checked{0}, bad_key{0}, out_of_range{0}, unexpected{0},
-      duplicate{0}, other{0};
+  Failures() : keys_checked(own_keys_checked_) {}
+  // Count keys_checked in `external` instead, so another thread can watch verify progress.
+  explicit Failures(std::atomic<uint64_t> &external) : keys_checked(external) {}
+  Failures(const Failures &) = delete;
+  Failures &operator=(const Failures &) = delete;
+
+  std::atomic<uint64_t> &keys_checked;
+  std::atomic<uint64_t> bad_key{0}, out_of_range{0}, unexpected{0}, duplicate{0}, other{0};
   void sample(const std::string &s);
   std::vector<std::string> samples() const;
   static constexpr size_t kMaxSamples = 20;
 
  private:
+  std::atomic<uint64_t> own_keys_checked_{0};
   mutable std::mutex mu_;
   std::vector<std::string> samples_;
 };

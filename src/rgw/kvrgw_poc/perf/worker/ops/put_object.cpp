@@ -41,7 +41,7 @@ class PutObjectOp : public Operation {
     if (counts.size() != static_cast<size_t>(ctx.total_threads())) {
       return "verify: thread_counts has wrong length";
     }
-    Failures f;
+    Failures f(ctx.verify_keys_checked);
     auto prefixes = prefix_items(ctx.cfg.padding_bytes);
     for (uint64_t b : owned_buckets(ctx.worker_index, ctx.worker_count, ctx.cfg.num_buckets)) {
       ServiceLister lister(*ctx.svc, ctx.tenant, ctx.bucket(b));

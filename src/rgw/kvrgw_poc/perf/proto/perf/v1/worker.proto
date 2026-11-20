@@ -38,6 +38,7 @@ message VerifyRequest {
   // each worker's RunSummary: put_count (run-put-object) or delete_progress (run-delete-multi).
   // Empty for other operations.
   repeated uint64 thread_counts = 2;
+  int64 report_interval_ms = 3; // 0 disables VerifyProgress events
 }
 message CleanupRequest { string benchmark_id = 1; }
 
@@ -48,6 +49,12 @@ message PhaseEvent {
   ProgressReport progress = 3; // periodic events carry no phase transition
   VerifyResult verify = 4;     // set on Verify's DONE
   RunSummary run_summary = 5;  // set on RunBenchmark's DONE
+  VerifyProgress verify_progress = 6; // periodic events during Verify
+}
+message VerifyProgress {
+  int32 worker_index = 1;
+  uint64 keys_checked = 2;     // cumulative keys seen so far by this worker
+  uint64 keys_total = 3;       // keys this worker expects to check; 0 = not known up front
 }
 message RunSummary {
   int32 worker_index = 1;

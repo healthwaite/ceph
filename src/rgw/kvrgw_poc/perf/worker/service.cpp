@@ -3,8 +3,11 @@
 #include "error_codes.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <iostream>
+#include <mutex>
 #include <thread>
 
 using perf::v1::PhaseEvent;
@@ -282,11 +285,37 @@ grpc::Status WorkerService::Verify(grpc::ServerContext *, const perf::v1::Verify
     std::vector<uint64_t> counts(req->thread_counts().begin(), req->thread_counts().end());
     VerifyReport rep;
     std::string err;
-    try {
-      err = op_->verify(*ctx_, counts, &rep);
-    } catch (const std::exception &e) {
-      err = std::string("verify exception: ") + e.what();
+    // verify() blocks, so run it on its own thread and stream progress from this one (the
+    // ServerWriter must only be used from the RPC thread).
+    std::atomic<bool> finished{false};
+    std::mutex done_mu;
+    std::condition_variable done_cv;
+    std::thread vt([&] {
+      try {
+        err = op_->verify(*ctx_, counts, &rep);
+      } catch (const std::exception &e) {
+        err = std::string("verify exception: ") + e.what();
+      }
+      {
+        std::lock_guard<std::mutex> g(done_mu);
+        finished = true;
+      }
+      done_cv.notify_one();
+    });
+    const auto interval = std::chrono::milliseconds(req->report_interval_ms());
+    if (interval.count() > 0) {
+      std::unique_lock<std::mutex> lk(done_mu);
+      while (!done_cv.wait_for(lk, interval, [&] { return finished.load(); })) {
+        PhaseEvent pe;
+        pe.set_state(PhaseEvent::READY);
+        auto *vp = pe.mutable_verify_progress();
+        vp->set_worker_index(ctx_->worker_index);
+        vp->set_keys_checked(ctx_->verify_keys_checked.load());
+        vp->set_keys_total(ctx_->verify_keys_total.load());
+        if (!w->Write(pe)) break;  // controller went away; still wait for verify to finish
+      }
     }
+    vt.join();
     auto *vr = ev.mutable_verify();
     for (const auto &b : rep.buckets) {
       auto *o = vr->add_buckets();

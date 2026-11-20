@@ -124,8 +124,11 @@ std::string verify_load_family(RunContext &ctx, const std::vector<uint64_t> &buc
                                const std::function<bool(uint64_t, uint64_t)> &present,
                                VerifyReport *out, bool scan_versions)
 {
-  Failures f;
+  Failures f(ctx.verify_keys_checked);
   auto prefixes = prefix_items(ctx.cfg.padding_bytes);
+  uint64_t total = 0;
+  for (uint64_t b : buckets) total += range_of_bucket(b).count;
+  ctx.verify_keys_total = total;
   for (uint64_t b : buckets) {
     ServiceLister key_lister(*ctx.svc, ctx.tenant, ctx.bucket(b));
     ServiceVersionPager pager(*ctx.svc, ctx.tenant, ctx.bucket(b));

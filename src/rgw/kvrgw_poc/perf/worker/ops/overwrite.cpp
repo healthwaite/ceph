@@ -114,7 +114,8 @@ class OverwriteOp : public Operation {
       cum[static_cast<size_t>(t) + 1] = cum[static_cast<size_t>(t)] + window(ctx, gtid).count;
     }
     const uint64_t total = cum.back();
-    Failures f;
+    ctx.verify_keys_total = total;
+    Failures f(ctx.verify_keys_checked);
     std::atomic<uint64_t> next{0};
     auto work = [&]() {
       for (;;) {

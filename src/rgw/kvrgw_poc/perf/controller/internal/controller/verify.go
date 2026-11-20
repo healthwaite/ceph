@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	pb "kvrgw-perf/gen/perf/v1"
@@ -35,16 +36,39 @@ func (v *invocation) verify(mctx context.Context, sums []*pb.RunSummary) bool {
 	v.ev.Now("verify_start")
 	t0 := time.Now()
 	res := make([]*pb.PhaseEvent, len(v.workers))
+	prog := newVerifyProgress(len(v.workers), t0)
+	stop := make(chan struct{})
+	printed := make(chan struct{})
+	if v.o.Cfg.ReportIntervalMs > 0 {
+		go func() {
+			defer close(printed)
+			tk := time.NewTicker(time.Duration(v.o.Cfg.ReportIntervalMs) * time.Millisecond)
+			defer tk.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-tk.C:
+					fmt.Fprintln(v.out, prog.line(time.Now()))
+				}
+			}
+		}()
+	} else {
+		close(printed)
+	}
 	errs := v.forAll(func(i int, w *workerConn) error {
-		st, err := w.client.Verify(mctx, &pb.VerifyRequest{BenchmarkId: v.benchID, ThreadCounts: counts})
+		st, err := w.client.Verify(mctx, &pb.VerifyRequest{BenchmarkId: v.benchID, ThreadCounts: counts,
+			ReportIntervalMs: v.o.Cfg.ReportIntervalMs})
 		if err != nil {
 			return err
 		}
 		return drainTerminal(st, func(ev *pb.PhaseEvent) error {
 			res[i] = ev
 			return nil
-		})
+		}, prog.update)
 	})
+	close(stop)
+	<-printed
 	v.ev.Now("verify_end")
 	vs := &results.VerifySummary{Ran: true, DurationMs: time.Since(t0).Milliseconds()}
 	v.verifySum = vs
@@ -90,4 +114,65 @@ func (v *invocation) verify(mctx context.Context, sums []*pb.RunSummary) bool {
 			vs.Missing, vs.BadKey, vs.OutOfRange, vs.Unexpected, vs.Duplicate, vs.OtherFailures)
 	}
 	return pass
+}
+
+// verifyProgress aggregates the workers' periodic VerifyProgress events into one status line.
+type verifyProgress struct {
+	mu    sync.Mutex
+	t0    time.Time
+	cur   []uint64 // keys_checked per worker
+	total []uint64 // keys_total per worker (0 = unknown)
+}
+
+func newVerifyProgress(workers int, t0 time.Time) *verifyProgress {
+	return &verifyProgress{t0: t0, cur: make([]uint64, workers), total: make([]uint64, workers)}
+}
+
+func (p *verifyProgress) update(ev *pb.PhaseEvent) {
+	vp := ev.VerifyProgress
+	if vp == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if i := int(vp.WorkerIndex); i >= 0 && i < len(p.cur) {
+		p.cur[i], p.total[i] = vp.KeysChecked, vp.KeysTotal
+	}
+}
+
+func (p *verifyProgress) line(now time.Time) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var done, total uint64
+	known := true
+	for i := range p.cur {
+		done += p.cur[i]
+		total += p.total[i]
+		if p.total[i] == 0 {
+			known = false // some worker's total is unknown, so a percentage would mislead
+		}
+	}
+	el := now.Sub(p.t0)
+	rate := 0.0
+	if el > 0 {
+		rate = float64(done) / el.Seconds()
+	}
+	s := fmt.Sprintf("[verify %s] %s keys checked", el.Round(time.Second), commas(done))
+	if known && total > 0 {
+		pct := 100 * float64(done) / float64(total)
+		s = fmt.Sprintf("[verify %s] %s / %s keys (%.1f%%)", el.Round(time.Second), commas(done), commas(total), pct)
+		if rate > 0 && done < total {
+			eta := time.Duration(float64(total-done) / rate * float64(time.Second))
+			s += fmt.Sprintf(" ETA %s", eta.Round(time.Second))
+		}
+	}
+	return s + fmt.Sprintf(" %s keys/s", commas(uint64(rate)))
+}
+
+func commas(n uint64) string {
+	s := fmt.Sprintf("%d", n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }

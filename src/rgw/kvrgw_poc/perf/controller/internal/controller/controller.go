@@ -318,7 +318,7 @@ type eventStream interface {
 }
 
 // drainTerminal reads a server stream to the end, invoking fn on the last event.
-func drainTerminal(st eventStream, fn func(*pb.PhaseEvent) error) error {
+func drainTerminal(st eventStream, fn func(*pb.PhaseEvent) error, onProgress ...func(*pb.PhaseEvent)) error {
 	var last *pb.PhaseEvent
 	for {
 		ev, err := st.Recv()
@@ -327,6 +327,12 @@ func drainTerminal(st eventStream, fn func(*pb.PhaseEvent) error) error {
 		}
 		if err != nil {
 			return err
+		}
+		if ev.VerifyProgress != nil {
+			for _, f := range onProgress {
+				f(ev)
+			}
+			continue // periodic event, not the terminal one
 		}
 		last = ev
 	}
