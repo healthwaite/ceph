@@ -357,6 +357,10 @@ func (d *data) print(w io.Writer, o Options) {
 		} else {
 			fmt.Fprintln(w, " Verify    : not run")
 		}
+		if d.sum.Command == "run-put-object-overwrite-versioned" {
+			fmt.Fprintf(w, " Versions  : %d written, avg %.2f per object over %d objects (one per successful put; load's null versions not counted)\n",
+				d.sum.VersionsWritten, d.sum.VersionsPerObject, d.sum.Parameters.NumObjectsToOverwrite)
+		}
 		if d.sum.OpErrors > 0 {
 			note := "(all retried OK)"
 			if d.sum.Failed {

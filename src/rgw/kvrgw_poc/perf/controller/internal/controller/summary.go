@@ -35,6 +35,12 @@ func (v *invocation) buildSummary(exit int) *results.Summary {
 		}
 		s.Totals[op] = t
 	}
+	if v.o.Command == "run-put-object-overwrite-versioned" {
+		s.VersionsWritten = s.Totals["put_object"].Count
+		if n := v.o.Cfg.NumObjectsToOverwrite; n > 0 {
+			s.VersionsPerObject = float64(s.VersionsWritten) / float64(n)
+		}
+	}
 	for i, ws := range v.workerSums {
 		w := results.WorkerSummary{WorkerIndex: i}
 		if ws != nil {
@@ -66,6 +72,10 @@ func (v *invocation) printFinal(s *results.Summary) {
 			}
 			fmt.Fprintln(v.out, line)
 		}
+	}
+	if s.Command == "run-put-object-overwrite-versioned" {
+		fmt.Fprintf(v.out, "  versions written: %s  (avg %.2f per object over %d objects)\n",
+			human(float64(s.VersionsWritten)), s.VersionsPerObject, v.o.Cfg.NumObjectsToOverwrite)
 	}
 	if v.fdbStart != nil {
 		fmt.Fprintf(v.out, "  fdb disk used: start=%s", humanBytes(v.fdbStart.DiskUsedBytes))

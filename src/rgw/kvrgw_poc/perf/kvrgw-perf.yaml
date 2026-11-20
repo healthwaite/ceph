@@ -3,7 +3,7 @@
 # Resolution order for every key:  built-in default <- base <- <command> section <- CLI flag.
 # Keys are snake_case and identical to the CLI flag names (--page-size <=> page_size).
 # Unknown keys, wrong types, and both `ops` and `duration` being set are errors.
-# All values below are the built-in defaults.
+# The values below are the soak-test settings (long durations, 1B objects); built-in defaults differ.
 #
 # Located by --config, else ./kvrgw-perf.yaml, else next to the kvrgw-perf binary
 # (the build copies this file there), else /opt/kvrgw/kvrgw-perf.yaml (run image).
@@ -46,9 +46,6 @@ base:
 # num_objects objects. Fails if a bucket already exists, unless `force` (--force) is set:
 # then existing buckets and objects are kept and load puts its keys into them.
 load:
-  #worker_count: 1
-  #threads_per_worker: 1
-  #verify_threads: 4
   force: false
 
 # For the run-* commands exactly one of `ops` (total across the cluster) / `duration`
@@ -57,19 +54,13 @@ load:
 
 # Inserts brand-new keys (never present from load or earlier runs).
 run-put-object:
-  #worker_count: 1
-  #threads_per_worker: 1
-  #verify_threads: 4
-  #ops: 0
-  duration: 30s
+  duration: 12h
 
 # Pages through listings; buckets are split across workers (bucket b => worker b % workers).
 run-list-objects:
-  #worker_count: 1
+  worker_count: 10           # purposely equal to num_buckets so each worker gets a bucket.
   threads_per_worker: 16
-  #verify_threads: 4
-  #ops: 0
-  duration: 30s
+  duration: 20m
   page_size: 1000            # keys per list call
   single_thread_mode: false  # true: one worker, one thread, bucket 0 only
 
@@ -78,8 +69,7 @@ run-list-objects:
 # place. Init fails if versioning is enabled or suspended; a run aborts if a put creates a
 # version; verify fails if any key has version history (a non-null version or a delete marker).
 run-put-object-overwrite:
-  #ops: 1000000
-  duration: 30s
+  duration: 12h
 
 # Overwrites a limited set of keys and verifies the number of versions written per key.
 # Asks for confirmation (--yes skips it) and then ENABLES versioning on the buckets, which cannot
@@ -92,14 +82,12 @@ run-put-object-overwrite:
 # with 0 or 1 versions and checks little); and verification does one list_object_versions call
 # per overwritten key, so the size of the set bounds how long verification takes.
 run-put-object-overwrite-versioned:
-  #ops: 1000000
-  duration: 30s
-  num_objects_to_overwrite: 100000
+  duration: 12h
+  num_objects_to_overwrite: 1_000_000
 
 # DESTRUCTIVE: deletes loaded objects in batches (prompts unless --yes).
 run-delete-multi:
   threads_per_worker: 16
-  #ops: 1000000
-  duration: 30s
+  duration: 12h              # will exit long before this hopefully
   page_size: 1000            # max keys per delete_multi call
   single_thread_mode: false  # true: one worker, one thread, bucket 0 only

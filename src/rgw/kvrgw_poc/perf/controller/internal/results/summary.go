@@ -63,6 +63,11 @@ type Summary struct {
 	ServerTotals  map[string]uint64   `json:"server_stats_final,omitempty"`
 	Verify        *VerifySummary      `json:"verify,omitempty"`
 	OpErrors      uint64              `json:"op_errors"`
+	// VersionsWritten (run-put-object-overwrite-versioned only) is the number of new object
+	// versions the run wrote: one per successful put. The null versions made by load come on top.
+	VersionsWritten uint64 `json:"versions_written,omitempty"`
+	// VersionsPerObject is VersionsWritten averaged over the num_objects_to_overwrite keys.
+	VersionsPerObject float64 `json:"versions_per_object,omitempty"`
 	// ErrorDescriptions maps error code names to human-readable text.
 	ErrorDescriptions map[string]string `json:"error_descriptions,omitempty"`
 	Failed            bool              `json:"failed"`

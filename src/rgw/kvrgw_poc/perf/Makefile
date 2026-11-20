@@ -6,7 +6,7 @@
 #                  /workspace (CMD='make build' runs one command instead of a shell)
 #   image          build a runtime image containing kvrgw-perf (builds, then `make stage`)
 #   save           save that image to dist/kvrgw-perf-<tag>.tar.gz
-#   deploy         rsync the tarball and deploy/kvrgw-perf-run.sh to DEPLOY_HOST:DEPLOY_DIR
+#   deploy         rsync the tarball and deploy/kvrgw-perf-{run,suite}.sh to DEPLOY_HOST:DEPLOY_DIR
 #                  (default client:dev/kvrgw-perf)
 #
 # In-container targets (run these inside `make shell`; they refuse to run on the host):
@@ -87,7 +87,7 @@ deploy: save
 	$(require_host)
 	ssh "$(DEPLOY_HOST)" mkdir -p "$(DEPLOY_DIR)"
 	rsync -av --partial --progress \
-		"$(TARBALL)" "$(DIST)/kvrgw-perf.image" "$(PERF_DIR)/deploy/kvrgw-perf-run.sh" \
+		"$(TARBALL)" "$(DIST)/kvrgw-perf.image" "$(PERF_DIR)/deploy/kvrgw-perf-run.sh" "$(PERF_DIR)/deploy/kvrgw-perf-suite.sh" \
 		"$(DEPLOY_HOST):$(DEPLOY_DIR)/"
 	@echo "On $(DEPLOY_HOST): cd $(DEPLOY_DIR) && ./kvrgw-perf-run.sh"
 
