@@ -6,6 +6,18 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_L
     "Source gcc-toolset-12 first:  source /opt/rh/gcc-toolset-12/enable")
 endif()
 
+# Default to an optimized build. With no build type CMake passes no -O flag, so
+# GCC compiles at -O0, which badly skews perf numbers.
+#
+# NDEBUG is deliberately NOT defined: the unit tests are written with assert(),
+# which -DNDEBUG would turn into silent no-ops. Pass -DCMAKE_BUILD_TYPE=Debug
+# for an unoptimized build.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+endif()
+set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O2 -g")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g")
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
