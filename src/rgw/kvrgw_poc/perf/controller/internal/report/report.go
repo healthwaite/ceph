@@ -454,31 +454,49 @@ func (d *data) printClient(w io.Writer, o Options, from, to int64) {
 
 	subHeading(w, "Run totals", fmt.Sprintf("%s analysed, all windows merged", time.Duration(to-from)*time.Millisecond),
 		"percentiles come from the merged latency histogram; mean is count-weighted")
-	first := true
+	// Column widths grow with the data so large counts (e.g. 1,000,000,000) stay aligned
+	// with their headers instead of pushing the row right.
+	wide := func(min int, cells ...string) int {
+		for _, c := range cells {
+			if len(c)+2 > min {
+				min = len(c) + 2
+			}
+		}
+		return min
+	}
+	var latOps, ctrOps []string
 	for _, op := range ops {
 		if stats.IsCounter(op) {
-			continue
+			ctrOps = append(ctrOps, op)
+		} else {
+			latOps = append(latOps, op)
 		}
-		if first {
-			fmt.Fprintf(w, " %-14s%12s%9s%11s%9s%9s%9s%9s%9s\n", "op", "ops", "errors", "avg ops/s", "mean_ms", "p50_ms", "p90_ms", "p99_ms", "p999_ms")
-			first = false
-		}
-		t := totals[op]
-		fmt.Fprintf(w, " %-14s%12s%9s%11s%9s%9s%9s%9s%9s\n", op, grouped(int64(t.count)), grouped(int64(t.errs)),
-			num(float64(t.count)/runSecs), stats.MsNum(t.meanUs), stats.MsNum(float64(t.hist.Quantile(0.5))),
-			stats.MsNum(float64(t.hist.Quantile(0.9))), stats.MsNum(float64(t.hist.Quantile(0.99))), stats.MsNum(float64(t.hist.Quantile(0.999))))
 	}
-	first = true
-	for _, op := range ops {
-		if !stats.IsCounter(op) {
-			continue
+	if len(latOps) > 0 {
+		opsW, errW := wide(12, "ops"), wide(9, "errors")
+		for _, op := range latOps {
+			t := totals[op]
+			opsW = wide(opsW, grouped(int64(t.count)))
+			errW = wide(errW, grouped(int64(t.errs)))
 		}
-		if first {
-			fmt.Fprintf(w, "\n %-14s%12s%14s\n", "op", "keys", "avg keys/s")
-			first = false
+		fmt.Fprintf(w, " %-14s%*s%*s%11s%9s%9s%9s%9s%9s\n", "op", opsW, "ops", errW, "errors", "avg ops/s", "mean_ms", "p50_ms", "p90_ms", "p99_ms", "p999_ms")
+		for _, op := range latOps {
+			t := totals[op]
+			fmt.Fprintf(w, " %-14s%*s%*s%11s%9s%9s%9s%9s%9s\n", op, opsW, grouped(int64(t.count)), errW, grouped(int64(t.errs)),
+				num(float64(t.count)/runSecs), stats.MsNum(t.meanUs), stats.MsNum(float64(t.hist.Quantile(0.5))),
+				stats.MsNum(float64(t.hist.Quantile(0.9))), stats.MsNum(float64(t.hist.Quantile(0.99))), stats.MsNum(float64(t.hist.Quantile(0.999))))
 		}
-		t := totals[op]
-		fmt.Fprintf(w, " %-14s%12s%14s\n", op, grouped(int64(t.count)), num(float64(t.count)/runSecs))
+	}
+	if len(ctrOps) > 0 {
+		keyW := wide(12, "keys")
+		for _, op := range ctrOps {
+			keyW = wide(keyW, grouped(int64(totals[op].count)))
+		}
+		fmt.Fprintf(w, "\n %-14s%*s%14s\n", "op", keyW, "keys", "avg keys/s")
+		for _, op := range ctrOps {
+			t := totals[op]
+			fmt.Fprintf(w, " %-14s%*s%14s\n", op, keyW, grouped(int64(t.count)), num(float64(t.count)/runSecs))
+		}
 	}
 	for _, op := range ops {
 		if !stats.IsCounter(op) {
