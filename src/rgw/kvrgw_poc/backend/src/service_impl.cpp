@@ -15,6 +15,7 @@
 #include "service_impl.hpp"
 
 #include "admin_server.hpp"
+#include "async/sync_wait.hpp"
 #include "bucket_policy.hpp"
 #include "byte_range.hpp"
 #include "constants.hpp"
@@ -434,6 +435,43 @@ KvrgwErrorCode KvRgwServiceImpl::check_access(tenant_id_t tenant_id,
     return KVRGW_ERR_ACCESS_DENIED;
   }
   return KVRGW_ERR_OK;
+}
+
+//--------------------------------------------------------------------------------
+async::Task<KvrgwErrorCode> KvRgwServiceImpl::check_access_a(tenant_id_t tenant_id,
+                                                             std::string_view bucket_name,
+                                                             BucketState cached,
+                                                             uint8_t deny_mask)
+{
+  if (!(cached.access_flags & deny_mask)) {
+    co_return KVRGW_ERR_OK;
+  }
+  // Before denying access -> get a fresh copy of bucket state and double check
+  auto fresh = co_await read_bucket_state_a(tenant_id, bucket_name);
+  if (!fresh) {
+    co_return fdb_to_error(fresh.error());
+  }
+  if (!*fresh) {
+    co_return KVRGW_ERR_NO_SUCH_BUCKET;
+  }
+  if ((*fresh)->access_flags & deny_mask) {
+    co_return KVRGW_ERR_ACCESS_DENIED;
+  }
+  co_return KVRGW_ERR_OK;
+}
+
+//--------------------------------------------------------------------------------
+async::Task<void> KvRgwServiceImpl::backoff_a(KvrgwErrorCode ec)
+{
+  const fdb_error_t err = error_to_fdb(ec);
+  if (err == 0) {
+    co_return;
+  }
+  auto tr = store_.begin_transaction();
+  if (!tr) {
+    co_return;
+  }
+  [[maybe_unused]] const fdb_error_t fin = co_await (*tr)->on_error_a(err);
 }
 
 //--------------------------------------------------------------------------------
@@ -1464,41 +1502,46 @@ bool KvRgwServiceImpl::pack_object_into_gc(std::string_view object_key,
   return true;
 }
 
-bool KvRgwServiceImpl::delete_multi_try_commit(
+async::Task<bool> KvRgwServiceImpl::delete_multi_try_commit_a(
     tenant_id_t tenant_id, const std::string &bucket_name,
     bucket_id_t bucket_id, std::span<const std::string> keys,
     std::span<DeleteContext> ctxs,
     std::vector<DeleteMultiKeyOutcome> *out)
 {
   if (keys.empty()) {
-    return true;
+    co_return true;
   }
   auto tr_result = store_.begin_transaction();
   if (!tr_result) {
-    return false;
+    co_return false;
   }
   auto &tr = *tr_result;
+  if (async_cfg_.txn_timeout_ms > 0) (void)tr->set_timeout_ms(async_cfg_.txn_timeout_ms);
 
-  // Phase 1: issue bucket get + all per-key object gets concurrently
+  // Phase 1: issue the bucket get and every per-key object get before the
+  // first co_await: the wait is the slowest read, not their sum.
   auto batch = delete_prepare_batch(*tr, tenant_id, bucket_name, bucket_id);
   if (!batch) {
-    return false;
+    co_return false;
   }
-
   for (size_t i = 0; i < keys.size(); ++i) {
     ctxs[i].resolved.reset();
     delete_prepare_key(*tr, batch->bucket_id, keys[i], ctxs[i]);
   }
 
   // Phase 2: verify bucket once
-  auto bs = delete_verify_bucket(*batch);
+  FdbGetHolder bkt_holder(std::move(batch->f_bkt));
+  auto bs = co_await resolve_bucket_verify_a(tenant_id, bucket_name, bkt_holder,
+                                             batch->bucket_id, kDenyWrite);
   if (!bs) {
-    return false;
+    co_return false;
   }
+  batch->bucket_id = bs->bucket_id;
 
   // Phase 2b: resolve all object futures and populate ctx.resolved for GC extraction
   for (size_t i = 0; i < keys.size(); ++i) {
-    auto val = tr->kv_wait_get(ctxs[i].f_obj);
+    [[maybe_unused]] const fdb_error_t e = co_await async::FdbAwait(ctxs[i].f_obj.raw());
+    auto val = tr->kv_wait_get(ctxs[i].f_obj);  // ready: does not block
     if (val && *val) {
       ctxs[i].resolved = std::move(**val);
     }
@@ -1523,6 +1566,7 @@ bool KvRgwServiceImpl::delete_multi_try_commit(
                        version_id_t{});
     }
     else {
+      // Every future is ready, so delete_apply does not block.
       auto result = delete_apply(*tr, ctxs[i], *bs, nullptr);
       if (result) {
         out->emplace_back(DeleteMultiKeyOutcome::Status::Deleted, keys[i], "",
@@ -1543,13 +1587,66 @@ bool KvRgwServiceImpl::delete_multi_try_commit(
     tr->kv_put(go_key.view(), go_buf.view());
   }
 
-  if (tr->commit() == 0) {
-    return true;
+  if (co_await tr->commit_a() == 0) {
+    co_return true;
   }
   out->resize(base);
-  return false;
+  co_return false;
 }
 
+//--------------------------------------------------------------------------------
+async::Task<void> KvRgwServiceImpl::delete_multi_one_key_a(
+    tenant_id_t tenant_id, const std::string &bucket_name,
+    bucket_id_t bucket_id, std::string_view key,
+    std::vector<DeleteMultiKeyOutcome> &out)
+{
+  DeleteMultiKeyOutcome outcome;
+  outcome.key = std::string(key);
+  outcome.status = DeleteMultiKeyOutcome::Status::Error;
+  outcome.error_code = "InternalError";
+
+  auto tr_result = store_.begin_transaction();
+  if (!tr_result) {
+    outcome.error_message = "transaction begin failed";
+    out.push_back(std::move(outcome));
+    co_return;
+  }
+  auto &tr = *tr_result;
+  if (async_cfg_.txn_timeout_ms > 0) (void)tr->set_timeout_ms(async_cfg_.txn_timeout_ms);
+
+  auto batch = delete_prepare_batch(*tr, tenant_id, bucket_name, bucket_id);
+  if (!batch) {
+    outcome.error_message = "prepare batch failed";
+    out.push_back(std::move(outcome));
+    co_return;
+  }
+
+  DeleteContext ctx;
+  delete_prepare_key(*tr, batch->bucket_id, key, ctx);
+
+  FdbGetHolder bkt_holder(std::move(batch->f_bkt));
+  auto bs = co_await resolve_bucket_verify_a(tenant_id, bucket_name, bkt_holder,
+                                             batch->bucket_id, kDenyWrite);
+  if (bs) {
+    [[maybe_unused]] const fdb_error_t e = co_await async::FdbAwait(ctx.f_obj.raw());
+    auto result = delete_apply(*tr, ctx, *bs, nullptr);  // future ready: no block
+    if (result && co_await tr->commit_a() == 0) {
+      outcome.status = DeleteMultiKeyOutcome::Status::Deleted;
+      outcome.error_code.clear();
+      outcome.created_dm = result->created_dm;
+      outcome.dm_version_id = result->dm_version_id;
+    }
+    else {
+      outcome.error_message = "transaction commit failed";
+    }
+  }
+  else {
+    outcome.error_message = "bucket verify failed";
+  }
+  out.push_back(std::move(outcome));
+}
+
+//--------------------------------------------------------------------------------
 void KvRgwServiceImpl::delete_multi_one_key(
     tenant_id_t tenant_id, const std::string &bucket_name,
     bucket_id_t bucket_id, std::string_view key,
@@ -1681,23 +1778,74 @@ KvrgwErrorCode KvRgwServiceImpl::create_bucket_attempt(tenant_id_t tenant_id,
 KvrgwErrorCode KvRgwServiceImpl::create_bucket(tenant_id_t tenant_id,
                                                std::string_view bucket_name)
 {
-  ScopedRequestLatency _lat(latency_stats_, OpType::kCreateBucket);
+  if (!async::can_sync_wait()) {
+    return KVRGW_ERR_INTERNAL;
+  }
+  return async::sync_wait(create_bucket_a(tenant_id, bucket_name, Caller::kSync));
+}
+
+//---------------------------------------------------------------------------------
+async::Task<KvrgwErrorCode> KvRgwServiceImpl::create_bucket_a(tenant_id_t tenant_id,
+                                                              std::string_view bucket_name,
+                                                              Caller caller)
+{
+  Admission::Guard admitted;
+  if (auto ec = admission_.admit(caller, &admitted); ec != KVRGW_ERR_OK) {
+    co_return ec;
+  }
+  AsyncRequestLatency lat(latency_stats_, OpType::kCreateBucket);
   ops_stats_.inc(OpType::kCreateBucket);
+  co_await async::switch_to(workers_.next());
   if (!is_valid_bucket_name(bucket_name)) {
-    return KVRGW_ERR_INVALID_BUCKET_NAME;
+    co_return KVRGW_ERR_INVALID_BUCKET_NAME;
   }
 
   KeyBuf bucket_key;
   make_bucket_key(tenant_id, bucket_name, bucket_key);
-
-  for (int attempt = 0; attempt < kCounterAllocMaxRetries; ++attempt) {
-    auto ec = create_bucket_attempt(tenant_id, bucket_name, bucket_key);
-    if (ec == KVRGW_ERR_OK || !is_retriable(ec)) {
-      return ec;
-    }
-    counter_alloc_backoff(attempt);
+  // One transaction checks for the bucket and, only if it is absent, allocates the id and writes
+  // the bucket: an existing bucket never consumes an id, and two creators cannot both succeed.
+  bucket_id_t bucket_id{};
+  std::optional<BucketValue> existing;
+  auto r = co_await retry_txn<KvrgwErrorCode>(
+      store_, retry_policy(), [&](KvTransaction &tr) -> async::Task<OpOutcome<KvrgwErrorCode>> {
+        existing.reset();
+        FdbGetHolder hb = tr.get_a(bucket_key.view());
+        if (fdb_error_t err = co_await hb) {
+          co_return OpOutcome<KvrgwErrorCode>::fdb(err);
+        }
+        if (hb.present()) {
+          // Already exists: adopt the stored state, nothing to commit.
+          auto bv = parse_bucket_value(hb.value());
+          if (!bv) {
+            co_return OpOutcome<KvrgwErrorCode>::done(KVRGW_ERR_CORRUPT_VALUE);
+          }
+          existing = *bv;
+          co_return OpOutcome<KvrgwErrorCode>::done(KVRGW_ERR_OK);
+        }
+        auto num = co_await LKeyNumericCounter::allocate_in_txn_a(tr, kLocalCounterBucketId);
+        if (!num) {
+          co_return OpOutcome<KvrgwErrorCode>::fdb(num.error());
+        }
+        if (*num == 0) {
+          co_return OpOutcome<KvrgwErrorCode>::done(KVRGW_ERR_CORRUPT_VALUE);
+        }
+        bucket_id = bucket_id_t::from_counter(*num);
+        tr.kv_put(bucket_key.view(), make_bucket_value(bucket_id, now_unix()));
+        co_return OpOutcome<KvrgwErrorCode>::commit(KVRGW_ERR_OK);
+      });
+  if (!r) {
+    co_return r.error();
   }
-  return KVRGW_ERR_MAX_RETRIES_EXCEEDED;
+  if (*r != KVRGW_ERR_OK) {
+    co_return *r;
+  }
+  if (existing) {
+    put_bucket_cache(tenant_id, bucket_name, existing->bucket_id, existing->access_flags,
+                     existing->versioning_state);
+    co_return KVRGW_ERR_OK;
+  }
+  put_bucket_cache(tenant_id, bucket_name, bucket_id);
+  co_return KVRGW_ERR_OK;
 }
 
 //---------------------------------------------------------------------------------
@@ -1705,14 +1853,30 @@ KvrgwErrorCode KvRgwServiceImpl::bucket_exists(tenant_id_t tenant_id,
                                                std::string_view bucket_name,
                                                bool *out_exists)
 {
-  ScopedRequestLatency _lat(latency_stats_, OpType::kBucketExists);
+  if (!async::can_sync_wait()) {
+    return KVRGW_ERR_INTERNAL;
+  }
+  return async::sync_wait(bucket_exists_a(tenant_id, bucket_name, out_exists, Caller::kSync));
+}
+
+//---------------------------------------------------------------------------------
+async::Task<KvrgwErrorCode> KvRgwServiceImpl::bucket_exists_a(tenant_id_t tenant_id,
+                                                              std::string_view bucket_name,
+                                                              bool *out_exists, Caller caller)
+{
+  Admission::Guard admitted;
+  if (auto ec = admission_.admit(caller, &admitted); ec != KVRGW_ERR_OK) {
+    co_return ec;
+  }
+  AsyncRequestLatency lat(latency_stats_, OpType::kBucketExists);
   ops_stats_.inc(OpType::kBucketExists);
-  auto state = read_bucket_state(tenant_id, bucket_name);
+  co_await async::switch_to(workers_.next());
+  auto state = co_await read_bucket_state_a(tenant_id, bucket_name);
   if (!state) {
-    return fdb_to_error(state.error());
+    co_return fdb_to_error(state.error());
   }
   *out_exists = state->has_value();
-  return KVRGW_ERR_OK;
+  co_return KVRGW_ERR_OK;
 }
 
 //---------------------------------------------------------------------------------
@@ -1885,9 +2049,34 @@ KvrgwErrorCode KvRgwServiceImpl::list_objects(tenant_id_t tenant_id,
                                               std::string_view marker,
                                               ListObjectsResult *out)
 {
-  ScopedRequestLatency _lat(latency_stats_, OpType::kListObjects);
-  ops_stats_.inc(OpType::kListObjects);
+  if (!async::can_sync_wait()) {
+    return KVRGW_ERR_INTERNAL;
+  }
+  return async::sync_wait(list_objects_a(tenant_id, bucket_name, prefix, delimiter, max_keys,
+                                         continuation_token, marker, out, Caller::kSync));
+}
+
+//--------------------------------------------------------------------------------
+async::Task<KvrgwErrorCode>
+KvRgwServiceImpl::list_objects_a(tenant_id_t tenant_id,
+                                 std::string_view bucket_name,
+                                 std::string_view prefix,
+                                 std::string_view delimiter,
+                                 uint32_t max_keys,
+                                 std::string_view continuation_token,
+                                 std::string_view marker,
+                                 ListObjectsResult *out,
+                                 Caller caller)
+{
   *out = {};
+  Admission::Guard admitted;
+  if (auto ec = admission_.admit(caller, &admitted); ec != KVRGW_ERR_OK) {
+    co_return ec;
+  }
+  // Recorded once, from admission to completion; callers do not wrap.
+  AsyncRequestLatency lat(latency_stats_, OpType::kListObjects);
+  ops_stats_.inc(OpType::kListObjects);
+  co_await async::switch_to(workers_.next());
   const std::string_view list_prefix = prefix;
   const std::string_view delim = delimiter;
   const bool use_delimiter = !delim.empty();
@@ -1905,20 +2094,20 @@ KvrgwErrorCode KvRgwServiceImpl::list_objects(tenant_id_t tenant_id,
   for (int attempt = 0; attempt < kMaxRetries; ++attempt) {
     *out = {};
 
-    auto cached = get_bucket_id_cached(tenant_id, bucket_name);
+    auto cached = co_await get_bucket_id_cached_a(tenant_id, bucket_name);
     if (!cached) {
       auto ec = fdb_to_error(cached.error());
       if (is_retriable(ec)) {
-        sleep_for_msec(10 * (attempt + 1));
+        co_await backoff_a(ec);
         continue;
       }
-      return ec;
+      co_return ec;
     }
     if (!*cached) {
-      return KVRGW_ERR_NO_SUCH_BUCKET;
+      co_return KVRGW_ERR_NO_SUCH_BUCKET;
     }
     if ((*cached)->access_flags & kDenyList) {
-      return KVRGW_ERR_ACCESS_DENIED;
+      co_return KVRGW_ERR_ACCESS_DENIED;
     }
     const auto bucket_id = (*cached)->bucket_id;
 
@@ -1972,7 +2161,7 @@ KvrgwErrorCode KvRgwServiceImpl::list_objects(tenant_id_t tenant_id,
       FdbRangeHolder holder(tr->kv_async_get_range_holder(scan_begin, exclusive_scan,
                                                           scan_end, batch_limit, streamingMode));
       exclusive_scan = true;
-      const fdb_error_t wait_err = holder.wait();
+      const fdb_error_t wait_err = co_await holder;
       latency_stats_.record_list_scan(scan_t0.elapsed_us());
 
       if (wait_err) [[unlikely]] {
@@ -2048,8 +2237,8 @@ KvrgwErrorCode KvRgwServiceImpl::list_objects(tenant_id_t tenant_id,
       }
 
       // check bucket future now (no latency added)
-      auto vb = resolve_bucket_verify(tenant_id, bucket_name, f_bkt, bucket_id,
-                                      kDenyList);
+      auto vb = co_await resolve_bucket_verify_a(tenant_id, bucket_name, f_bkt, bucket_id,
+                                                 kDenyList);
       if (!vb) [[unlikely]] {
         iter_ec = vb.error();
         if (iter_ec == KVRGW_ERR_BUCKET_ID_MISMATCH) {
@@ -2088,12 +2277,12 @@ KvrgwErrorCode KvRgwServiceImpl::list_objects(tenant_id_t tenant_id,
 
     if (iter_ec != KVRGW_ERR_OK) [[unlikely]] {
       if (is_retriable(iter_ec)) {
-        sleep_for_msec(10 * (attempt + 1));
+        co_await backoff_a(iter_ec);
         continue;
       }
       // clear out buffer before reporting an error
       *out = {};
-      return iter_ec;
+      co_return iter_ec;
     }
 
     out->is_truncated = truncated;
@@ -2113,9 +2302,9 @@ KvrgwErrorCode KvRgwServiceImpl::list_objects(tenant_id_t tenant_id,
       }
     }
 
-    return KVRGW_ERR_OK;
+    co_return KVRGW_ERR_OK;
   }
-  return KVRGW_ERR_MAX_RETRIES_EXCEEDED;
+  co_return KVRGW_ERR_MAX_RETRIES_EXCEEDED;
 }
 
 //--------------------------------------------------------------------------------
@@ -2344,9 +2533,17 @@ KvRgwServiceImpl::delete_multi(tenant_id_t tenant_id,
                                std::span<const DeleteMultiObjectRef> objects,
                                std::vector<DeleteMultiKeyOutcome> *out)
 {
+  if (objects.empty()) {
+    if (!async::can_sync_wait()) {
+      return KVRGW_ERR_INTERNAL;
+    }
+    return async::sync_wait(delete_multi_a(tenant_id, bucket_name, keys, out, Caller::kSync));
+  }
+
+  // Objects with version ids go through delete_object_version, which is
+  // synchronous: this path stays sync.
   ScopedRequestLatency _lat(latency_stats_, OpType::kDeleteMulti);
   ops_stats_.inc(OpType::kDeleteMulti);
-  constexpr int kTxnFailThreshold = 3;
   out->clear();
 
   const std::string bname(bucket_name);
@@ -2363,11 +2560,8 @@ KvRgwServiceImpl::delete_multi(tenant_id_t tenant_id,
   }
   const auto bucket_id = (**bucket_id_res).bucket_id;
 
-  int txn_failures = 0;
-  bool single_delete_mode = false;
-
   // TBD: version-deletion must be refactored to work in bulk
-  if (!objects.empty()) {
+  {
     out->reserve(out->size() + objects.size());
     for (const auto &obj : objects) {
       if (obj.version_id) {
@@ -2391,15 +2585,51 @@ KvRgwServiceImpl::delete_multi(tenant_id_t tenant_id,
     }
     return KVRGW_ERR_OK;
   }
+}
 
+//---------------------------------------------------------------------------------
+async::Task<KvrgwErrorCode>
+KvRgwServiceImpl::delete_multi_a(tenant_id_t tenant_id,
+                                 std::string_view bucket_name,
+                                 std::span<const std::string> keys,
+                                 std::vector<DeleteMultiKeyOutcome> *out,
+                                 Caller caller)
+{
+  out->clear();
+  Admission::Guard admitted;
+  if (auto ec = admission_.admit(caller, &admitted); ec != KVRGW_ERR_OK) {
+    co_return ec;
+  }
+  // Recorded once, from admission to completion; callers do not wrap.
+  AsyncRequestLatency lat(latency_stats_, OpType::kDeleteMulti);
+  ops_stats_.inc(OpType::kDeleteMulti);
+  co_await async::switch_to(workers_.next());
+  constexpr int kTxnFailThreshold = 3;
+
+  const std::string bname(bucket_name);
+  auto bucket_id_res = co_await get_bucket_id_cached_a(tenant_id, bname);
+  if (!bucket_id_res) {
+    co_return fdb_to_error(bucket_id_res.error());
+  }
+  if (!*bucket_id_res) {
+    co_return KVRGW_ERR_NO_SUCH_BUCKET;
+  }
+  auto ac = co_await check_access_a(tenant_id, bname, **bucket_id_res, kDenyWrite);
+  if (ac != KVRGW_ERR_OK) {
+    co_return ac;
+  }
+  const auto bucket_id = (**bucket_id_res).bucket_id;
+
+  int txn_failures = 0;
+  bool single_delete_mode = false;
   const int key_count = static_cast<int>(keys.size());
   out->reserve(out->size() + static_cast<size_t>(key_count));
   // Allocate the per-key ctx array once — reused across all chunk iterations.
   std::unique_ptr<DeleteContext[]> ctx_buf(new DeleteContext[kMaxBatchSize]);
   for (int i = 0; i < key_count;) {
     if (single_delete_mode) {
-      delete_multi_one_key(tenant_id, bname, bucket_id,
-                           keys[static_cast<size_t>(i)], *out);
+      co_await delete_multi_one_key_a(tenant_id, bname, bucket_id,
+                                      keys[static_cast<size_t>(i)], *out);
       ++i;
       continue;
     }
@@ -2409,10 +2639,10 @@ KvRgwServiceImpl::delete_multi(tenant_id_t tenant_id,
                                     static_cast<size_t>(chunk_end - i));
     const std::span<DeleteContext> ctxs(ctx_buf.get(), chunk.size());
 
-    if (!delete_multi_try_commit(tenant_id, bname, bucket_id, chunk, ctxs, out)) {
+    if (!co_await delete_multi_try_commit_a(tenant_id, bname, bucket_id, chunk, ctxs, out)) {
       ++txn_failures;
       for (const auto &key : chunk) {
-        delete_multi_one_key(tenant_id, bname, bucket_id, key, *out);
+        co_await delete_multi_one_key_a(tenant_id, bname, bucket_id, key, *out);
       }
       if (txn_failures > kTxnFailThreshold) {
         single_delete_mode = true;
@@ -2420,7 +2650,7 @@ KvRgwServiceImpl::delete_multi(tenant_id_t tenant_id,
     }
     i = chunk_end;
   }
-  return KVRGW_ERR_OK;
+  co_return KVRGW_ERR_OK;
 }
 
 //---------------------------------------------------------------------------------
@@ -2645,63 +2875,51 @@ KvrgwErrorCode KvRgwServiceImpl::put_bucket_versioning(tenant_id_t tenant_id,
                                                        std::string_view bucket_name,
                                                        VersioningState state)
 {
-  ScopedRequestLatency _lat(latency_stats_, OpType::kPutBucketVersioning);
+  if (!async::can_sync_wait()) {
+    return KVRGW_ERR_INTERNAL;
+  }
+  return async::sync_wait(put_bucket_versioning_a(tenant_id, bucket_name, state, Caller::kSync));
+}
+
+//---------------------------------------------------------------------------------
+async::Task<KvrgwErrorCode>
+KvRgwServiceImpl::put_bucket_versioning_a(tenant_id_t tenant_id, std::string_view bucket_name,
+                                          VersioningState state, Caller caller)
+{
+  Admission::Guard admitted;
+  if (auto ec = admission_.admit(caller, &admitted); ec != KVRGW_ERR_OK) {
+    co_return ec;
+  }
+  AsyncRequestLatency lat(latency_stats_, OpType::kPutBucketVersioning);
   ops_stats_.inc(OpType::kPutBucketVersioning);
-  constexpr int kMaxRetries = 3;
+  co_await async::switch_to(workers_.next());
   KeyBuf bucket_key;
   make_bucket_key(tenant_id, bucket_name, bucket_key);
-
-  // start txn
-  for (int attempt = 0; attempt < kMaxRetries; ++attempt) {
-    auto tr_result = store_.begin_transaction();
-    if (!tr_result) {
-      auto ec = fdb_to_error(tr_result.error());
-      if (is_retriable(ec)) {
-        continue;
-      }
-      return ec;
-    }
-    auto &tr = *tr_result;
-
-    // block on bucket-entry KV
-    auto existing = tr->kv_get(bucket_key.view());
-    if (!existing) {
-      // failure
-      auto ec = fdb_to_error(existing.error());
-      if (is_retriable(ec)) {
-        // A retriable FDB error poisons that txn -> restart a fresh txn
-        continue;
-      }
-      return ec;
-    }
-    if (!*existing) {
-      return KVRGW_ERR_NO_SUCH_BUCKET;
-    }
-
-    auto bv = parse_bucket_value(**existing);
-    if (!bv) {
-      return KVRGW_ERR_INTERNAL;
-    }
-
-    const auto new_val =
-        make_bucket_value(bv->bucket_id, bv->created_at_unix, bv->access_flags,
-                          state, bv->policy_json);
-    tr->kv_put(bucket_key.view(), new_val);
-
-    fdb_error_t err = tr->commit();
-    if (!err) {
-      invalidate_bucket_cache(tenant_id, bucket_name);
-      return KVRGW_ERR_OK;
-    }
-    auto commit_ec = fdb_to_error(err);
-    if (is_retriable(commit_ec)) {
-      // A retriable FDB error poisons that txn -> restart a fresh txn
-      sleep_for_msec(10 * (attempt + 1));
-      continue;
-    }
-    return commit_ec;
+  auto r = co_await retry_txn<KvrgwErrorCode>(
+      store_, retry_policy(), [&](KvTransaction &tr) -> async::Task<OpOutcome<KvrgwErrorCode>> {
+        FdbGetHolder existing = tr.get_a(bucket_key.view());
+        if (fdb_error_t err = co_await existing) {
+          co_return OpOutcome<KvrgwErrorCode>::fdb(err);
+        }
+        if (!existing.present()) {
+          co_return OpOutcome<KvrgwErrorCode>::done(KVRGW_ERR_NO_SUCH_BUCKET);
+        }
+        auto bv = parse_bucket_value(existing.value());
+        if (!bv) {
+          co_return OpOutcome<KvrgwErrorCode>::done(KVRGW_ERR_INTERNAL);
+        }
+        const auto new_val = make_bucket_value(bv->bucket_id, bv->created_at_unix,
+                                               bv->access_flags, state, bv->policy_json);
+        tr.kv_put(bucket_key.view(), new_val);
+        co_return OpOutcome<KvrgwErrorCode>::commit(KVRGW_ERR_OK);
+      });
+  if (!r) {
+    co_return r.error();
   }
-  return KVRGW_ERR_MAX_RETRIES_EXCEEDED;
+  if (*r == KVRGW_ERR_OK) {
+    invalidate_bucket_cache(tenant_id, bucket_name);
+  }
+  co_return *r;
 }
 
 //---------------------------------------------------------------------------------
@@ -2710,17 +2928,33 @@ KvRgwServiceImpl::get_bucket_versioning(tenant_id_t tenant_id,
                                         std::string_view bucket_name,
                                         VersioningState *out_state)
 {
-  ScopedRequestLatency _lat(latency_stats_, OpType::kGetBucketVersioning);
+  if (!async::can_sync_wait()) {
+    return KVRGW_ERR_INTERNAL;
+  }
+  return async::sync_wait(get_bucket_versioning_a(tenant_id, bucket_name, out_state, Caller::kSync));
+}
+
+//---------------------------------------------------------------------------------
+async::Task<KvrgwErrorCode>
+KvRgwServiceImpl::get_bucket_versioning_a(tenant_id_t tenant_id, std::string_view bucket_name,
+                                          VersioningState *out_state, Caller caller)
+{
+  Admission::Guard admitted;
+  if (auto ec = admission_.admit(caller, &admitted); ec != KVRGW_ERR_OK) {
+    co_return ec;
+  }
+  AsyncRequestLatency lat(latency_stats_, OpType::kGetBucketVersioning);
   ops_stats_.inc(OpType::kGetBucketVersioning);
-  auto state = read_bucket_state(tenant_id, bucket_name);
+  co_await async::switch_to(workers_.next());
+  auto state = co_await read_bucket_state_a(tenant_id, bucket_name);
   if (!state) {
-    return fdb_to_error(state.error());
+    co_return fdb_to_error(state.error());
   }
   if (!*state) {
-    return KVRGW_ERR_NO_SUCH_BUCKET;
+    co_return KVRGW_ERR_NO_SUCH_BUCKET;
   }
   *out_state = (*state)->versioning_state;
-  return KVRGW_ERR_OK;
+  co_return KVRGW_ERR_OK;
 }
 
 //--------------------------------------------------------------------------------
@@ -4114,29 +4348,48 @@ KvrgwErrorCode KvRgwServiceImpl::list_object_versions(
     std::string_view prefix, uint32_t max_keys, std::string_view key_marker,
     version_id_t version_id_marker, ListObjectVersionsResult *out)
 {
-  ScopedRequestLatency _lat(latency_stats_, OpType::kListObjectVersions);
-  ops_stats_.inc(OpType::kListObjectVersions);
+  if (!async::can_sync_wait()) {
+    return KVRGW_ERR_INTERNAL;
+  }
+  return async::sync_wait(list_object_versions_a(tenant_id, bucket_name, prefix, max_keys,
+                                                 key_marker, version_id_marker, out,
+                                                 Caller::kSync));
+}
+
+//--------------------------------------------------------------------------------
+async::Task<KvrgwErrorCode> KvRgwServiceImpl::list_object_versions_a(
+    tenant_id_t tenant_id, std::string_view bucket_name,
+    std::string_view prefix, uint32_t max_keys, std::string_view key_marker,
+    version_id_t version_id_marker, ListObjectVersionsResult *out, Caller caller)
+{
   *out = {};
+  Admission::Guard admitted;
+  if (auto ec = admission_.admit(caller, &admitted); ec != KVRGW_ERR_OK) {
+    co_return ec;
+  }
+  AsyncRequestLatency lat(latency_stats_, OpType::kListObjectVersions);
+  ops_stats_.inc(OpType::kListObjectVersions);
+  co_await async::switch_to(workers_.next());
   const std::string_view list_prefix = prefix;
   max_keys = std::min((max_keys > 0 ? max_keys : AWS_MaxKeys), AWS_MaxKeys);
 
   constexpr int kMaxRetries = 3;
   for (int attempt = 0; attempt < kMaxRetries; ++attempt) {
     *out = {};
-    auto cached = get_bucket_id_cached(tenant_id, bucket_name);
+    auto cached = co_await get_bucket_id_cached_a(tenant_id, bucket_name);
     if (!cached) [[unlikely]] {
       auto ec = fdb_to_error(cached.error());
       if (is_retriable(ec)) {
-        sleep_for_msec(10 * (attempt + 1));
+        co_await backoff_a(ec);
         continue;
       }
-      return ec;
+      co_return ec;
     }
     if (!*cached) {
-      return KVRGW_ERR_NO_SUCH_BUCKET;
+      co_return KVRGW_ERR_NO_SUCH_BUCKET;
     }
     if ((*cached)->access_flags & kDenyList) {
-      return KVRGW_ERR_ACCESS_DENIED;
+      co_return KVRGW_ERR_ACCESS_DENIED;
     }
     const auto bucket_id = (*cached)->bucket_id;
 
@@ -4176,10 +4429,10 @@ KvrgwErrorCode KvRgwServiceImpl::list_object_versions(
     if (!tr_result) [[unlikely]] {
       auto ec = fdb_to_error(tr_result.error());
       if (is_retriable(ec)) {
-        sleep_for_msec(10 * (attempt + 1));
+        co_await backoff_a(ec);
         continue;
       }
-      return ec;
+      co_return ec;
     }
     auto &tr = *tr_result;
     if (listing_disable_ryw_) {
@@ -4194,33 +4447,34 @@ KvrgwErrorCode KvRgwServiceImpl::list_object_versions(
     FdbRangeHolder v_holder(tr->kv_async_get_range_holder(
         v_begin, !last_v.empty(), v_end, max_keys, streamingMode));
 
-    const fdb_error_t o_err = o_holder.wait();
+    // Both ranges are already in flight: the wait is the slower of the two.
+    const fdb_error_t o_err = co_await o_holder;
     const auto o_us = scan_t0.elapsed_us();
     if (o_err) [[unlikely]] {
       auto ec = fdb_to_error(o_err);
       if (is_retriable(ec)) {
-        sleep_for_msec(10 * (attempt + 1));
+        co_await backoff_a(ec);
         continue;
       }
-      return ec;
+      co_return ec;
     }
 
-    const fdb_error_t v_err = v_holder.wait();
+    const fdb_error_t v_err = co_await v_holder;
     const auto v_us = scan_t0.elapsed_us();
     if (v_err) [[unlikely]] {
       auto ec = fdb_to_error(v_err);
       if (is_retriable(ec)) {
-        sleep_for_msec(10 * (attempt + 1));
+        co_await backoff_a(ec);
         continue;
       }
-      return ec;
+      co_return ec;
     }
 
     merge_version_streams(o_holder, v_holder, list_prefix, max_keys, &last_o,
                           &last_v, out);
 
-    auto vb = resolve_bucket_verify(tenant_id, bucket_name, f_bkt, bucket_id,
-                                    kDenyList);
+    auto vb = co_await resolve_bucket_verify_a(tenant_id, bucket_name, f_bkt, bucket_id,
+                                               kDenyList);
     if (!vb) [[unlikely]] {
       const auto ec = vb.error();
       if (ec == KVRGW_ERR_BUCKET_ID_MISMATCH) {
@@ -4229,11 +4483,11 @@ KvrgwErrorCode KvRgwServiceImpl::list_object_versions(
         continue;
       }
       if (is_retriable(ec)) {
-        sleep_for_msec(10 * (attempt + 1));
+        co_await backoff_a(ec);
         continue;
       }
       *out = {};
-      return ec;
+      co_return ec;
     }
 
     if (out->is_truncated) {
@@ -4246,9 +4500,9 @@ KvrgwErrorCode KvRgwServiceImpl::list_object_versions(
     latency_stats_.record_list_scan(o_us + v_us);
     // we issued 2 range scans (:O: + :V:)
     latency_stats_.record_list_call(1 + 1);
-    return KVRGW_ERR_OK;
+    co_return KVRGW_ERR_OK;
   }
-  return KVRGW_ERR_MAX_RETRIES_EXCEEDED;
+  co_return KVRGW_ERR_MAX_RETRIES_EXCEEDED;
 }
 
 //--------------------------------------------------------------------------------

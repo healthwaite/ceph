@@ -56,6 +56,75 @@ class DeleteMultiOp : public Operation {
     return index_range(gtid, static_cast<uint64_t>(ctx.total_streams()), ctx.cfg.num_objects);
   }
 
+  // "" if the call and every key succeeded; else a description, with the error recorded.
+  static std::string check_outcomes(
+      ThreadStats &ts, kvrgw::KvrgwErrorCode ec,
+      const std::vector<kvrgw::KvRgwServiceImpl::DeleteMultiKeyOutcome> &outcomes)
+  {
+    if (ec != kvrgw::KVRGW_ERR_OK) {
+      record_op_error(ts, Metric::DeleteMulti, ec);
+      return describe_error(ec);
+    }
+    for (const auto &o : outcomes) {
+      if (o.status == kvrgw::KvRgwServiceImpl::DeleteMultiKeyOutcome::Status::Error) {
+        register_error_text(o.error_code, o.error_message);
+        ts.record_error(Metric::DeleteMulti, o.error_code);
+        return "key " + o.key + ": " + o.error_code + " (" + o.error_message + ")";
+      }
+    }
+    return {};
+  }
+
+  // Keys [first, last) of the next delete_multi call starting at range offset `pos`
+  // (calls never cross a bucket boundary).
+  static void next_batch(const RunContext &ctx, const Range &r, uint64_t pos, uint64_t *bucket,
+                         uint64_t *first, uint64_t *last)
+  {
+    *first = r.start + pos;
+    *bucket = bucket_for_index(*first, ctx.cfg.num_objects, ctx.cfg.num_buckets);
+    const Range br = bucket_range(*bucket, ctx.cfg.num_buckets, ctx.cfg.num_objects);
+    *last = std::min({r.end(), br.end(), *first + static_cast<uint64_t>(ctx.cfg.page_size)});
+  }
+
+  kvrgw::async::Task<void> run_stream(RunContext &ctx, Stream &s) override
+  {
+    const Range r = thread_range(ctx, s.gsid);
+    if (r.count == 0) co_return;
+    const uint64_t quota = ctx.cfg.has_ops() ? ctx.ops_quota(s.gsid) : UINT64_MAX;
+    uint64_t calls = 0, total_deleted = 0, pos = 0;
+    int queue_full_in_a_row = 0;
+    std::vector<std::string> keys;  // owned by this frame across the co_await
+    std::vector<kvrgw::KvRgwServiceImpl::DeleteMultiKeyOutcome> outcomes;
+    while (!ctx.stopped() && calls < quota && !ctx.expired()) {
+      uint64_t bucket = 0, first = 0, last = 0;
+      next_batch(ctx, r, pos, &bucket, &first, &last);
+      keys.clear();
+      for (uint64_t i = first; i < last; ++i) keys.push_back(load_key(i, ctx.cfg.padding_bytes));
+      const auto t0 = SteadyClock::now();
+      const kvrgw::KvrgwErrorCode ec =
+          co_await ctx.svc->delete_multi_a(ctx.tenant, ctx.bucket(bucket), keys, &outcomes);
+      if (ec == kvrgw::KVRGW_ERR_QUEUE_FULL) {
+        s.ts->add_queue_full(Metric::DeleteMulti);
+        co_await s.exec->sleep(queue_full_backoff(queue_full_in_a_row++));
+        continue;
+      }
+      queue_full_in_a_row = 0;
+      const auto us = static_cast<uint64_t>(elapsed_us(t0));
+      ++calls;
+      const std::string bad = check_outcomes(*s.ts, ec, outcomes);
+      if (!bad.empty()) {
+        ctx.fail("delete_multi " + ctx.bucket(bucket) + " failed: " + bad);
+        break;
+      }
+      s.ts->record(Metric::DeleteMulti, us);
+      s.ts->add_units(Metric::KeysDeleted, keys.size());
+      total_deleted += keys.size();
+      deleted_[static_cast<size_t>(s.sid)] = std::min(total_deleted, r.count);
+      pos = last - r.start;
+      if (last == r.end()) break;  // whole range deleted: this stream is done
+    }
+  }
+
   void run_thread(RunContext &ctx, int tid) override
   {
     if (!ctx.wait_start()) return;
@@ -77,25 +146,12 @@ class DeleteMultiOp : public Operation {
       for (uint64_t i = first; i < last; ++i) keys.push_back(load_key(i, ctx.cfg.padding_bytes));
       outcomes.clear();
       auto t0 = SteadyClock::now();
-      kvrgw::KvrgwErrorCode ec;
-      // The service records its own DeleteMulti stats; no second timer here.
-      ec = ctx.svc->delete_multi(ctx.tenant, ctx.bucket(bucket), keys, {}, &outcomes);
+      // delete_multi records its own server-side latency (once per call).
+      kvrgw::KvrgwErrorCode ec =
+          ctx.svc->delete_multi(ctx.tenant, ctx.bucket(bucket), keys, {}, &outcomes);
       const auto us = static_cast<uint64_t>(elapsed_us(t0));
       ++calls;
-      std::string bad;
-      if (ec != kvrgw::KVRGW_ERR_OK) {
-        bad = describe_error(ec);
-        record_op_error(ts, Metric::DeleteMulti, ec);
-      } else {
-        for (const auto &o : outcomes) {
-          if (o.status == kvrgw::KvRgwServiceImpl::DeleteMultiKeyOutcome::Status::Error) {
-            bad = "key " + o.key + ": " + o.error_code + " (" + o.error_message + ")";
-            register_error_text(o.error_code, o.error_message);
-            ts.record_error(Metric::DeleteMulti, o.error_code);
-            break;
-          }
-        }
-      }
+      const std::string bad = check_outcomes(ts, ec, outcomes);
       if (!bad.empty()) {
         ctx.fail("delete_multi " + ctx.bucket(bucket) + " failed: " + bad);
         break;

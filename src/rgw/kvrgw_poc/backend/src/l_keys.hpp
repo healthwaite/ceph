@@ -17,6 +17,7 @@
 #include "error_codes.hpp"
 #include "kv_store.hpp"
 #include "keys.hpp"
+#include "service_async.hpp"
 
 #include <cstdint>
 #include <span>
@@ -57,6 +58,16 @@ class LKeyNumericCounter {
   static KvrgwErrorCode allocate_in_txn(KvTransaction& tr,
 					std::string_view counter_name,
 					uint64_t& out_id);
+
+  // Awaitable counterpart of allocate_in_txn: reads the counter on `tr` and writes
+  // counter+1; does not commit. Returns the new value (0 = corrupt counter value) or the
+  // FDB error of the read, for retry_txn's on_error.
+  static async::Task<std::expected<uint64_t, fdb_error_t>>
+  allocate_in_txn_a(KvTransaction& tr, std::string_view counter_name);
+
+  // Awaitable variant: one retry_txn (FDB backoff through on_error).
+  static async::Task<std::expected<uint64_t, KvrgwErrorCode>>
+  allocate_a(KvStore& store, std::string_view counter_name, RetryPolicy pol);
 };
 
 } // namespace kvrgw

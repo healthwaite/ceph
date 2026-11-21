@@ -97,6 +97,48 @@ KvrgwErrorCode LKeyNumericCounter::allocate_in_txn(KvTransaction& tr,
 // ---------------------------------------------------------------------------
 // Standalone Numeric Counter Allocator
 // ---------------------------------------------------------------------------
+async::Task<std::expected<uint64_t, fdb_error_t>>
+LKeyNumericCounter::allocate_in_txn_a(KvTransaction& tr, std::string_view counter_name)
+{
+  const auto key = make_l_key(kLocalTypeNumeric, counter_name);
+  FdbGetHolder h = tr.get_a(key.view());
+  if (fdb_error_t err = co_await h) {
+    co_return std::unexpected(err);
+  }
+  uint64_t cur = 0;
+  if (h.present() && !decode_numeric_counter(h.value(), cur)) {
+    co_return uint64_t{0};
+  }
+  const uint64_t next = cur + 1;
+  char buf[sizeof(uint64_t)];
+  encode_numeric_counter(next, std::span<char, sizeof(uint64_t)>(buf, sizeof(buf)));
+  tr.kv_put(key.view(), std::string_view(buf, sizeof(buf)));
+  co_return next;
+}
+
+async::Task<std::expected<uint64_t, KvrgwErrorCode>>
+LKeyNumericCounter::allocate_a(KvStore& store, std::string_view counter_name, RetryPolicy pol)
+{
+  const auto key = make_l_key(kLocalTypeNumeric, counter_name);
+  co_return co_await retry_txn<uint64_t>(
+      store, pol, [&](KvTransaction& tr) -> async::Task<OpOutcome<uint64_t>> {
+        FdbGetHolder h = tr.get_a(key.view());
+        if (fdb_error_t err = co_await h) {
+          co_return OpOutcome<uint64_t>::fdb(err);
+        }
+        uint64_t cur = 0;
+        if (h.present() && !decode_numeric_counter(h.value(), cur)) {
+          // Corrupt value: report it without committing (0 is never a valid id).
+          co_return OpOutcome<uint64_t>::done(0);
+        }
+        const uint64_t next = cur + 1;
+        char buf[sizeof(uint64_t)];
+        encode_numeric_counter(next, std::span<char, sizeof(uint64_t)>(buf, sizeof(buf)));
+        tr.kv_put(key.view(), std::string_view(buf, sizeof(buf)));
+        co_return OpOutcome<uint64_t>::commit(next);
+      });
+}
+
 KvrgwErrorCode LKeyNumericCounter::allocate( KvStore& store,
 					     std::string_view counter_name,
 					     uint64_t& out_id)

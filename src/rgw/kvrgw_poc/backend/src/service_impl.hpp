@@ -286,7 +286,21 @@ class KvRgwServiceImpl final {
   RefTagGenerator& ref_tags() { return ref_tags_; }
   BatchCommitQueue& batch_queue() { return batch_queue_; }
 
+  // Sync wrappers over the _a ops below (sync_wait; never refused with QUEUE_FULL).
   KvrgwErrorCode create_bucket(tenant_id_t tenant_id, std::string_view bucket_name);
+  // ---- Async bucket ops (used by the perf worker's init; same semantics).
+  async::Task<KvrgwErrorCode> create_bucket_a(tenant_id_t tenant_id, std::string_view bucket_name,
+                                              Caller caller = Caller::kAsync);
+  async::Task<KvrgwErrorCode> bucket_exists_a(tenant_id_t tenant_id, std::string_view bucket_name,
+                                              bool* out_exists, Caller caller = Caller::kAsync);
+  async::Task<KvrgwErrorCode> put_bucket_versioning_a(tenant_id_t tenant_id,
+                                                      std::string_view bucket_name,
+                                                      VersioningState state,
+                                                      Caller caller = Caller::kAsync);
+  async::Task<KvrgwErrorCode> get_bucket_versioning_a(tenant_id_t tenant_id,
+                                                      std::string_view bucket_name,
+                                                      VersioningState* out_state,
+                                                      Caller caller = Caller::kAsync);
   // Resolve bucket_name → bucket_id. Returns nullopt if the bucket doesn't
   // exist. Intended for tests that need bucket_id to inspect GC KV entries.
   std::expected<std::optional<bucket_id_t>, KvrgwErrorCode>
@@ -350,6 +364,17 @@ class KvRgwServiceImpl final {
                               std::string_view continuation_token,
                               std::string_view marker,
                               ListObjectsResult* out);
+  // Async list: page loop of issue range / co_await / decode on a backend
+  // worker; *out must stay valid until the task completes.
+  async::Task<KvrgwErrorCode> list_objects_a(tenant_id_t tenant_id,
+                                             std::string_view bucket_name,
+                                             std::string_view prefix,
+                                             std::string_view delimiter,
+                                             uint32_t max_keys,
+                                             std::string_view continuation_token,
+                                             std::string_view marker,
+                                             ListObjectsResult* out,
+                                             Caller caller = Caller::kAsync);
 
   struct AWSDeleteCondition {
     std::string if_match;
@@ -385,11 +410,21 @@ class KvRgwServiceImpl final {
           created_dm(dm), dm_version_id(dm_vid) {}
   };
 
+  // Sync. With `objects` empty this is sync_wait(delete_multi_a(keys)); the
+  // versioned-object path (`objects`) stays synchronous.
   KvrgwErrorCode delete_multi(tenant_id_t tenant_id,
                               std::string_view bucket_name,
                               std::span<const std::string> keys,
                               std::span<const DeleteMultiObjectRef> objects,
                               std::vector<DeleteMultiKeyOutcome>* out);
+  // Async delete_multi for plain keys. Chunks of kMaxBatchSize keys run in
+  // sequence; each chunk issues all its reads before awaiting them, then
+  // commits. `keys` and *out must stay valid until the task completes.
+  async::Task<KvrgwErrorCode> delete_multi_a(tenant_id_t tenant_id,
+                                             std::string_view bucket_name,
+                                             std::span<const std::string> keys,
+                                             std::vector<DeleteMultiKeyOutcome>* out,
+                                             Caller caller = Caller::kAsync);
 
   struct CopyObjectRequest {
     tenant_id_t tenant_id{};
@@ -598,6 +633,15 @@ class KvRgwServiceImpl final {
                                       std::string_view key_marker,
                                       version_id_t version_id_marker,
                                       ListObjectVersionsResult* out);
+  // Async: issues the :O: and :V: ranges together, then awaits both.
+  async::Task<KvrgwErrorCode> list_object_versions_a(tenant_id_t tenant_id,
+                                                     std::string_view bucket_name,
+                                                     std::string_view prefix,
+                                                     uint32_t max_keys,
+                                                     std::string_view key_marker,
+                                                     version_id_t version_id_marker,
+                                                     ListObjectVersionsResult* out,
+                                                     Caller caller = Caller::kAsync);
 
   struct DeleteResult {
     bool created_dm = false;
@@ -789,6 +833,11 @@ class KvRgwServiceImpl final {
 
   KvrgwErrorCode check_access(tenant_id_t tenant_id, std::string_view bucket_name,
                               const BucketState& cached, uint8_t deny_mask);
+  async::Task<KvrgwErrorCode> check_access_a(tenant_id_t tenant_id, std::string_view bucket_name,
+                                             BucketState cached, uint8_t deny_mask);
+  // FDB-style retry backoff without a sleeping thread: awaits on_error on a
+  // scratch transaction (FDB's own delay). No delay for a non-FDB code.
+  async::Task<void> backoff_a(KvrgwErrorCode ec);
 
   void put_bucket_cache(tenant_id_t tenant_id, std::string_view bucket_name, bucket_id_t bucket_id,
                         uint8_t access_flags = 0, VersioningState versioning_state = VERSIONING_DISABLED);
@@ -1059,13 +1108,19 @@ class KvRgwServiceImpl final {
                            VersioningState versioning_state,
                            GcDescriptor& out) const;
 
-  bool delete_multi_try_commit(
+  async::Task<bool> delete_multi_try_commit_a(
       tenant_id_t tenant_id,
       const std::string& bucket_name,
       bucket_id_t bucket_id,
       std::span<const std::string> keys,
       std::span<DeleteContext> ctxs,
       std::vector<DeleteMultiKeyOutcome>* out);
+  async::Task<void> delete_multi_one_key_a(
+      tenant_id_t tenant_id,
+      const std::string& bucket_name,
+      bucket_id_t bucket_id,
+      std::string_view key,
+      std::vector<DeleteMultiKeyOutcome>& outcomes);
   void delete_multi_one_key(
       tenant_id_t tenant_id,
       const std::string& bucket_name,
