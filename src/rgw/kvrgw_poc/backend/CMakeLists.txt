@@ -40,6 +40,17 @@ find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 pkg_check_modules(YAML_CPP REQUIRED yaml-cpp)
 
+# Coroutine runtime (Task, Executor, FDB awaitable, frame pool, sync_wait).
+# A static library so the standalone test binaries that compile kv_store.cpp
+# directly can link it too.
+add_library(kvrgw_async STATIC
+  src/async/executor.cpp
+  src/async/frame_pool.cpp
+)
+target_include_directories(kvrgw_async PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(kvrgw_async PUBLIC Threads::Threads)
+set_target_properties(kvrgw_async PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 set(KVRGW_LIB_SRCS
   src/kvrgw_runtime.cpp
   src/kvrgw_c_api.cpp
@@ -81,6 +92,7 @@ target_include_directories(kvrgw PUBLIC
 )
 target_link_directories(kvrgw PUBLIC "${FDB_LIB_DIR}")
 target_link_libraries(kvrgw PUBLIC
+  kvrgw_async
   "${FDB_LIB_DIR}/libfdb_c.so"
   OpenSSL::Crypto
   ${YAML_CPP_LIBRARIES}
@@ -141,7 +153,7 @@ target_include_directories(l_key_test PRIVATE
   "${CMAKE_SOURCE_DIR}/src"
   "${FDB_INCLUDE_DIR}"
 )
-target_link_libraries(l_key_test PRIVATE OpenSSL::Crypto "${FDB_LIB_DIR}/libfdb_c.so")
+target_link_libraries(l_key_test PRIVATE kvrgw_async OpenSSL::Crypto "${FDB_LIB_DIR}/libfdb_c.so")
 target_compile_definitions(l_key_test PRIVATE FDB_API_VERSION=730)
 
 add_executable(data_store_test tests/data_store_test.cpp src/data_store.cpp src/ref_tag.cpp)
@@ -166,7 +178,7 @@ target_include_directories(kv_range_test PRIVATE
   "${FDB_INCLUDE_DIR}"
 )
 target_link_directories(kv_range_test PRIVATE "${FDB_LIB_DIR}")
-target_link_libraries(kv_range_test PRIVATE
+target_link_libraries(kv_range_test PRIVATE kvrgw_async
   "${FDB_LIB_DIR}/libfdb_c.so"
   OpenSSL::Crypto
 )
@@ -193,7 +205,7 @@ target_include_directories(gc_ctl PRIVATE
   "${FDB_INCLUDE_DIR}"
 )
 target_link_directories(gc_ctl PRIVATE "${FDB_LIB_DIR}")
-target_link_libraries(gc_ctl PRIVATE
+target_link_libraries(gc_ctl PRIVATE kvrgw_async
   "${FDB_LIB_DIR}/libfdb_c.so"
   OpenSSL::Crypto
 )
@@ -206,7 +218,7 @@ target_include_directories(multipart_key_test PRIVATE
   "${FDB_INCLUDE_DIR}"
 )
 target_link_directories(multipart_key_test PRIVATE "${FDB_LIB_DIR}")
-target_link_libraries(multipart_key_test PRIVATE OpenSSL::Crypto "${FDB_LIB_DIR}/libfdb_c.so")
+target_link_libraries(multipart_key_test PRIVATE kvrgw_async OpenSSL::Crypto "${FDB_LIB_DIR}/libfdb_c.so")
 target_compile_definitions(multipart_key_test PRIVATE FDB_API_VERSION=730)
 set_target_properties(multipart_key_test PROPERTIES BUILD_RPATH "${FDB_LIB_DIR}")
 
@@ -238,7 +250,7 @@ target_include_directories(fdb_error_test PRIVATE
   "${FDB_INCLUDE_DIR}"
 )
 target_link_directories(fdb_error_test PRIVATE "${FDB_LIB_DIR}")
-target_link_libraries(fdb_error_test PRIVATE OpenSSL::Crypto "${FDB_LIB_DIR}/libfdb_c.so")
+target_link_libraries(fdb_error_test PRIVATE kvrgw_async OpenSSL::Crypto "${FDB_LIB_DIR}/libfdb_c.so")
 target_compile_definitions(fdb_error_test PRIVATE FDB_API_VERSION=730)
 set_target_properties(fdb_error_test PROPERTIES BUILD_RPATH "${FDB_LIB_DIR}")
 
@@ -451,7 +463,12 @@ set_target_properties(multipart_goa_test PROPERTIES
   INSTALL_RPATH "${FDB_LIB_DIR};$ORIGIN"
 )
 
+# Coroutine runtime unit tests (no FDB) and the FDB-backed async tests.
+add_executable(async_runtime_test tests/async_runtime_test.cpp)
+target_link_libraries(async_runtime_test PRIVATE kvrgw_async)
+
 enable_testing()
+add_test(NAME async_runtime_test COMMAND async_runtime_test)
 add_test(NAME object_value_test COMMAND object_value_test)
 add_test(NAME l_key_test COMMAND l_key_test)
 add_test(NAME multipart_key_test COMMAND multipart_key_test)
