@@ -30,6 +30,25 @@ or, non-interactively from the host, `make shell CMD='make build'` (and `CMD='ma
 gRPC/protobuf are not needed and nothing here is built. The first `go build`/`go test` downloads
 Go modules, so the container needs network access.
 
+## Client models (driver_mode)
+
+Concurrency is counted in *streams*: sequential clients with one op in flight.
+
+- `driver_mode: sync` (default): one blocking thread per stream calling the sync
+  service API (a thread-per-request client, as the C API / gateway is).
+- `driver_mode: async`: `streams_per_worker` coroutines on `driver_threads`
+  executors calling the `_a` service ops, so concurrency is not bounded by thread
+  count. Example: `--driver-mode async --streams 1024 --driver-threads 2`.
+- Open loop: `--driver-mode async --rate 20000` issues 20,000 ops/s per worker on a
+  fixed schedule and measures latency from each op's scheduled time; `missed` counts
+  ops that could not be issued (the rate was not held).
+
+Async runtime knobs live in the `kvrgw:` section (`backend_workers`,
+`max_inflight_ops`, `txn_max_attempts`, `batch_txn_max_attempts`,
+`txn_timeout_ms`). A non-zero `queue_full` means `streams_per_worker` exceeded
+`max_inflight_ops`. To compare against the pre-async backend, run the old worker
+binary with the same configuration.
+
 ## Running on another machine
 
 To run the harness somewhere that has Docker and an FDB cluster but no build environment, package it
@@ -104,7 +123,8 @@ Resolution is built-in default <- `base` <- command section <- CLI flag; keys ar
 and every key is also a `--kebab-case` flag (`--batch-size`, `--max-inline`, ...).
 The controller synthesizes `<run-dir>/kvrgw.yaml` from the `kvrgw` section and points the
 workers at it (`KVRGW_CONFIG_FILE`), so `backend/kvrgw.yaml` is not used. The runtime's yaml
-loader ignores `batch_*`, so the controller also exports them as `KVRGW_BATCH_*`.
+loader ignores `batch_*` and the async keys, so the controller also exports them as
+`KVRGW_*` environment variables.
 See SPEC.md section 5.1 for the key table.
 Each invocation is independent: `load` once, then any number of `run-*`, using the same
 layout config. `run-*` commands take exactly one of `--ops N` / `--duration D`.

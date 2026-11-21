@@ -1,6 +1,8 @@
 // kvrgw-perf-worker: gRPC server driving the in-process kvrgw service layer.
 #include "service.hpp"
 
+#include "async/frame_pool.hpp"
+
 #include <grpcpp/grpcpp.h>
 
 #include <atomic>
@@ -62,6 +64,12 @@ int main(int argc, char **argv)
   server->Wait();
   g_stop = true;
   watcher.join();
+  // Shutdown accounting: every async op has finished and every coroutine frame
+  // is released (checked by the cancel-under-load test).
+  const auto inflight = runtime.service().admission().inflight();
   runtime.stop();
+  std::cerr << "kvrgw-perf-worker: shutdown: inflight_ops=" << inflight
+            << " frames_live=" << kvrgw::async::frame_pool_counters().frames_live.load()
+            << std::endl;
   return 0;
 }

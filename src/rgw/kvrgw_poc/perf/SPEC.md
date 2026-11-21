@@ -51,9 +51,17 @@ Hard constraints:
 
 - **worker**: one `kvrgw-perf-worker` process (models one RGW instance).
   `worker_index` in `[0, worker_count)`.
-- **thread**: a benchmark thread within a worker. `threads_per_worker` per worker.
-  `global_thread_id = worker_index * threads_per_worker + thread_id`,
-  `total_threads = worker_count * threads_per_worker`.
+- **stream**: the unit of concurrency — a sequential client with at most one op in
+  flight. `streams_per_worker` per worker (default `threads_per_worker`). In
+  `driver_mode: sync` a stream is a blocking benchmark thread calling the sync API; in
+  `driver_mode: async` it is a coroutine on one of `driver_threads` executors calling
+  the `_a` (async) API. `gsid = worker_index * streams_per_worker + sid`,
+  `total_streams = worker_count * streams_per_worker`. Key spaces, `--ops` quotas and
+  `thread_counts` are per stream. (In open loop, `rate_ops_per_sec > 0`, each driver
+  thread is one generator and plays the role of a stream: `gsid = worker_index *
+  driver_threads + driver`.)
+- **thread**: in sync mode, the thread running one stream. Older text that says
+  "thread" for the unit of concurrency means "stream".
 - **invocation**: one run of the controller binary executing one command
   (`load` or one `run-*`). Each invocation is independent; the *caller* is
   responsible for sequencing (e.g. `load` once, then several `run-*`). The harness
@@ -384,10 +392,17 @@ and `perf_driver.cpp` (`KVRGW_*` env handling, key prefix/suffix lengths,
 | `metadata_count` | 6 | user-metadata (`x-amz-meta-*`) items attached to every put; 0 disables, max 160. Keys are `meta000`, `meta001`, ...; every object gets the same values |
 | `metadata_size` | 64 | bytes per metadata value (1..2048; required when `metadata_count > 0`) |
 | `worker_count` | 1 | number of worker processes |
-| `threads_per_worker` | 1 | benchmark threads per worker |
+| `threads_per_worker` | 1 | sync mode: one benchmark thread per stream; also the default for `streams_per_worker` |
+| `driver_mode` | `sync` | `sync`: one blocking thread per stream calling the sync API. `async`: streams are coroutines on `driver_threads` executors calling the `_a` ops. Compares client models on one build |
+| `streams_per_worker` | = `threads_per_worker` (0 in the file) | closed-loop concurrency per worker |
+| `driver_threads` | 2 | async mode: executor threads driving the streams |
+| `rate_ops_per_sec` | 0 (closed loop) | per-worker target rate; > 0 = open loop (async mode; run-put-object, run-put-object-overwrite(-versioned), run-delete-multi). Latency is measured from each op's scheduled time; ops due beyond `max_inflight_ops / driver_threads` outstanding are counted as `missed` |
 | `verify_threads` | 4 | threads per worker for list-based Verify scans (§5.4); independent of `threads_per_worker` |
 | `tenant_name` | `kv-poc` (`KVRGW_TENANT_NAME`) | tenant to use |
-| `batch_size`, `batch_timeout_us`, `batch_threads` | from `kvrgw.yaml` | PutObject batch queue; applied by the worker via `service.batch_queue()` (stop/start as `perf_driver.cpp`'s `set-batch` does) only if explicitly set |
+| `batch_size`, `batch_timeout_us` | from `kvrgw.yaml` | PutObject batch queue (`kvrgw:` section; exported as `KVRGW_BATCH_*`) |
+| `backend_workers` | 4 | `kvrgw:` section, `KVRGW_BACKEND_WORKERS`: backend worker executors (replaces `batch_threads`, still accepted as a deprecated alias) |
+| `max_inflight_ops` | 4096 | `kvrgw:`, `KVRGW_MAX_INFLIGHT_OPS`: async op admission limit; beyond it a submit fails with `QUEUE_FULL` (reported as `queue_full`) |
+| `txn_max_attempts`, `batch_txn_max_attempts`, `txn_timeout_ms` | 3, 10, 0 | `kvrgw:`, `KVRGW_TXN_MAX_ATTEMPTS` / `KVRGW_BATCH_TXN_MAX_ATTEMPTS` / `KVRGW_TXN_TIMEOUT_MS` |
 | `report_interval_ms` | 1000 | progress-window length |
 | `fdb_stats` | true | controller samples `fdbcli status json` (§8.2); disable with `--no-fdb-stats` |
 | `fdb_cluster_file` | `$FDB_CLUSTER_FILE` | cluster file passed to `fdbcli -C` |
@@ -432,6 +447,9 @@ A thread with `count == 0` simply does nothing. Op-count splitting for `--ops N`
 uses the same remainder rule over `total_threads`.
 
 ### 5.4 Verification by listing + bitset
+
+("Thread" below means stream: `thread_counts` and `delete_progress` are indexed by
+global stream id.)
 
 Because prefixes are random, a thread's index range is not a contiguous key range
 and cannot be listed directly. Instead verification lists **whole buckets** and
@@ -663,11 +681,20 @@ read.**
   `list_object_versions(tenant, bucket, prefix, max_keys, key_marker, version_id_marker, &out)`,
   `delete_multi(tenant, bucket, keys, objects, &outcomes)`. Prefer the C++ service
   API (as `perf_driver.cpp` does) over the C API.
-- Threads: `threads_per_worker` `std::jthread`s. Each thread owns a local
-  `ThreadStats` (per-op window + cumulative histograms) to avoid contention; a
-  reporter thread snapshots/merges at each window boundary and calls
-  `ServerWriter::Write` (guard with a mutex). Use a monotonic clock for latency;
-  windows are derived from `run_start_unix_ns`.
+- Streams. `driver_mode: sync`: one `std::thread` per stream (`run_thread`), each
+  with its own `ThreadStats`. `driver_mode: async`: `driver_threads` executors (one
+  thread each); stream `sid` runs `run_stream` (a coroutine) on driver
+  `sid % driver_threads`, and the streams of one driver share that driver's
+  `ThreadStats`. A stream that gets `KVRGW_ERR_QUEUE_FULL` backs off on its executor
+  (100 µs × 2ⁿ, capped at 10 ms) and counts `queue_full`; it is not an attempt. Open
+  loop: each driver issues ops on a timerfd schedule, `t0 + k × driver_threads / rate`,
+  with at most `max_inflight_ops / driver_threads` outstanding (the rest are
+  `missed`), and latency counts from the scheduled time. A reporter snapshots/merges
+  at each window boundary and calls `ServerWriter::Write`. Use a monotonic clock for
+  latency; windows are derived from `run_start_unix_ns`.
+- Latency accounting: the async ops (and their sync wrappers) record their own
+  server-side latency once per call; the worker does not wrap them in
+  `ScopedRequestLatency`.
 - Each op is recorded with its `operation_type`; errors counted per type with the
   `kvrgw_strerror` text logged (rate-limited) to the worker log.
 - `ServerStats` (§6): at each window boundary the reporter also reads the runtime's

@@ -66,6 +66,9 @@ struct TierConfig {
   bool kv_store_coalescing{kDefaultKvStoreCoalescing};
   int batch_size{5};
   int batch_timeout_us{1000};
+  // Deprecated and ignored: PUT batches run on the backend workers
+  // (KVRGW_BACKEND_WORKERS). KVRGW_BATCH_THREADS is still read, as an alias
+  // for KVRGW_BACKEND_WORKERS when that is not set.
   int batch_threads{8};
 };
 
