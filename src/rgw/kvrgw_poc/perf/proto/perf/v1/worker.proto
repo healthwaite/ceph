@@ -115,7 +115,9 @@ message ServerOpStats {
 }
 message OpStats {
   string operation_type = 1;   // "put_object","list_objects","delete_multi","list_delete_multi",
-                               // plus counter-style types: "keys_listed","keys_deleted"
+                               // plus counter-style types: "keys_listed","keys_deleted",
+                               // and "send_lag" (open loop: send time - scheduled time per
+                               // op; a latency histogram, count = ops sent)
   uint64 count = 2;            // successes; latency covers only these
   uint64 errors = 3;
   uint64 sum_micros = 4;

@@ -1024,7 +1024,9 @@ func (x *ServerOpStats) GetDiskUs() uint64 {
 type OpStats struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OperationType string                 `protobuf:"bytes,1,opt,name=operation_type,json=operationType,proto3" json:"operation_type,omitempty"` // "put_object","list_objects","delete_multi",
-	// plus counter-style types: "keys_listed","keys_deleted"
+	// plus counter-style types: "keys_listed","keys_deleted",
+	// and "send_lag" (open loop: send time - scheduled time per
+	// op; a latency histogram, count = ops sent)
 	Count         uint64            `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"` // successes; latency covers only these
 	Errors        uint64            `protobuf:"varint,3,opt,name=errors,proto3" json:"errors,omitempty"`
 	SumMicros     uint64            `protobuf:"varint,4,opt,name=sum_micros,json=sumMicros,proto3" json:"sum_micros,omitempty"`
