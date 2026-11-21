@@ -128,6 +128,9 @@ kvrgw::async::Task<void> open_loop_generator(RunContext &ctx, Operation &op, Str
       }
       ++out.n;
       ++issued;
+      // Send lag: how late this op starts relative to its slot (late wake-ups,
+      // and the preparation of earlier ops in the same burst).
+      g.ts->record(Metric::SendLag, static_cast<uint64_t>(elapsed_us(sched)));
       kvrgw::async::spawn_inline(open_loop_one(ctx, op, g, issued - 1, sched, out));
     }
     if (missed > 0) g.ts->add_missed(metric, missed);

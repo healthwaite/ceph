@@ -66,6 +66,10 @@ func (m *Metric) Empty() bool {
 // IsCounter reports counter-style op types (no latency).
 func IsCounter(op string) bool { return op == "keys_listed" || op == "keys_deleted" }
 
+// IsLag reports the open-loop send-lag metric: a latency histogram (send time minus
+// scheduled time per op), not an op type.
+func IsLag(op string) bool { return op == "send_lag" }
+
 // FromProto converts an OpStats message.
 func FromProto(o *pb.OpStats) Metric {
 	m := Metric{Count: o.Count, Errors: o.Errors, SumMicros: o.SumMicros, QueueFull: o.QueueFull, Missed: o.Missed}

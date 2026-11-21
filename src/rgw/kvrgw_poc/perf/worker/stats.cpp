@@ -11,6 +11,7 @@ const char *metric_name(Metric m)
     case Metric::ListDeleteMulti: return "list_delete_multi";
     case Metric::KeysListed: return "keys_listed";
     case Metric::KeysDeleted: return "keys_deleted";
+    case Metric::SendLag: return "send_lag";
     default: return "unknown";
   }
 }

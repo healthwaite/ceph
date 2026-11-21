@@ -20,6 +20,10 @@ enum class Metric : int {
   ListDeleteMulti,  // one list + delete_multi iteration (run-list-delete-multi)
   KeysListed,   // counter-style
   KeysDeleted,  // counter-style
+  // Open loop only: actual send time minus scheduled send time, per op (a
+  // latency-style histogram; count = ops sent). Shows how much of the measured
+  // latency is the driver failing to send on time.
+  SendLag,
   kCount
 };
 inline constexpr int kMetricCount = static_cast<int>(Metric::kCount);

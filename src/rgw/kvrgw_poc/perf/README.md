@@ -41,7 +41,10 @@ Concurrency is counted in *streams*: sequential clients with one op in flight.
   count. Example: `--driver-mode async --streams 1024 --driver-threads 2`.
 - Open loop: `--driver-mode async --rate 20000` issues 20,000 ops/s per worker on a
   fixed schedule and measures latency from each op's scheduled time; `missed` counts
-  ops that could not be issued (the rate was not held).
+  ops that could not be issued (the rate was not held). `send_lag` (send time minus
+  scheduled time per op) shows how much of that latency is the driver sending late:
+  the driver thread that sends also prepares ops and handles their completions, so a
+  busy driver sends late. A send-lag p99 over 1 ms is flagged in the report.
 
 Async runtime knobs live in the `kvrgw:` section (`backend_workers`,
 `max_inflight_ops`, `txn_max_attempts`, `batch_txn_max_attempts`,

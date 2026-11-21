@@ -69,6 +69,11 @@ func (v *invocation) printFinal(s *results.Summary) {
 			fmt.Fprintf(v.out, "  %-13s total=%s  %s/s\n", op, human(float64(t.Count)), human(t.OpsPerSec))
 			continue
 		}
+		if stats.IsLag(op) {
+			fmt.Fprintf(v.out, "  %-13s (open loop: send time - scheduled time) p50=%s p90=%s p99=%s p999=%s max=%s\n",
+				op, fmtUs(t.P50Us), fmtUs(t.P90Us), fmtUs(t.P99Us), fmtUs(t.P999Us), fmtUs(t.MaxUs))
+			continue
+		}
 		extra := ""
 		if t.QueueFull > 0 {
 			extra += fmt.Sprintf("  queue_full=%d", t.QueueFull)

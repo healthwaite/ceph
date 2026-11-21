@@ -16,7 +16,7 @@ import (
 )
 
 // metricOrder gives a stable output order for op types.
-var metricOrder = []string{"put_object", "list_objects", "delete_multi", "list_delete_multi", "keys_listed", "keys_deleted"}
+var metricOrder = []string{"put_object", "list_objects", "delete_multi", "list_delete_multi", "keys_listed", "keys_deleted", "send_lag"}
 
 func (v *invocation) runBenchmark(sigCtx, mctx context.Context, benchStarted chan struct{}) ([]*pb.RunSummary, bool) {
 	cfg := v.o.Cfg
@@ -229,6 +229,11 @@ func (v *invocation) handleWindows(wins []*stats.Window) {
 			}
 			if m.Missed > 0 {
 				errNote += fmt.Sprintf(" missed=%d", m.Missed)
+			}
+			if stats.IsLag(op) {
+				parts = append(parts, fmt.Sprintf("send_lag p50=%s p99=%s max=%s", fmtUs(m.Hist.Quantile(0.5)),
+					fmtUs(m.Hist.Quantile(0.99)), fmtUs(m.Hist.Max())))
+				continue
 			}
 			parts = append(parts, fmt.Sprintf("%s %s ops/s total=%s p50=%s p99=%s err=%d%s", op, human(rate),
 				human(float64(c[0])), fmtUs(m.Hist.Quantile(0.5)), fmtUs(m.Hist.Quantile(0.99)), m.Errors, errNote))

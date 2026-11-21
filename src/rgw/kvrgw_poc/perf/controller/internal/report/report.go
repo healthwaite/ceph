@@ -554,6 +554,27 @@ func (d *data) printClient(w io.Writer, o Options, from, to int64) {
 		}
 		fmt.Fprintf(w, "\n open loop    : target %s ops/s, achieved %s ops/s (%.1f%%), missed %s; latency from scheduled send time\n",
 			num(target), num(achieved), 100*achieved/target, grouped(int64(missed)))
+		// Send lag: how late ops left the driver relative to their slots (merged histogram).
+		var lag stats.Hist
+		wins := map[int64]bool{}
+		for _, m := range d.metrics {
+			if m.op == "send_lag" && m.ts > from && m.ts <= to {
+				wins[m.window] = true
+			}
+		}
+		for win := range wins {
+			lag.Merge(d.hist["send_lag"][win])
+		}
+		if lag.Total() > 0 {
+			fmt.Fprintf(w, " send lag     : p50 %s  p90 %s  p99 %s  p999 %s  max %s ms (send time - scheduled time)\n",
+				stats.MsNum(float64(lag.Quantile(0.5))), stats.MsNum(float64(lag.Quantile(0.9))),
+				stats.MsNum(float64(lag.Quantile(0.99))), stats.MsNum(float64(lag.Quantile(0.999))),
+				stats.MsNum(float64(lag.Max())))
+			if p99 := lag.Quantile(0.99); p99 >= sendLagWarnUs {
+				fmt.Fprintf(w, " [WARN] ops left the driver late (send lag p99 %s ms): part of the measured latency is "+
+					"client-side; check driver busy %% below and raise driver_threads\n", stats.MsNum(float64(p99)))
+			}
+		}
 	}
 	// Client-side health.
 	for _, op := range latOps {
@@ -1536,6 +1557,9 @@ func (d *data) printFDBDisk(w io.Writer) {
 }
 
 // Thread utilisation -----------------------------------------------------------------------
+
+// sendLagWarnUs: open-loop send lag p99 above this is reported as client-side delay.
+const sendLagWarnUs = 1000
 
 // Utilisation thresholds for the tuning hints.
 const (
