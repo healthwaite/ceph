@@ -58,6 +58,8 @@ type metricRow struct {
 	op        string
 	count     uint64
 	errors    uint64
+	queueFull uint64 // QUEUE_FULL backoffs (absent in older results)
+	missed    uint64 // open-loop ops not issued (absent in older results)
 	opsPerSec float64
 	meanUs    float64
 	hasLat    bool
@@ -158,6 +160,9 @@ func load(dir string) (*data, error) {
 			}
 			m := metricRow{ts: pi(r[0]), window: pi(r[1]), op: r[2], count: pu(r[3]), errors: pu(r[4]),
 				opsPerSec: pf(r[5])}
+			if len(r) >= 16 {
+				m.queueFull, m.missed = pu(r[14]), pu(r[15])
+			}
 			if r[6] != "" {
 				m.hasLat = true
 				m.meanUs, m.p50, m.p99 = pf(r[6]), pf(r[7]), pf(r[9])
@@ -341,7 +346,19 @@ func (d *data) print(w io.Writer, o Options) {
 	}
 	if d.sum != nil {
 		p := d.sum.Parameters
-		fmt.Fprintf(w, " Operation : %s      Workers: %d x %d threads   Buckets: %d\n", d.sum.Command, p.WorkerCount, p.ThreadsPerWorker, p.NumBuckets)
+		fmt.Fprintf(w, " Operation : %s      Buckets: %d\n", d.sum.Command, p.NumBuckets)
+		mode := p.DriverMode
+		if mode == "" {
+			mode = "sync" // results from before driver_mode existed
+		}
+		fmt.Fprintf(w, " Clients   : %d workers x %d streams   driver_mode: %s", p.WorkerCount, p.Streams(), mode)
+		if mode == "async" {
+			fmt.Fprintf(w, "   driver_threads: %d", p.DriverThreads)
+		}
+		if p.RateOpsPerSec > 0 {
+			fmt.Fprintf(w, "   rate_ops_per_sec: %g per worker (open loop)", p.RateOpsPerSec)
+		}
+		fmt.Fprintln(w)
 	}
 	fmt.Fprintf(w, " Benchmark : %s -> %s (%.0fs)   Warmup skipped: first %s\n", clock(d.startMs), clock(d.endMs),
 		float64(d.endMs-d.startMs)/1000, o.Warmup)
@@ -410,9 +427,10 @@ func (d *data) printClient(w io.Writer, o Options, from, to int64) {
 	pw := detailedWriter(w, o)
 	subHeading(pw, "Per-window statistics", fmt.Sprintf("%d windows of %s, merged across workers", nwin, winLen), windowNote)
 	type total struct {
-		count, errs uint64
-		meanUs      float64
-		hist        stats.Hist
+		count, errs       uint64
+		queueFull, missed uint64
+		meanUs            float64
+		hist              stats.Hist
 	}
 	totals := map[string]*total{}
 	for _, op := range ops {
@@ -439,6 +457,8 @@ func (d *data) printClient(w io.Writer, o Options, from, to int64) {
 			wins[m.window] = true
 			t.count += m.count
 			t.errs += m.errors
+			t.queueFull += m.queueFull
+			t.missed += m.missed
 			if m.hasLat {
 				sumUs += m.meanUs * float64(m.count)
 				latCount += m.count
@@ -487,18 +507,58 @@ func (d *data) printClient(w io.Writer, o Options, from, to int64) {
 		}
 	}
 	if len(latOps) > 0 {
-		opsW, errW := wide(12, "ops"), wide(9, "errors")
+		// The queue_full column (submits refused at the backend's in-flight limit) is shown for
+		// async-mode runs, and for any run where it is non-zero.
+		showQF := d.sum != nil && d.sum.Parameters.DriverMode == "async"
+		opsW, errW, qfW := wide(12, "ops"), wide(9, "errors"), 0
 		for _, op := range latOps {
 			t := totals[op]
 			opsW = wide(opsW, grouped(int64(t.count)))
 			errW = wide(errW, grouped(int64(t.errs)))
+			showQF = showQF || t.queueFull > 0
 		}
-		fmt.Fprintf(w, " %-18s%*s%*s%11s%9s%9s%9s%9s%9s\n", "op", opsW, "ops", errW, "errors", "avg ops/s", "mean_ms", "p50_ms", "p90_ms", "p99_ms", "p999_ms")
+		qfHdr := ""
+		if showQF {
+			qfW, qfHdr = wide(12, "queue_full"), "queue_full"
+			for _, op := range latOps {
+				qfW = wide(qfW, grouped(int64(totals[op].queueFull)))
+			}
+		}
+		fmt.Fprintf(w, " %-18s%*s%*s%*s%11s%9s%9s%9s%9s%9s\n", "op", opsW, "ops", errW, "errors", qfW, qfHdr,
+			"avg ops/s", "mean_ms", "p50_ms", "p90_ms", "p99_ms", "p999_ms")
 		for _, op := range latOps {
 			t := totals[op]
-			fmt.Fprintf(w, " %-18s%*s%*s%11s%9s%9s%9s%9s%9s\n", op, opsW, grouped(int64(t.count)), errW, grouped(int64(t.errs)),
+			qf := ""
+			if showQF {
+				qf = grouped(int64(t.queueFull))
+			}
+			fmt.Fprintf(w, " %-18s%*s%*s%*s%11s%9s%9s%9s%9s%9s\n", op, opsW, grouped(int64(t.count)), errW, grouped(int64(t.errs)),
+				qfW, qf,
 				num(float64(t.count)/runSecs), stats.MsNum(t.meanUs), stats.MsNum(float64(t.hist.Quantile(0.5))),
 				stats.MsNum(float64(t.hist.Quantile(0.9))), stats.MsNum(float64(t.hist.Quantile(0.99))), stats.MsNum(float64(t.hist.Quantile(0.999))))
+		}
+	}
+	if d.sum != nil && d.sum.Parameters.RateOpsPerSec > 0 {
+		p := d.sum.Parameters
+		target := p.RateOpsPerSec * float64(p.WorkerCount)
+		var achieved float64
+		var missed uint64
+		for _, op := range latOps {
+			achieved += float64(totals[op].count) / runSecs
+			missed += totals[op].missed
+		}
+		fmt.Fprintf(w, "\n open loop    : target %s ops/s, achieved %s ops/s (%.1f%%), missed %s; latency from scheduled send time\n",
+			num(target), num(achieved), 100*achieved/target, grouped(int64(missed)))
+	}
+	// Client-side health.
+	for _, op := range latOps {
+		if t := totals[op]; t.queueFull > 0 {
+			fmt.Fprintf(w, " [WARN] %s: %s submits hit the backend in-flight limit (queue_full): streams_per_worker exceeds max_inflight_ops\n",
+				op, grouped(int64(t.queueFull)))
+		}
+		if t := totals[op]; t.missed > 0 {
+			fmt.Fprintf(w, " [WARN] %s: %s scheduled ops were not issued (missed): the target rate was not held\n",
+				op, grouped(int64(t.missed)))
 		}
 	}
 	if len(ctrOps) > 0 {
@@ -941,7 +1001,8 @@ func (d *data) printServer(w io.Writer, o Options, from, to int64) {
 	secs := float64(to-from) / 1000
 	var opNames []string
 	for n := range d.server {
-		if op, ok := strings.CutSuffix(n, ".count"); ok && !strings.HasPrefix(n, "batch.") && !strings.HasPrefix(n, "txn.") {
+		if op, ok := strings.CutSuffix(n, ".count"); ok && !strings.HasPrefix(n, "batch.") && !strings.HasPrefix(n, "txn.") &&
+			!strings.HasPrefix(n, "async.") {
 			opNames = append(opNames, op)
 		}
 	}
@@ -998,6 +1059,19 @@ func (d *data) printServer(w io.Writer, o Options, from, to int64) {
 	}
 	fmt.Fprintf(w, "\n %-18s%12s%14s\n", "txn", "retries", "hard_failures")
 	fmt.Fprintf(w, " %-18s%12s%14s\n", "", grouped(int64(rt)), grouped(int64(hf)))
+	if _, ok := d.server["async.queue_full_rejects"]; ok {
+		qf, _ := d.serverDelta("async.queue_full_rejects", from, to)
+		// The peak is a gauge (summed over workers per sample): report its highest value.
+		var peak float64
+		for _, s := range inSamples(d.server["async.inflight_ops_peak"], d.startMs, to) {
+			peak = math.Max(peak, s)
+		}
+		fmt.Fprintf(w, "\n %-18s%20s%20s\n", "async", "queue_full_rejects", "inflight_ops_peak")
+		fmt.Fprintf(w, " %-18s%20s%20s\n", "", grouped(int64(qf)), grouped(int64(peak)))
+		if qf > 0 {
+			fmt.Fprintln(w, " [WARN] the backend refused ops at its in-flight limit (max_inflight_ops)")
+		}
+	}
 	fmt.Fprintf(w, " server errors: %s\n", orNone(errs))
 }
 

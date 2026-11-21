@@ -220,6 +220,81 @@ ATEST(admission_limit_async_refused_sync_counted) {
   ACHECK_EQ(adm.admit(Caller::kSync, &sync_g), KVRGW_ERR_INTERNAL);
 }
 
+namespace {
+tenant_id_t g_tenant = 0;
+const char* kBucket = "async-fdb-test-bucket";
+
+void ensure_bucket() {
+  if (g_tenant != 0) return;
+  bool exists = false;
+  svc().resolve_tenant("async-fdb-test", &exists, &g_tenant);
+  if (!exists) {
+    svc().add_tenant("async-fdb-test", &g_tenant);
+  }
+  ACHECK_EQ(svc().create_bucket(g_tenant, kBucket), KVRGW_ERR_OK);
+}
+}  // namespace
+
+ATEST(put_object_a_queue_full_at_limit_sync_wrapper_not_refused) {
+  ensure_bucket();
+  auto& adm = svc().admission();
+  // Saturate the in-flight limit with guards.
+  std::vector<Admission::Guard> held(static_cast<size_t>(adm.max()));
+  for (auto& g : held) ACHECK_EQ(adm.admit(Caller::kAsync, &g), KVRGW_ERR_OK);
+  const std::string body(100, 'x');
+  const auto* data = reinterpret_cast<const uint8_t*>(body.data());
+  const auto rejects0 = svc().async_stats().queue_full_rejects.load();
+  auto r = sync_wait(svc().put_object_a(g_tenant, kBucket, "qf-async", data, body.size(), "", 0,
+                                        nullptr, {}, {}));
+  ACHECK_EQ(r.error_code, KVRGW_ERR_QUEUE_FULL);
+  ACHECK_EQ(svc().async_stats().queue_full_rejects.load(), rejects0 + 1);
+  auto r2 = svc().put_object(g_tenant, kBucket, "qf-sync", data, body.size(), "", 0, nullptr,
+                             {}, {});
+  ACHECK_EQ(r2.error_code, KVRGW_ERR_OK);
+  held.clear();
+  ACHECK_EQ(svc().admission().inflight(), 0);
+}
+
+ATEST(put_object_a_many_concurrent_from_one_executor) {
+  ensure_bucket();
+  ExecutorThread drv("drv");
+  drv.start();
+  constexpr int kN = 2000;
+  const std::string body(200, 'y');
+  std::atomic<int> ok{0}, wrong_thread{0}, other{0};
+  std::latch done(kN);
+  auto one = [&](int i) -> Task<void> {
+    Executor* me = Executor::current();
+    const std::string key = "conc-" + std::to_string(i);
+    auto r = co_await svc().put_object_a(g_tenant, kBucket, key,
+                                         reinterpret_cast<const uint8_t*>(body.data()),
+                                         body.size(), "", 0, nullptr, {}, {});
+    if (Executor::current() != me) wrong_thread.fetch_add(1);
+    if (r.error_code == KVRGW_ERR_OK) ok.fetch_add(1);
+    else if (r.error_code != KVRGW_ERR_QUEUE_FULL) other.fetch_add(1);
+    done.count_down();
+  };
+  for (int i = 0; i < kN; ++i) spawn(drv.executor(), one(i));
+  done.wait();
+  ACHECK_EQ(wrong_thread.load(), 0);
+  ACHECK_EQ(other.load(), 0);
+  ACHECK(ok.load() > 0);
+  drv.stop_and_join();
+  // Every successful key is readable through the sync API.
+  KvRgwServiceImpl::ListObjectsResult res;
+  std::string token;
+  int listed = 0;
+  do {
+    res = {};
+    ACHECK_EQ(svc().list_objects(g_tenant, kBucket, "conc-", "", 1000, token, "", &res),
+              KVRGW_ERR_OK);
+    listed += static_cast<int>(res.objects.size());
+    token = res.next_continuation_token;
+  } while (res.is_truncated);
+  ACHECK(listed >= ok.load());
+  ACHECK_EQ(svc().admission().inflight(), 0);
+}
+
 int main(int argc, char** argv) {
   // Small async limits so the admission tests can reach them.
   setenv("KVRGW_MAX_INFLIGHT_OPS", "64", 0);

@@ -16,7 +16,7 @@ func TestCSVWriterAndRunDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Row("1", "0", "put_object", "5", "0", "5.000", "", "", "", "", "", "", "5", "0")
+	c.Row("1", "0", "put_object", "5", "0", "5.000", "", "", "", "", "", "", "5", "0", "0", "0")
 	// Flushed per row: readable before Close.
 	f, _ := os.Open(d.File("metrics.csv"))
 	recs, err := csv.NewReader(f).ReadAll()

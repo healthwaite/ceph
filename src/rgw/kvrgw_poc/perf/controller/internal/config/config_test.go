@@ -204,12 +204,19 @@ func TestKvrgwYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(p)
-	for _, want := range []string{"tier:", "max_inline: 256", "max_kv_store: 4096", "batch_size: 9", "batch_threads: 8"} {
+	for _, want := range []string{"tier:", "max_inline: 256", "max_kv_store: 4096", "batch_size: 9", "backend_workers: 4"} {
 		if !contains(string(b), want) {
 			t.Errorf("missing %q in\n%s", want, b)
 		}
 	}
-	if env := c.KvrgwEnv(); env[0] != "KVRGW_BATCH_SIZE=9" || len(env) != 3 {
+	if env := c.KvrgwEnv(); env[0] != "KVRGW_BATCH_SIZE=9" || !contains(strings.Join(env, " "), "KVRGW_BACKEND_WORKERS=4") ||
+		!contains(strings.Join(env, " "), "KVRGW_MAX_INFLIGHT_OPS=4096") || contains(strings.Join(env, " "), "KVRGW_BATCH_THREADS") {
+		t.Fatalf("%v", env)
+	}
+	// Deprecated batch_threads is passed through only when backend_workers is unset.
+	old := Defaults()
+	old.Kvrgw.BackendWorkers, old.Kvrgw.BatchThreads = 0, 8
+	if env := strings.Join(old.KvrgwEnv(), " "); !contains(env, "KVRGW_BATCH_THREADS=8") || contains(env, "KVRGW_BACKEND_WORKERS") {
 		t.Fatalf("%v", env)
 	}
 	ov := NewOverrides()
@@ -225,6 +232,52 @@ func TestKvrgwYAML(t *testing.T) {
 	f, _ := ParseFile([]byte("kvrgw:\n  bogus: 1\n"))
 	if _, err := Resolve(f, "load"); err == nil {
 		t.Fatal("unknown kvrgw key must fail")
+	}
+}
+
+func TestDriverModeAndStreams(t *testing.T) {
+	c := Defaults()
+	c.Duration = "1s"
+	c.ThreadsPerWorker = 16
+	if c.Streams() != 16 || c.Generators() != 16 {
+		t.Fatalf("streams default to threads: %d %d", c.Streams(), c.Generators())
+	}
+	c.StreamsPerWorker = 512
+	if c.Streams() != 512 {
+		t.Fatal("streams_per_worker")
+	}
+	c.DriverMode = "bogus"
+	if c.Validate("run-put-object") == nil {
+		t.Fatal("bad driver_mode must fail")
+	}
+	c.DriverMode = "sync"
+	c.RateOpsPerSec = 1000
+	if c.Validate("run-put-object") == nil {
+		t.Fatal("open loop needs async")
+	}
+	c.DriverMode = "async"
+	if err := c.Validate("run-put-object"); err != nil {
+		t.Fatal(err)
+	}
+	if c.Validate("run-list-objects") == nil {
+		t.Fatal("open loop list-objects must fail")
+	}
+	if c.Generators() != c.DriverThreads {
+		t.Fatal("open loop: one generator per driver thread")
+	}
+	b, _ := c.WorkerJSON()
+	for _, want := range []string{`"driver_mode":"async"`, `"streams_per_worker":512`, `"driver_threads":2`, `"rate_ops_per_sec":1000`} {
+		if !contains(string(b), want) {
+			t.Fatalf("%s missing %s", b, want)
+		}
+	}
+	ov := NewOverrides()
+	ov.vals["streams_per_worker"] = "64"
+	ov.vals["driver_mode"] = "sync"
+	ov.vals["rate_ops_per_sec"] = "0"
+	ov.vals["max_inflight_ops"] = "100"
+	if err := ov.Apply(&c); err != nil || c.Streams() != 64 || c.DriverMode != "sync" || c.Kvrgw.MaxInflightOps != 100 {
+		t.Fatalf("%v %+v", err, c)
 	}
 }
 

@@ -54,13 +54,23 @@ type Config struct {
 	ObjectSizeBytes  uint64 `yaml:"object_size_bytes" json:"object_size_bytes"`
 	// MetadataCount user-metadata items (x-amz-meta-*) of MetadataSize bytes each are attached to
 	// every object written by load and the put runs. 0 disables.
-	MetadataCount    int    `yaml:"metadata_count" json:"metadata_count"`
-	MetadataSize     int    `yaml:"metadata_size" json:"metadata_size"`
-	WorkerCount      int    `yaml:"worker_count" json:"worker_count"`
-	ThreadsPerWorker int    `yaml:"threads_per_worker" json:"threads_per_worker"`
-	VerifyThreads    int    `yaml:"verify_threads" json:"verify_threads"`
-	TenantName       string `yaml:"tenant_name" json:"tenant_name"`
-	ReportIntervalMs int64  `yaml:"report_interval_ms" json:"report_interval_ms"`
+	MetadataCount    int `yaml:"metadata_count" json:"metadata_count"`
+	MetadataSize     int `yaml:"metadata_size" json:"metadata_size"`
+	WorkerCount      int `yaml:"worker_count" json:"worker_count"`
+	ThreadsPerWorker int `yaml:"threads_per_worker" json:"threads_per_worker"`
+	// DriverMode is the worker's client model: "sync" (one blocking thread per stream,
+	// calling the sync API) or "async" (streams are coroutines on DriverThreads executors
+	// calling the _a ops).
+	DriverMode string `yaml:"driver_mode" json:"driver_mode"`
+	// StreamsPerWorker is the closed-loop concurrency per worker; 0 means ThreadsPerWorker.
+	StreamsPerWorker int `yaml:"streams_per_worker" json:"streams_per_worker"`
+	DriverThreads    int `yaml:"driver_threads" json:"driver_threads"`
+	// RateOpsPerSec > 0 switches the run-* command to open loop at this per-worker rate
+	// (async mode only); latency is measured from each op's scheduled send time.
+	RateOpsPerSec    float64 `yaml:"rate_ops_per_sec" json:"rate_ops_per_sec"`
+	VerifyThreads    int     `yaml:"verify_threads" json:"verify_threads"`
+	TenantName       string  `yaml:"tenant_name" json:"tenant_name"`
+	ReportIntervalMs int64   `yaml:"report_interval_ms" json:"report_interval_ms"`
 
 	FdbStats bool `yaml:"fdb_stats" json:"fdb_stats"`
 	// FdbStatusRaw also saves every `status json` sample, compacted, to fdb_status.jsonl
@@ -93,14 +103,23 @@ type Config struct {
 	Kvrgw KvrgwConfig `yaml:"-" json:"kvrgw"`
 }
 
-// KvrgwConfig mirrors the `tier:` block of backend/kvrgw.yaml.
+// KvrgwConfig mirrors the `tier:` block of backend/kvrgw.yaml, plus the async runtime
+// knobs (exported as KVRGW_* environment variables by KvrgwEnv).
 type KvrgwConfig struct {
 	MaxInline         uint32 `yaml:"max_inline" json:"max_inline"`
 	MaxKvStore        uint32 `yaml:"max_kv_store" json:"max_kv_store"`
 	KvStoreCoalescing bool   `yaml:"kv_store_coalescing" json:"kv_store_coalescing"`
 	BatchSize         int    `yaml:"batch_size" json:"batch_size"`
 	BatchTimeoutUs    int    `yaml:"batch_timeout_us" json:"batch_timeout_us"`
-	BatchThreads      int    `yaml:"batch_threads" json:"batch_threads"`
+	// BatchThreads is deprecated (backend_workers replaces it). When set and
+	// backend_workers is not, it is exported as KVRGW_BATCH_THREADS, which the runtime reads
+	// as backend_workers with a warning.
+	BatchThreads        int   `yaml:"batch_threads,omitempty" json:"batch_threads,omitempty"`
+	BackendWorkers      int   `yaml:"backend_workers" json:"backend_workers"`
+	MaxInflightOps      int64 `yaml:"max_inflight_ops" json:"max_inflight_ops"`
+	TxnMaxAttempts      int   `yaml:"txn_max_attempts" json:"txn_max_attempts"`
+	BatchTxnMaxAttempts int   `yaml:"batch_txn_max_attempts" json:"batch_txn_max_attempts"`
+	TxnTimeoutMs        int64 `yaml:"txn_timeout_ms" json:"txn_timeout_ms"`
 }
 
 // WriteKvrgwYAML synthesizes the runtime config file the workers read via
@@ -117,15 +136,71 @@ func (c *Config) WriteKvrgwYAML(path string) error {
 	return os.WriteFile(path, append([]byte(hdr), b...), 0o644)
 }
 
-// KvrgwEnv returns the environment overrides that make the batch settings effective.
+// KvrgwEnv returns the environment overrides that make the batch and async runtime
+// settings effective (the yaml loader reads only the tier keys).
 func (c *Config) KvrgwEnv() []string {
 	k := c.Kvrgw
-	return []string{
+	env := []string{
 		fmt.Sprintf("KVRGW_BATCH_SIZE=%d", k.BatchSize),
 		fmt.Sprintf("KVRGW_BATCH_TIMEOUT_US=%d", k.BatchTimeoutUs),
-		fmt.Sprintf("KVRGW_BATCH_THREADS=%d", k.BatchThreads),
 	}
+	switch {
+	case k.BackendWorkers > 0:
+		env = append(env, fmt.Sprintf("KVRGW_BACKEND_WORKERS=%d", k.BackendWorkers))
+	case k.BatchThreads > 0:
+		env = append(env, fmt.Sprintf("KVRGW_BATCH_THREADS=%d", k.BatchThreads))
+	}
+	if k.MaxInflightOps > 0 {
+		env = append(env, fmt.Sprintf("KVRGW_MAX_INFLIGHT_OPS=%d", k.MaxInflightOps))
+	}
+	if k.TxnMaxAttempts > 0 {
+		env = append(env, fmt.Sprintf("KVRGW_TXN_MAX_ATTEMPTS=%d", k.TxnMaxAttempts))
+	}
+	if k.BatchTxnMaxAttempts > 0 {
+		env = append(env, fmt.Sprintf("KVRGW_BATCH_TXN_MAX_ATTEMPTS=%d", k.BatchTxnMaxAttempts))
+	}
+	env = append(env, fmt.Sprintf("KVRGW_TXN_TIMEOUT_MS=%d", k.TxnTimeoutMs))
+	return env
 }
+
+// Streams is the effective closed-loop concurrency per worker (streams_per_worker, or
+// threads_per_worker when that is 0).
+func (c *Config) Streams() int {
+	if c.StreamsPerWorker > 0 {
+		return c.StreamsPerWorker
+	}
+	return c.ThreadsPerWorker
+}
+
+// OpenLoop reports a fixed-rate run (rate_ops_per_sec > 0).
+func (c *Config) OpenLoop() bool { return c.RateOpsPerSec > 0 }
+
+// Generators is the number of key-space generators per worker: the streams in closed
+// loop, one per driver thread in open loop. RunSummary.thread_counts has one entry per
+// generator, and global stream ids run over WorkerCount * Generators().
+func (c *Config) Generators() int {
+	if c.OpenLoop() {
+		return c.DriverThreads
+	}
+	return c.Streams()
+}
+
+// ConcurrencyLabel describes the client model, e.g. "4 x 128 streams (sync)".
+func (c *Config) ConcurrencyLabel() string {
+	if c.DriverMode == "async" {
+		s := fmt.Sprintf("%d workers x %d streams on %d driver threads (async)", c.WorkerCount, c.Streams(), c.DriverThreads)
+		if c.OpenLoop() {
+			s = fmt.Sprintf("%d workers x %d driver threads, open loop at %g ops/s per worker (async)",
+				c.WorkerCount, c.DriverThreads, c.RateOpsPerSec)
+		}
+		return s
+	}
+	return fmt.Sprintf("%d workers x %d streams (sync: one thread each)", c.WorkerCount, c.Streams())
+}
+
+// OpenLoopCommands are the commands that support rate_ops_per_sec.
+var OpenLoopCommands = []string{"run-put-object", "run-put-object-overwrite",
+	"run-put-object-overwrite-versioned", "run-delete-multi"}
 
 // Defaults returns the built-in defaults. perf/kvrgw-perf.yaml lists the same values
 // explicitly (a test keeps the two in sync).
@@ -133,12 +208,14 @@ func Defaults() Config {
 	return Config{
 		NumObjects: 1000000, NumBuckets: 10, BucketNamePrefix: "rgwkv",
 		PaddingBytes: 16, ObjectSizeBytes: 8192, MetadataCount: 6, MetadataSize: 64, WorkerCount: 1, ThreadsPerWorker: 1,
+		DriverMode: "sync", StreamsPerWorker: 0, DriverThreads: 2, RateOpsPerSec: 0,
 		VerifyThreads: 4, TenantName: envOr("KVRGW_TENANT_NAME", "kv-poc"),
 		ReportIntervalMs: 1000,
 		FdbStats:         true, FdbStatusRaw: true, FdbClusterFile: os.Getenv("FDB_CLUSTER_FILE"), FdbcliPath: "/opt/foundationdb/usr/bin/fdbcli",
 		FdbSampleIntervalMs: 5000, FdbStatusTimeoutMs: 3000, CpuSampleIntervalMs: 1000,
 		PageSize: 1000,
-		Kvrgw:    KvrgwConfig{MaxInline: 256, MaxKvStore: 4096, BatchSize: 5, BatchTimeoutUs: 1000, BatchThreads: 8},
+		Kvrgw: KvrgwConfig{MaxInline: 256, MaxKvStore: 4096, BatchSize: 5, BatchTimeoutUs: 1000,
+			BackendWorkers: 4, MaxInflightOps: 4096, TxnMaxAttempts: 3, BatchTxnMaxAttempts: 10},
 	}
 }
 
@@ -270,8 +347,32 @@ func (c *Config) Validate(command string) error {
 	if c.WorkerCount < 1 || c.ThreadsPerWorker < 1 {
 		return fmt.Errorf("worker_count and threads_per_worker must be >= 1")
 	}
-	if c.WorkerCount*c.ThreadsPerWorker > 65536 {
-		return fmt.Errorf("worker_count * threads_per_worker must be <= 65536")
+	if c.StreamsPerWorker < 0 {
+		return fmt.Errorf("streams_per_worker must be >= 0 (0 = threads_per_worker)")
+	}
+	if c.DriverMode != "sync" && c.DriverMode != "async" {
+		return fmt.Errorf("driver_mode must be sync or async, not %q", c.DriverMode)
+	}
+	if c.DriverThreads < 1 {
+		return fmt.Errorf("driver_threads must be >= 1")
+	}
+	if c.RateOpsPerSec < 0 {
+		return fmt.Errorf("rate_ops_per_sec must be >= 0")
+	}
+	if c.OpenLoop() {
+		if c.DriverMode != "async" {
+			return fmt.Errorf("rate_ops_per_sec (open loop) requires driver_mode: async")
+		}
+		ok := false
+		for _, x := range OpenLoopCommands {
+			ok = ok || x == command
+		}
+		if !ok {
+			return fmt.Errorf("open loop (rate_ops_per_sec) is not supported for %s (supported: %v)", command, OpenLoopCommands)
+		}
+	}
+	if c.WorkerCount*c.Generators() > 65536 {
+		return fmt.Errorf("worker_count * streams_per_worker must be <= 65536")
 	}
 	if c.VerifyThreads < 1 {
 		return fmt.Errorf("verify_threads must be >= 1")
@@ -367,7 +468,7 @@ func (c *Config) ApplyCommandRules(command string) (warnings []string) {
 	switch command {
 	case "run-list-objects", "run-list-delete-multi":
 		if c.SingleThreadMode {
-			c.WorkerCount, c.ThreadsPerWorker = 1, 1
+			c.WorkerCount, c.ThreadsPerWorker, c.StreamsPerWorker = 1, 1, 1
 		} else if uint64(c.WorkerCount) > c.NumBuckets {
 			warnings = append(warnings, fmt.Sprintf(
 				"num_buckets (%d) < worker_count (%d): capping worker_count at %d so every worker owns a bucket",
@@ -376,7 +477,7 @@ func (c *Config) ApplyCommandRules(command string) (warnings []string) {
 		}
 	case "run-delete-multi":
 		if c.SingleThreadMode {
-			c.WorkerCount, c.ThreadsPerWorker = 1, 1
+			c.WorkerCount, c.ThreadsPerWorker, c.StreamsPerWorker = 1, 1, 1
 		}
 	}
 	return
@@ -384,23 +485,27 @@ func (c *Config) ApplyCommandRules(command string) (warnings []string) {
 
 // workerJSON is what workers receive (no collector keys).
 type workerJSON struct {
-	NumObjects            uint64 `json:"num_objects"`
-	NumBuckets            uint64 `json:"num_buckets"`
-	BucketNamePrefix      string `json:"bucket_name_prefix"`
-	PaddingBytes          int    `json:"padding_bytes"`
-	ObjectSizeBytes       uint64 `json:"object_size_bytes"`
-	MetadataCount         int    `json:"metadata_count"`
-	MetadataSize          int    `json:"metadata_size"`
-	ThreadsPerWorker      int    `json:"threads_per_worker"`
-	VerifyThreads         int    `json:"verify_threads"`
-	TenantName            string `json:"tenant_name"`
-	ReportIntervalMs      int64  `json:"report_interval_ms"`
-	Ops                   uint64 `json:"ops,omitempty"`
-	DurationMs            int64  `json:"duration_ms,omitempty"`
-	PageSize              int    `json:"page_size"`
-	SingleThreadMode      bool   `json:"single_thread_mode"`
-	NumObjectsToOverwrite uint64 `json:"num_objects_to_overwrite"`
-	Force                 bool   `json:"force"`
+	NumObjects            uint64  `json:"num_objects"`
+	NumBuckets            uint64  `json:"num_buckets"`
+	BucketNamePrefix      string  `json:"bucket_name_prefix"`
+	PaddingBytes          int     `json:"padding_bytes"`
+	ObjectSizeBytes       uint64  `json:"object_size_bytes"`
+	MetadataCount         int     `json:"metadata_count"`
+	MetadataSize          int     `json:"metadata_size"`
+	ThreadsPerWorker      int     `json:"threads_per_worker"`
+	DriverMode            string  `json:"driver_mode"`
+	StreamsPerWorker      int     `json:"streams_per_worker"`
+	DriverThreads         int     `json:"driver_threads"`
+	RateOpsPerSec         float64 `json:"rate_ops_per_sec"`
+	VerifyThreads         int     `json:"verify_threads"`
+	TenantName            string  `json:"tenant_name"`
+	ReportIntervalMs      int64   `json:"report_interval_ms"`
+	Ops                   uint64  `json:"ops,omitempty"`
+	DurationMs            int64   `json:"duration_ms,omitempty"`
+	PageSize              int     `json:"page_size"`
+	SingleThreadMode      bool    `json:"single_thread_mode"`
+	NumObjectsToOverwrite uint64  `json:"num_objects_to_overwrite"`
+	Force                 bool    `json:"force"`
 }
 
 // WorkerJSON renders the config sent in InitRequest.config_json.
@@ -411,7 +516,8 @@ func (c *Config) WorkerJSON() ([]byte, error) {
 	}
 	return json.Marshal(workerJSON{
 		c.NumObjects, c.NumBuckets, c.BucketNamePrefix, c.PaddingBytes, c.ObjectSizeBytes, c.MetadataCount, c.MetadataSize,
-		c.ThreadsPerWorker, c.VerifyThreads, c.TenantName,
+		c.ThreadsPerWorker, c.DriverMode, c.Streams(), c.DriverThreads, c.RateOpsPerSec,
+		c.VerifyThreads, c.TenantName,
 		c.ReportIntervalMs, c.Ops, d.Milliseconds(), c.PageSize,
 		c.SingleThreadMode, c.NumObjectsToOverwrite, c.Force,
 	})

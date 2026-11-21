@@ -21,7 +21,8 @@ func (v *invocation) buildSummary(exit int) *results.Summary {
 		if m == nil {
 			continue
 		}
-		t := results.OpTotals{Count: m.Count, Errors: m.Errors, ErrorCodes: m.ErrorCodes}
+		t := results.OpTotals{Count: m.Count, Errors: m.Errors, ErrorCodes: m.ErrorCodes,
+			QueueFull: m.QueueFull, Missed: m.Missed}
 		if secs > 0 {
 			t.OpsPerSec = float64(m.Count) / secs
 		}
@@ -34,6 +35,12 @@ func (v *invocation) buildSummary(exit int) *results.Summary {
 			s.OpErrors += m.Errors
 		}
 		s.Totals[op] = t
+	}
+	if cfg := v.o.Cfg; cfg.OpenLoop() {
+		s.TargetOpsPerSec = cfg.RateOpsPerSec * float64(cfg.WorkerCount)
+		if op := openLoopMetric(v.o.Command); op != "" {
+			s.AchievedOpsPerSec = s.Totals[op].OpsPerSec
+		}
 	}
 	if v.o.Command == "run-put-object-overwrite-versioned" {
 		s.VersionsWritten = s.Totals["put_object"].Count
@@ -62,15 +69,34 @@ func (v *invocation) printFinal(s *results.Summary) {
 			fmt.Fprintf(v.out, "  %-13s total=%s  %s/s\n", op, human(float64(t.Count)), human(t.OpsPerSec))
 			continue
 		}
-		fmt.Fprintf(v.out, "  %-13s ops=%s  %s ops/s  mean=%s p50=%s p90=%s p99=%s p999=%s max=%s  errors=%d\n",
+		extra := ""
+		if t.QueueFull > 0 {
+			extra += fmt.Sprintf("  queue_full=%d", t.QueueFull)
+		}
+		if t.Missed > 0 {
+			extra += fmt.Sprintf("  missed=%d", t.Missed)
+		}
+		fmt.Fprintf(v.out, "  %-13s ops=%s  %s ops/s  mean=%s p50=%s p90=%s p99=%s p999=%s max=%s  errors=%d%s\n",
 			op, human(float64(t.Count)), human(t.OpsPerSec), fmtUs(uint64(t.MeanUs)), fmtUs(t.P50Us),
-			fmtUs(t.P90Us), fmtUs(t.P99Us), fmtUs(t.P999Us), fmtUs(t.MaxUs), t.Errors)
+			fmtUs(t.P90Us), fmtUs(t.P99Us), fmtUs(t.P999Us), fmtUs(t.MaxUs), t.Errors, extra)
 		for _, code := range sortedKeys(t.ErrorCodes) {
 			line := fmt.Sprintf("      %-30s x%d", stats.ShortCode(code), t.ErrorCodes[code])
 			if d := s.ErrorDescriptions[code]; d != "" {
 				line += "  " + d
 			}
 			fmt.Fprintln(v.out, line)
+		}
+	}
+	if s.TargetOpsPerSec > 0 {
+		fmt.Fprintf(v.out, "  open loop: target %s ops/s, achieved %s ops/s (latency measured from scheduled send time)\n",
+			human(s.TargetOpsPerSec), human(s.AchievedOpsPerSec))
+	}
+	for _, op := range metricOrder {
+		if t, ok := s.Totals[op]; ok && t.QueueFull > 0 {
+			fmt.Fprintf(v.out, "  WARNING: %s hit the backend in-flight limit %d times (streams_per_worker > max_inflight_ops)\n", op, t.QueueFull)
+		}
+		if t, ok := s.Totals[op]; ok && t.Missed > 0 {
+			fmt.Fprintf(v.out, "  WARNING: %s missed %d scheduled ops: the target rate was not held\n", op, t.Missed)
 		}
 	}
 	if s.Command == "run-put-object-overwrite-versioned" {
@@ -109,6 +135,17 @@ func (v *invocation) printFinal(s *results.Summary) {
 	} else {
 		fmt.Fprintf(v.out, "  RESULT: OK\n")
 	}
+}
+
+// openLoopMetric is the latency metric an open-loop command schedules.
+func openLoopMetric(command string) string {
+	switch command {
+	case "run-put-object", "run-put-object-overwrite", "run-put-object-overwrite-versioned":
+		return "put_object"
+	case "run-delete-multi":
+		return "delete_multi"
+	}
+	return ""
 }
 
 func humanBytes(b float64) string {

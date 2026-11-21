@@ -445,6 +445,11 @@ FdbFutureAwait KvTransaction::on_error_a(fdb_error_t err)
   return FdbFutureAwait(fdb_transaction_on_error(impl_->tr, err));
 }
 
+void KvTransaction::reset()
+{
+  fdb_transaction_reset(impl_->tr);
+}
+
 fdb_error_t KvTransaction::set_timeout_ms(int64_t ms)
 {
   return fdb_transaction_set_option(impl_->tr, FDB_TR_OPTION_TIMEOUT,

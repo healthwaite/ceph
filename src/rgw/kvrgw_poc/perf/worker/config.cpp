@@ -28,6 +28,10 @@ std::string parse_config(const std::string &json_text, const std::string &operat
     get(j, "metadata_count", c.metadata_count);
     get(j, "metadata_size", c.metadata_size);
     get(j, "threads_per_worker", c.threads_per_worker);
+    get(j, "driver_mode", c.driver_mode);
+    get(j, "streams_per_worker", c.streams_per_worker);
+    get(j, "driver_threads", c.driver_threads);
+    get(j, "rate_ops_per_sec", c.rate_ops_per_sec);
     get(j, "verify_threads", c.verify_threads);
     get(j, "tenant_name", c.tenant_name);
     get(j, "report_interval_ms", c.report_interval_ms);
@@ -51,11 +55,24 @@ std::string parse_config(const std::string &json_text, const std::string &operat
     return "metadata_size must be in 1..2048 when metadata_count > 0";
   }
   if (c.threads_per_worker < 1) return "threads_per_worker must be >= 1";
+  if (c.streams_per_worker <= 0) c.streams_per_worker = c.threads_per_worker;
+  if (c.driver_mode != "sync" && c.driver_mode != "async") {
+    return "driver_mode must be sync or async";
+  }
+  if (c.driver_threads < 1) return "driver_threads must be >= 1";
+  if (c.rate_ops_per_sec < 0) return "rate_ops_per_sec must be >= 0";
+  if (c.open_loop()) {
+    if (!c.async_mode()) return "rate_ops_per_sec (open loop) requires driver_mode: async";
+    if (operation != "run-put-object" && operation != "run-put-object-overwrite" &&
+        operation != "run-put-object-overwrite-versioned" && operation != "run-delete-multi") {
+      return "open loop (rate_ops_per_sec) is not supported for " + operation;
+    }
+  }
   if (c.verify_threads < 1) return "verify_threads must be >= 1";
   if (c.page_size < 1) return "page_size must be >= 1";
   if (c.report_interval_ms < 0) return "report_interval_ms must be >= 0";
-  if (static_cast<uint64_t>(c.worker_count) * static_cast<uint64_t>(c.threads_per_worker) > 65536) {
-    return "worker_count * threads_per_worker must be <= 65536";
+  if (static_cast<uint64_t>(c.worker_count) * static_cast<uint64_t>(c.streams()) > 65536) {
+    return "worker_count * streams_per_worker must be <= 65536";
   }
   const bool is_run = operation != "load";
   if (is_run) {

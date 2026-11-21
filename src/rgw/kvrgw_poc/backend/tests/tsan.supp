@@ -1,0 +1,8 @@
+# ThreadSanitizer suppressions for the kvrgw backend.
+#
+# libfdb_c is a prebuilt, uninstrumented library: TSAN sees the memory its
+# network thread touches (through malloc/memcpy interceptors) but none of the
+# locks that order it, so every FDB result read reports a race. Ignore the
+# interceptors called from inside libfdb_c and races with an FDB frame.
+called_from_lib:libfdb_c.so
+race:libfdb_c.so

@@ -35,6 +35,8 @@ commands:
 global flags:
   --config FILE          harness config (default: ./kvrgw-perf.yaml, else next to the binary)
   --workers N            worker_count          --threads M   threads_per_worker
+  --driver-mode sync|async                     --streams S   streams_per_worker
+  --driver-threads D     async executors       --rate R      rate_ops_per_sec (open loop)
   --worker-binary PATH   kvrgw-perf-worker     --base-port P (default 19090)
   --cpus LIST            CPU pool to pin workers to, e.g. 0-15
   --run-dir DIR          results directory (default perf-results/<UTC ts>-<command>)

@@ -11,14 +11,19 @@ import (
 // Metric aggregate for one op type in one window (or cumulative).
 type Metric struct {
 	Count, Errors, SumMicros uint64
-	ErrorCodes               map[string]uint64 // errors by code name
-	Hist                     Hist
+	// QueueFull counts submits refused with KVRGW_ERR_QUEUE_FULL (backed off and retried,
+	// not errors); Missed counts open-loop ops that were due but not issued.
+	QueueFull, Missed uint64
+	ErrorCodes        map[string]uint64 // errors by code name
+	Hist              Hist
 }
 
 func (m *Metric) Merge(o *Metric) {
 	m.Count += o.Count
 	m.Errors += o.Errors
 	m.SumMicros += o.SumMicros
+	m.QueueFull += o.QueueFull
+	m.Missed += o.Missed
 	for k, v := range o.ErrorCodes {
 		if m.ErrorCodes == nil {
 			m.ErrorCodes = map[string]uint64{}
@@ -54,14 +59,16 @@ func FormatErrorCodes(codes map[string]uint64) string {
 	return strings.Join(parts, ", ")
 }
 
-func (m *Metric) Empty() bool { return m.Count == 0 && m.Errors == 0 }
+func (m *Metric) Empty() bool {
+	return m.Count == 0 && m.Errors == 0 && m.QueueFull == 0 && m.Missed == 0
+}
 
 // IsCounter reports counter-style op types (no latency).
 func IsCounter(op string) bool { return op == "keys_listed" || op == "keys_deleted" }
 
 // FromProto converts an OpStats message.
 func FromProto(o *pb.OpStats) Metric {
-	m := Metric{Count: o.Count, Errors: o.Errors, SumMicros: o.SumMicros}
+	m := Metric{Count: o.Count, Errors: o.Errors, SumMicros: o.SumMicros, QueueFull: o.QueueFull, Missed: o.Missed}
 	if len(o.ErrorCodes) > 0 {
 		m.ErrorCodes = map[string]uint64{}
 		for k, v := range o.ErrorCodes {
@@ -104,6 +111,10 @@ func ServerFlat(s *pb.ServerStats) map[string]uint64 {
 	out["batch.conflict_pushbacks"] = s.BatchConflictPushbacks
 	out["txn.retries"] = s.TxnRetries
 	out["txn.hard_failures"] = s.TxnHardFailures
+	out["async.queue_full_rejects"] = s.QueueFullRejects
+	out["async.inflight_ops_peak"] = s.InflightOpsPeak
+	out["async.frames_heap_fallback"] = s.FramesHeapFallback
+	out["async.max_frame_size"] = s.MaxFrameSize
 	for k, v := range s.Errors {
 		out["error."+k] = v
 	}

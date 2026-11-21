@@ -30,6 +30,8 @@ void MetricStats::merge(const MetricStats &o)
   count += o.count;
   errors += o.errors;
   sum_micros += o.sum_micros;
+  queue_full += o.queue_full;
+  missed += o.missed;
   for (const auto &[k, v] : o.error_codes) error_codes[k] += v;
   if (!o.hist.empty()) {
     if (hist.empty()) {
@@ -76,6 +78,18 @@ void ThreadStats::add_units(Metric m, uint64_t n)
 {
   std::lock_guard<std::mutex> g(mu_);
   w_[static_cast<size_t>(m)].count += n;
+}
+
+void ThreadStats::add_queue_full(Metric m, uint64_t n)
+{
+  std::lock_guard<std::mutex> g(mu_);
+  w_[static_cast<size_t>(m)].queue_full += n;
+}
+
+void ThreadStats::add_missed(Metric m, uint64_t n)
+{
+  std::lock_guard<std::mutex> g(mu_);
+  w_[static_cast<size_t>(m)].missed += n;
 }
 
 StatsArray ThreadStats::take_window()

@@ -11,14 +11,21 @@
 # ---- kvrgw runtime config (replaces backend/kvrgw.yaml for perf runs) ----------------
 # The controller synthesizes <run-dir>/kvrgw.yaml from this section and points every
 # worker at it (KVRGW_CONFIG_FILE). The runtime's yaml loader only reads the first three
-# keys; the controller also exports batch_* as KVRGW_BATCH_* so they take effect.
+# keys; the controller also exports batch_* and the async keys as KVRGW_* variables so they
+# take effect.
 kvrgw:
   max_inline: 256            # objects <= this many bytes are stored inline in the metadata value
   max_kv_store: 4096         # objects <= this are stored as FDB KV entries; larger go to the data store
   kv_store_coalescing: false
   batch_size: 10             # PutObject batch queue: max entries per commit
   batch_timeout_us: 1000     # ... or flush after this long
-  batch_threads: 8           # batch-commit threads per worker
+  # Async backend. backend_workers replaces batch_threads (still accepted, deprecated: it is
+  # read as backend_workers when backend_workers is not set).
+  backend_workers: 4         # backend worker executors (threads) per worker process
+  max_inflight_ops: 4096     # in-flight async ops; beyond it a submit fails fast (queue_full)
+  txn_max_attempts: 3        # FDB attempts for ordinary ops (retries back off via on_error)
+  batch_txn_max_attempts: 10 # FDB commit attempts for a PUT batch's final transaction
+  txn_timeout_ms: 0          # FDB transaction timeout for the async ops (0 = off)
 
 # ---- common settings ------------------------------------------------------------------
 base:
@@ -33,7 +40,17 @@ base:
   tenant_name: kv-poc
   # parallelism
   worker_count: 32           # worker processes (local mode), one runtime each
-  threads_per_worker: 128
+  threads_per_worker: 128    # sync mode: one thread per stream; the default for streams_per_worker
+  # Client model. sync: one blocking thread per stream calling the sync API (today's model).
+  # async: the streams are coroutines on driver_threads executors calling the async API, so
+  # concurrency is not bounded by threads. Compare them on one build with the same streams.
+  driver_mode: sync
+  streams_per_worker: 0      # closed-loop concurrency per worker; 0 = threads_per_worker
+  driver_threads: 2          # async mode: executor threads driving the streams
+  # Open loop (async mode, run-put-object / -overwrite(-versioned) / run-delete-multi): issue
+  # ops at this fixed per-worker rate whether or not earlier ones finished, and measure latency
+  # from each op's scheduled time. 0 = closed loop.
+  rate_ops_per_sec: 0
   verify_threads: 16         # scan threads per worker during Verify
   # reporting and collectors
   report_interval_ms: 10000  # progress-window length (0 = one report for the whole run)

@@ -17,7 +17,7 @@ class ListObjectsOp : public Operation {
   void run_thread(RunContext &ctx, int tid) override
   {
     if (!ctx.wait_start()) return;
-    const uint64_t gtid = static_cast<uint64_t>(ctx.worker_index * ctx.cfg.threads_per_worker + tid);
+    const uint64_t gtid = ctx.gsid(tid);
     ThreadStats &ts = ctx.stats->thread(tid);
     const auto prefixes = prefix_items(ctx.cfg.padding_bytes);
     // Work items: (bucket, prefix) over owned buckets; thread t takes items t, t+T, ...
@@ -25,7 +25,7 @@ class ListObjectsOp : public Operation {
     size_t n = 0;
     for (uint64_t b : mine_) {
       for (const auto &p : prefixes) {
-        if (n++ % static_cast<size_t>(ctx.cfg.threads_per_worker) == static_cast<size_t>(tid)) {
+        if (n++ % static_cast<size_t>(ctx.streams()) == static_cast<size_t>(tid)) {
           items.emplace_back(b, &p);
         }
       }

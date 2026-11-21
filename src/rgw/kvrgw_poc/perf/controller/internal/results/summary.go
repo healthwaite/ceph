@@ -20,6 +20,10 @@ type OpTotals struct {
 	MaxUs     uint64  `json:"max_us,omitempty"`
 	// ErrorCodes breaks Errors down by library error code name.
 	ErrorCodes map[string]uint64 `json:"error_codes,omitempty"`
+	// QueueFull: submits refused at the backend's in-flight limit (backed off, not errors).
+	QueueFull uint64 `json:"queue_full,omitempty"`
+	// Missed: open loop only, ops that were due but not issued (target rate not held).
+	Missed uint64 `json:"missed,omitempty"`
 }
 
 type WorkerSummary struct {
@@ -63,6 +67,9 @@ type Summary struct {
 	ServerTotals  map[string]uint64   `json:"server_stats_final,omitempty"`
 	Verify        *VerifySummary      `json:"verify,omitempty"`
 	OpErrors      uint64              `json:"op_errors"`
+	// Open loop only: the target rate (all workers) and the rate achieved.
+	TargetOpsPerSec   float64 `json:"target_ops_per_sec,omitempty"`
+	AchievedOpsPerSec float64 `json:"achieved_ops_per_sec,omitempty"`
 	// VersionsWritten (run-put-object-overwrite-versioned only) is the number of new object
 	// versions the run wrote: one per successful put. The null versions made by load come on top.
 	VersionsWritten uint64 `json:"versions_written,omitempty"`

@@ -112,6 +112,23 @@ inline KvrgwErrorCode fdb_to_error(fdb_error_t err) {
   }
 }
 
+// Inverse of fdb_to_error for the FDB-derived codes; 0 for every other code.
+// Lets a coroutine that got a mapped read error hand the FDB code to on_error.
+inline fdb_error_t error_to_fdb(KvrgwErrorCode c) {
+  switch (c) {
+    case KVRGW_ERR_FDB_CONFLICT:                return fdb::kConflict;
+    case KVRGW_ERR_FDB_PROCESS_BEHIND:          return fdb::kProcessBehind;
+    case KVRGW_ERR_FDB_FUTURE_VERSION:          return fdb::kFutureVersion;
+    case KVRGW_ERR_FDB_TRANSACTION_TOO_OLD:     return fdb::kTransactionTooOld;
+    case KVRGW_ERR_FDB_COMMIT_UNKNOWN:          return fdb::kCommitUnknownResult;
+    case KVRGW_ERR_FDB_CLUSTER_VERSION_CHANGED: return fdb::kClusterVersionChanged;
+    case KVRGW_ERR_FDB_KEY_TOO_LARGE:           return fdb::kKeyTooLarge;
+    case KVRGW_ERR_FDB_VALUE_TOO_LARGE:         return fdb::kValueTooLarge;
+    case KVRGW_ERR_FDB_TRANSACTION_TOO_LARGE:   return fdb::kTransactionTooLarge;
+    default:                                    return 0;
+  }
+}
+
 inline bool is_retriable_idempotent(KvrgwErrorCode c) {
   switch (c) {
     case KVRGW_ERR_FDB_CONFLICT:

@@ -39,15 +39,24 @@ class LoadOp : public Operation {
     return {};
   }
 
-  void run_thread(RunContext &ctx, int tid) override
+  void run_thread(RunContext &ctx, int sid) override
   {
     if (!ctx.wait_start()) return;
-    const uint64_t gtid = static_cast<uint64_t>(ctx.worker_index * ctx.cfg.threads_per_worker + tid);
-    Range r = index_range(gtid, static_cast<uint64_t>(ctx.total_threads()), ctx.cfg.num_objects);
-    ThreadStats &ts = ctx.stats->thread(tid);
+    Range r = index_range(ctx.gsid(sid), static_cast<uint64_t>(ctx.total_streams()), ctx.cfg.num_objects);
+    ThreadStats &ts = ctx.stats->thread(sid);
     for (uint64_t i = r.start; i < r.end() && !ctx.stopped(); ++i) {
       const auto b = bucket_for_index(i, ctx.cfg.num_objects, ctx.cfg.num_buckets);
       if (!put_with_retry(ctx, ts, ctx.bucket(b), load_key(i, ctx.cfg.padding_bytes))) return;
+    }
+  }
+
+  kvrgw::async::Task<void> run_stream(RunContext &ctx, Stream &s) override
+  {
+    Range r = index_range(s.gsid, static_cast<uint64_t>(ctx.total_streams()), ctx.cfg.num_objects);
+    for (uint64_t i = r.start; i < r.end() && !ctx.stopped(); ++i) {
+      const auto b = bucket_for_index(i, ctx.cfg.num_objects, ctx.cfg.num_buckets);
+      const std::string key = load_key(i, ctx.cfg.padding_bytes);
+      if (!co_await put_with_retry_a(ctx, s, ctx.bucket(b), key)) co_return;
     }
   }
 

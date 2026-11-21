@@ -92,16 +92,13 @@ bool put_with_retry(RunContext &ctx, ThreadStats &ts, const std::string &bucket,
   kvrgw::KvrgwErrorCode last = kvrgw::KVRGW_ERR_OK;
   for (int a = 0; a < kAttempts && !ctx.stopped(); ++a) {
     auto t0 = SteadyClock::now();
-    kvrgw::KvRgwServiceImpl::PutObjectResult res;
-    {
-      // Server-side stats are recorded by the caller (as perf_driver does).
-      kvrgw::ScopedRequestLatency lat(ctx.svc->latency_stats(), kvrgw::OpType::kPutObject);
-      res = ctx.svc->put_object(ctx.tenant, bucket, key,
-                                reinterpret_cast<const uint8_t *>(ctx.payload.data()),
-                                ctx.payload.size(), "application/octet-stream",
-                                ctx.payload.size(), nullptr, {},
-                                std::span<const kvrgw::MetaPair>(ctx.meta_pairs));
-    }
+    // put_object records its own server-side latency (once per call).
+    kvrgw::KvRgwServiceImpl::PutObjectResult res =
+        ctx.svc->put_object(ctx.tenant, bucket, key,
+                            reinterpret_cast<const uint8_t *>(ctx.payload.data()),
+                            ctx.payload.size(), "application/octet-stream",
+                            ctx.payload.size(), nullptr, {},
+                            std::span<const kvrgw::MetaPair>(ctx.meta_pairs));
     if (res.error_code == kvrgw::KVRGW_ERR_OK) {
       ts.record(Metric::PutObject, static_cast<uint64_t>(elapsed_us(t0)));
       if (created_version) {
@@ -119,6 +116,51 @@ bool put_with_retry(RunContext &ctx, ThreadStats &ts, const std::string &bucket,
              " attempts: " + describe_error(last));
   }
   return false;
+}
+
+std::chrono::microseconds queue_full_backoff(int n)
+{
+  constexpr int64_t kFirstUs = 100, kMaxUs = 10000;
+  const int64_t us = n >= 7 ? kMaxUs : std::min<int64_t>(kMaxUs, kFirstUs << n);
+  return std::chrono::microseconds(us);
+}
+
+kvrgw::async::Task<bool> put_with_retry_a(RunContext &ctx, Stream &s, const std::string &bucket,
+                                          const std::string &key, bool *created_version)
+{
+  constexpr int kAttempts = 10;
+  kvrgw::KvrgwErrorCode last = kvrgw::KVRGW_ERR_OK;
+  int queue_full_in_a_row = 0;
+  for (int a = 0; a < kAttempts && !ctx.stopped();) {
+    const auto t0 = SteadyClock::now();
+    auto res = co_await ctx.svc->put_object_a(
+        ctx.tenant, bucket, key, reinterpret_cast<const uint8_t *>(ctx.payload.data()),
+        ctx.payload.size(), "application/octet-stream", ctx.payload.size(), nullptr, {}, {});
+    if (res.error_code == kvrgw::KVRGW_ERR_OK) {
+      s.ts->record(Metric::PutObject, static_cast<uint64_t>(elapsed_us(t0)));
+      if (created_version) {
+        *created_version = res.version_id.is_valid() && !res.version_id.is_null();
+      }
+      co_return true;
+    }
+    if (res.error_code == kvrgw::KVRGW_ERR_QUEUE_FULL) {
+      // Not an attempt: more streams than max_inflight_ops. Back off.
+      s.ts->add_queue_full(Metric::PutObject);
+      co_await s.exec->sleep(queue_full_backoff(queue_full_in_a_row++));
+      continue;
+    }
+    queue_full_in_a_row = 0;
+    last = res.error_code;
+    record_op_error(*s.ts, Metric::PutObject, last);
+    log_op_error("put_object " + bucket + "/" + short_key(key) + " (attempt " + std::to_string(a + 1) + ")",
+                 describe_error(last));
+    ++a;
+  }
+  if (!ctx.stopped()) {
+    ctx.fail("put_object " + bucket + "/" + short_key(key) + " failed after " + std::to_string(kAttempts) +
+             " attempts: " + describe_error(last));
+  }
+  co_return false;
 }
 
 std::string verify_load_family(RunContext &ctx, const std::vector<uint64_t> &buckets,

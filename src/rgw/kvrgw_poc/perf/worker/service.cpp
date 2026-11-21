@@ -1,5 +1,7 @@
 #include "service.hpp"
 
+#include "async/executor.hpp"
+#include "async/task.hpp"
 #include "error_codes.hpp"
 
 #include <algorithm>
@@ -37,9 +39,24 @@ void fill_stats(const StatsArray &a, google::protobuf::RepeatedPtrField<perf::v1
     o->set_count(m.count);
     o->set_errors(m.errors);
     o->set_sum_micros(m.sum_micros);
+    o->set_queue_full(m.queue_full);
+    o->set_missed(m.missed);
     for (const auto &[code, n] : m.error_codes) (*o->mutable_error_codes())[code] = n;
     if (!metric_is_counter(static_cast<Metric>(i))) fill_hist(m, o->mutable_latency());
   }
+}
+
+// Runs one stream to completion, then reports it done. A free function so the
+// coroutine holds only references whose owners outlive it.
+kvrgw::async::Task<void> stream_main(RunContext &ctx, Operation &op, Stream &s,
+                                     const std::function<void()> &on_done)
+{
+  try {
+    co_await op.run_stream(ctx, s);
+  } catch (const std::exception &e) {
+    ctx.fail(std::string("stream exception: ") + e.what());
+  }
+  on_done();
 }
 
 int64_t sys_now_ns()
@@ -160,7 +177,9 @@ std::string WorkerService::do_init(const perf::v1::InitRequest &req)
     // Vectors are fully built before taking views, so the views stay valid.
     for (size_t i = 0; i < n; ++i) ctx->meta_pairs.emplace_back(ctx->meta_keys[i], ctx->meta_vals[i]);
   }
-  stats_ = std::make_unique<StatsHub>(cfg.threads_per_worker);
+  // One ThreadStats per benchmark thread: a stream's thread in sync mode, a
+  // driver thread in async mode (shared by that driver's streams).
+  stats_ = std::make_unique<StatsHub>(cfg.async_mode() ? cfg.driver_threads : cfg.streams());
   ctx->stats = stats_.get();
 
   if (auto err = op->init(*ctx); !err.empty()) return err;
@@ -203,7 +222,9 @@ grpc::Status WorkerService::RunBenchmark(
     return grpc::Status::OK;
   }
   RunContext &ctx = *ctx_;
-  const int T = ctx.cfg.threads_per_worker;
+  const bool async_mode = ctx.cfg.async_mode();
+  // Units that report completion: streams (one thread each in sync mode).
+  const int T = ctx.cfg.streams();
   const int64_t interval_ms = first.report_interval_ms();
   const int64_t run_start_ns = first.run_start_unix_ns();
   ctx.bench_start_unix_s = run_start_ns / 1000000000;
@@ -224,19 +245,48 @@ grpc::Status WorkerService::RunBenchmark(
   std::mutex done_mu;
   std::condition_variable done_cv;
   std::atomic<int> finished{0};
+  const std::function<void()> on_done = [&]() {
+    if (++finished == T) {
+      std::lock_guard<std::mutex> g(done_mu);
+      done_cv.notify_all();
+    }
+  };
   std::vector<std::thread> threads;
-  for (int t = 0; t < T; ++t) {
-    threads.emplace_back([&, t]() {
-      try {
-        op_->run_thread(ctx, t);
-      } catch (const std::exception &e) {
-        ctx.fail(std::string("worker thread exception: ") + e.what());
-      }
-      if (++finished == T) {
-        std::lock_guard<std::mutex> g(done_mu);
-        done_cv.notify_all();
-      }
-    });
+  std::vector<std::unique_ptr<kvrgw::async::ExecutorThread>> drivers;
+  std::vector<Stream> streams;
+  if (!async_mode) {
+    // Sync mode: one blocking thread per stream, calling the sync wrappers.
+    for (int t = 0; t < T; ++t) {
+      threads.emplace_back([&, t]() {
+        try {
+          op_->run_thread(ctx, t);
+        } catch (const std::exception &e) {
+          ctx.fail(std::string("worker thread exception: ") + e.what());
+        }
+        on_done();
+      });
+    }
+  } else {
+    // Async mode: driver_threads executors; stream sid runs on driver sid % D.
+    const int D = ctx.cfg.driver_threads;
+    for (int d = 0; d < D; ++d) {
+      drivers.push_back(std::make_unique<kvrgw::async::ExecutorThread>("perf-drv-" + std::to_string(d)));
+      drivers.back()->start();
+    }
+    streams.resize(static_cast<size_t>(T));
+    for (int sid = 0; sid < T; ++sid) {
+      Stream &st = streams[static_cast<size_t>(sid)];
+      st.sid = sid;
+      st.gsid = ctx.gsid(sid);
+      st.driver = sid % D;
+      st.ts = &stats_->thread(st.driver);
+      st.exec = &drivers[static_cast<size_t>(st.driver)]->executor();
+    }
+    // Sleep until the synchronised start (no polling), then start every stream.
+    std::this_thread::sleep_until(ctx.start_tp);
+    for (auto &st : streams) {
+      kvrgw::async::spawn(*st.exec, stream_main(ctx, *op_, st, on_done));
+    }
   }
 
   auto emit_progress = [&](int64_t window, int64_t dur_ns) {
@@ -285,6 +335,8 @@ grpc::Status WorkerService::RunBenchmark(
     emit_progress(0, dur);
   }
   for (auto &t : threads) t.join();
+  // Every stream has finished: the driver executors are idle.
+  for (auto &d : drivers) d->stop_and_join();
 
   PhaseEvent done;
   done.set_state(PhaseEvent::DONE);

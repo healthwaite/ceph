@@ -379,6 +379,9 @@ class KvTransaction {
   // FDB_TR_OPTION_TIMEOUT; 0 = no timeout. From API version 610 on, FDB keeps
   // the timeout across on_error resets.
   fdb_error_t set_timeout_ms(int64_t ms);
+  // fdb_transaction_reset: back to a fresh state, as if newly created
+  // (options, including the timeout, must be set again).
+  void reset();
 
  private:
   friend class KvStore;

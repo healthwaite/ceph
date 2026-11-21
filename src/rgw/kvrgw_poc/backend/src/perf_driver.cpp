@@ -501,8 +501,7 @@ void put_worker(KvRgwServiceImpl &service, tenant_id_t tenant_id,
     uint64_t seq = wr.bucket_seq[bucket_idx]++;
     const auto name = make_object_name(thread_id, seq);
     //std::cerr << name << std::endl;
-    ScopedRequestLatency _lat(service.latency_stats(), OpType::kPutObject);
-
+    // put_object records its own PutObject latency (once per call).
     auto res = service.put_object(
         tenant_id, bucket_name, name,
         g_put_buffer, obj_size, {}, obj_size, nullptr,
@@ -1202,8 +1201,7 @@ void put_overwrite_standalone_worker(KvRgwServiceImpl &service,
       std::snprintf(bname, sizeof(bname), "perf-bucket-%d", bidx);
       const auto name = make_object_name(thread_id, static_cast<uint64_t>(j));
 
-      ScopedRequestLatency _lat(service.latency_stats(), OpType::kPutObject);
-
+      // put_object records its own PutObject latency (once per call).
       auto res = service.put_object(
           tenant_id, std::string_view(bname), name,
           g_put_buffer, obj_size, {}, obj_size, nullptr,

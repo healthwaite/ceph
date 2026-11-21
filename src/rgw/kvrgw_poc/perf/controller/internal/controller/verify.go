@@ -15,14 +15,16 @@ func (v *invocation) buildThreadCounts(sums []*pb.RunSummary) []uint64 {
 	if v.o.Command != "run-put-object" && v.o.Command != "run-delete-multi" {
 		return nil
 	}
+	// Indexed by global stream id: worker * generators + local stream id.
 	cfg := v.o.Cfg
-	counts := make([]uint64, cfg.WorkerCount*cfg.ThreadsPerWorker)
+	per := cfg.Generators()
+	counts := make([]uint64, cfg.WorkerCount*per)
 	for w, s := range sums {
 		if s == nil {
 			continue
 		}
 		for t, c := range s.ThreadCounts {
-			if g := w*cfg.ThreadsPerWorker + t; g < len(counts) {
+			if g := w*per + t; g < len(counts) {
 				counts[g] = c
 			}
 		}

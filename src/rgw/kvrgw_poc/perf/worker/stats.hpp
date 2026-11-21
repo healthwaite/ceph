@@ -30,22 +30,27 @@ struct MetricStats {
   uint64_t count = 0;   // successes (or units for counter metrics)
   uint64_t errors = 0;
   uint64_t sum_micros = 0;
+  uint64_t queue_full = 0;  // submits refused with QUEUE_FULL (backed off; not errors)
+  uint64_t missed = 0;      // open loop: ops due but not issued
   std::map<std::string, uint64_t> error_codes;  // by code name; sums to `errors`
   std::vector<uint64_t> hist;  // empty or kHistBuckets
 
   void record(uint64_t micros);
   void merge(const MetricStats &o);
-  bool empty() const { return count == 0 && errors == 0; }
+  bool empty() const { return count == 0 && errors == 0 && queue_full == 0 && missed == 0; }
 };
 
 using StatsArray = std::array<MetricStats, kMetricCount>;
 
-// One per benchmark thread. The owning thread records; the reporter calls take_window().
+// One per benchmark thread (sync mode) or per driver thread (async mode: shared
+// by the streams on that driver). The owner records; the reporter calls take_window().
 class ThreadStats {
  public:
   void record(Metric m, uint64_t micros);
   void record_error(Metric m, const std::string &code = {});
   void add_units(Metric m, uint64_t n);
+  void add_queue_full(Metric m, uint64_t n = 1);
+  void add_missed(Metric m, uint64_t n);
   // Swap out the current window.
   StatsArray take_window();
 

@@ -69,6 +69,7 @@ set(KVRGW_LIB_SRCS
   src/id_meta.cpp
   src/service_impl.cpp
   src/service_async.cpp
+  src/service_put.cpp
   src/service_impl_multipart.cpp
   src/bucket_policy.cpp
   src/sweeper.cpp

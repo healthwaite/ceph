@@ -6,6 +6,8 @@
 #include "../stats.hpp"
 #include "../verify.hpp"
 
+#include "async/executor.hpp"
+#include "async/task.hpp"
 #include "service_impl.hpp"
 
 #include <atomic>
@@ -52,7 +54,15 @@ struct RunContext {
   std::mutex err_mu;
   std::string error;
 
-  int total_threads() const { return cfg.total_threads(); }
+  // Streams per worker (S) and in total; see Config::streams().
+  int streams() const { return cfg.streams(); }
+  int total_streams() const { return cfg.total_streams(); }
+  // Global stream id of local stream `sid`.
+  uint64_t gsid(int sid) const
+  {
+    return static_cast<uint64_t>(worker_index) * static_cast<uint64_t>(streams()) +
+           static_cast<uint64_t>(sid);
+  }
 
   void fail(const std::string &msg)
   {
@@ -69,10 +79,10 @@ struct RunContext {
   bool wait_start() const;
 
   const std::string &bucket(uint64_t b) const { return bucket_names[b]; }
-  // Number of ops thread `gtid` may perform in --ops mode.
-  uint64_t ops_quota(uint64_t gtid) const
+  // Number of ops stream `gsid` may perform in --ops mode.
+  uint64_t ops_quota(uint64_t gsid) const
   {
-    return block_range(gtid, static_cast<uint64_t>(total_threads()), cfg.ops).count;
+    return block_range(gsid, static_cast<uint64_t>(total_streams()), cfg.ops).count;
   }
 };
 
@@ -93,14 +103,32 @@ struct VerifyReport {
   }
 };
 
+// A stream: a sequential client with at most one op in flight. In sync mode a
+// stream is a thread; in async mode it is a coroutine on one driver executor.
+struct Stream {
+  int sid = 0;        // local stream id, [0, S)
+  uint64_t gsid = 0;  // worker_index * S + sid
+  int driver = 0;     // driver thread index (async mode)
+  ThreadStats *ts = nullptr;
+  kvrgw::async::Executor *exec = nullptr;  // the stream's driver executor
+};
+
 class Operation {
  public:
   virtual ~Operation() = default;
   // Pre-benchmark setup (bucket creation, precondition checks). Returns error or "".
   virtual std::string init(RunContext &) { return {}; }
-  // Benchmark body for local thread `tid`.
-  virtual void run_thread(RunContext &ctx, int tid) = 0;
-  // Per-local-thread counters reported in RunSummary.
+  // Sync mode: benchmark body for local stream `sid`, on its own thread.
+  virtual void run_thread(RunContext &ctx, int sid) = 0;
+  // Async mode: the same loop as a coroutine on the stream's driver executor,
+  // calling the _a ops.
+  virtual kvrgw::async::Task<void> run_stream(RunContext &ctx, Stream &s)
+  {
+    (void)s;
+    ctx.fail("driver_mode async is not supported for " + ctx.cfg.operation);
+    co_return;
+  }
+  // Per-local-stream counters reported in RunSummary (indexed by sid).
   virtual std::vector<uint64_t> thread_counts() const { return {}; }
   virtual bool has_verify() const { return true; }
   // thread_counts: indexed by global thread id (put_count / delete_progress), may be empty.
@@ -147,6 +175,18 @@ class ServiceVersionPager : public VersionPager {
 // a put that replaced the current object in place reports none).
 bool put_with_retry(RunContext &ctx, ThreadStats &ts, const std::string &bucket,
                     const std::string &key, bool *created_version = nullptr);
+
+// Async put_with_retry: same attempts, error recording and log rate limit.
+// KVRGW_ERR_QUEUE_FULL is not an attempt: the stream sleeps on its executor
+// (100 us x 2^n, capped at 10 ms) and counts it as queue_full on the metric.
+// Latency runs from just before the co_await to the stream's resume.
+// `bucket` and `key` must outlive the call (the caller's frame holds them).
+kvrgw::async::Task<bool> put_with_retry_a(RunContext &ctx, Stream &s, const std::string &bucket,
+                                          const std::string &key,
+                                          bool *created_version = nullptr);
+
+// Back off after a QUEUE_FULL: 100 us x 2^n, capped at 10 ms.
+std::chrono::microseconds queue_full_backoff(int n);
 
 // Verify every bucket in `buckets` (load-style) using ctx.cfg.verify_threads.
 // `range_of_bucket(b)` -> id space; `present` may be null. With `scan_versions` the keys are

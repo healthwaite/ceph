@@ -22,6 +22,12 @@ var flagKeys = map[string]string{
 	"metadata-count": "metadata_count", "metadata-size": "metadata_size",
 	"workers": "worker_count", "worker-count": "worker_count",
 	"threads": "threads_per_worker", "threads-per-worker": "threads_per_worker",
+	"driver-mode": "driver_mode", "streams": "streams_per_worker",
+	"streams-per-worker": "streams_per_worker", "driver-threads": "driver_threads",
+	"rate": "rate_ops_per_sec", "rate-ops-per-sec": "rate_ops_per_sec",
+	"backend-workers": "backend_workers", "max-inflight-ops": "max_inflight_ops",
+	"txn-max-attempts": "txn_max_attempts", "batch-txn-max-attempts": "batch_txn_max_attempts",
+	"txn-timeout-ms": "txn_timeout_ms",
 	"verify-threads": "verify_threads", "tenant-name": "tenant_name",
 	"batch-size": "batch_size", "batch-timeout-us": "batch_timeout_us",
 	"batch-threads": "batch_threads", "max-inline": "max_inline", "max-kv-store": "max_kv_store",
@@ -137,6 +143,26 @@ func Set(c *Config, key, v string) error {
 		return i(&c.WorkerCount)
 	case "threads_per_worker":
 		return i(&c.ThreadsPerWorker)
+	case "driver_mode":
+		c.DriverMode = v
+	case "streams_per_worker":
+		return i(&c.StreamsPerWorker)
+	case "driver_threads":
+		return i(&c.DriverThreads)
+	case "rate_ops_per_sec":
+		x, err := strconv.ParseFloat(v, 64)
+		c.RateOpsPerSec = x
+		return err
+	case "backend_workers":
+		return i(&c.Kvrgw.BackendWorkers)
+	case "max_inflight_ops":
+		return i64(&c.Kvrgw.MaxInflightOps)
+	case "txn_max_attempts":
+		return i(&c.Kvrgw.TxnMaxAttempts)
+	case "batch_txn_max_attempts":
+		return i(&c.Kvrgw.BatchTxnMaxAttempts)
+	case "txn_timeout_ms":
+		return i64(&c.Kvrgw.TxnTimeoutMs)
 	case "verify_threads":
 		return i(&c.VerifyThreads)
 	case "tenant_name":

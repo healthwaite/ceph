@@ -22,6 +22,18 @@
 
 #include <coroutine>
 
+// libfdb_c is not instrumented, so ThreadSanitizer cannot see that FDB orders
+// fdb_future_set_callback before the callback it installs. Tell it.
+#if defined(__SANITIZE_THREAD__)
+extern "C" void __tsan_acquire(void* addr);
+extern "C" void __tsan_release(void* addr);
+#define KVRGW_TSAN_RELEASE(p) __tsan_release(p)
+#define KVRGW_TSAN_ACQUIRE(p) __tsan_acquire(p)
+#else
+#define KVRGW_TSAN_RELEASE(p) ((void)0)
+#define KVRGW_TSAN_ACQUIRE(p) ((void)0)
+#endif
+
 namespace kvrgw::async {
 
 // Awaits a raw FDBFuture it does not own; yields fdb_future_get_error().
@@ -43,6 +55,7 @@ struct FdbAwait {
       return false;
     }
     node.h = c;
+    KVRGW_TSAN_RELEASE(this);
     if (fdb_future_set_callback(f, &FdbAwait::callback, this) != 0) {
       // Could not install the callback: resume through the queue anyway; the
       // caller will read the future's error.
@@ -54,6 +67,7 @@ struct FdbAwait {
   fdb_error_t await_resume() const noexcept { return fdb_future_get_error(f); }
 
   static void callback(FDBFuture*, void* p) noexcept {
+    KVRGW_TSAN_ACQUIRE(p);
     auto* a = static_cast<FdbAwait*>(p);
     a->exec->post(&a->node);  // push + eventfd, nothing else
   }

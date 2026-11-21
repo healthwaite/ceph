@@ -120,7 +120,7 @@ func (e *Events) Close() error             { return e.c.Close() }
 
 // Columns of each CSV (shared with the report reader).
 var (
-	MetricsHeader     = []string{"unix_ts_ms", "window", "op_type", "count", "errors", "ops_per_sec", "mean_us", "p50_us", "p90_us", "p99_us", "p999_us", "max_us", "cum_count", "cum_errors"}
+	MetricsHeader     = []string{"unix_ts_ms", "window", "op_type", "count", "errors", "ops_per_sec", "mean_us", "p50_us", "p90_us", "p99_us", "p999_us", "max_us", "cum_count", "cum_errors", "queue_full", "missed"}
 	ErrorsHeader      = []string{"unix_ts_ms", "window", "op_type", "error_code", "count"}
 	HistHeader        = []string{"window", "op_type", "bucket_index", "count"}
 	ServerStatsHeader = []string{"unix_ts_ms", "window", "name", "value"}

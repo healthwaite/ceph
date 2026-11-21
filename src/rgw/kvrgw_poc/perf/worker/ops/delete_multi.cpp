@@ -12,7 +12,7 @@ class DeleteMultiOp : public Operation {
  public:
   std::string init(RunContext &ctx) override
   {
-    deleted_.assign(static_cast<size_t>(ctx.cfg.threads_per_worker), 0);
+    deleted_.assign(static_cast<size_t>(ctx.streams()), 0);
     std::vector<uint64_t> all;
     for (uint64_t b = 0; b < ctx.cfg.num_buckets; ++b) all.push_back(b);
     std::string err = check_buckets(ctx, all);
@@ -20,8 +20,8 @@ class DeleteMultiOp : public Operation {
     if (ctx.cfg.has_ops()) {
       // Each thread stops at the end of its range, so --ops must not ask any thread for more
       // delete_multi calls than it needs to cover its range.
-      for (int t = 0; t < ctx.cfg.threads_per_worker; ++t) {
-        const uint64_t gtid = static_cast<uint64_t>(ctx.worker_index * ctx.cfg.threads_per_worker + t);
+      for (int t = 0; t < ctx.streams(); ++t) {
+        const uint64_t gtid = ctx.gsid(t);
         const uint64_t quota = ctx.ops_quota(gtid);
         const uint64_t need = batches_needed(ctx, thread_range(ctx, gtid));
         if (quota > need) {
@@ -53,13 +53,13 @@ class DeleteMultiOp : public Operation {
     if (ctx.cfg.single_thread_mode) {
       return gtid == 0 ? bucket_range(0, ctx.cfg.num_buckets, ctx.cfg.num_objects) : Range{};
     }
-    return index_range(gtid, static_cast<uint64_t>(ctx.total_threads()), ctx.cfg.num_objects);
+    return index_range(gtid, static_cast<uint64_t>(ctx.total_streams()), ctx.cfg.num_objects);
   }
 
   void run_thread(RunContext &ctx, int tid) override
   {
     if (!ctx.wait_start()) return;
-    const uint64_t gtid = static_cast<uint64_t>(ctx.worker_index * ctx.cfg.threads_per_worker + tid);
+    const uint64_t gtid = ctx.gsid(tid);
     const Range r = thread_range(ctx, gtid);
     if (r.count == 0) return;
     ThreadStats &ts = ctx.stats->thread(tid);
@@ -114,7 +114,7 @@ class DeleteMultiOp : public Operation {
   std::string verify(RunContext &ctx, const std::vector<uint64_t> &progress,
                      VerifyReport *out) override
   {
-    const uint64_t nthreads = ctx.cfg.single_thread_mode ? 1 : static_cast<uint64_t>(ctx.total_threads());
+    const uint64_t nthreads = ctx.cfg.single_thread_mode ? 1 : static_cast<uint64_t>(ctx.total_streams());
     if (progress.size() < nthreads) return "verify: delete_progress has wrong length";
     auto present = [&](uint64_t, uint64_t id) {
       uint64_t g = 0;

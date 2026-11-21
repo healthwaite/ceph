@@ -17,6 +17,15 @@ struct Config {
   int metadata_size = 64;  // bytes per metadata value
   int worker_count = 1;
   int threads_per_worker = 1;
+  // Client model. "sync": one blocking thread per stream calling the sync
+  // wrappers (today's model). "async": streams are coroutines on
+  // driver_threads executors calling the _a ops.
+  std::string driver_mode = "sync";
+  // Closed-loop concurrency per worker; 0 in the JSON means threads_per_worker.
+  int streams_per_worker = 0;
+  int driver_threads = 2;  // async mode only
+  // Per-worker target rate; > 0 = open loop (async mode only).
+  double rate_ops_per_sec = 0;
   int verify_threads = 4;
   std::string tenant_name = "kv-poc";
   int64_t report_interval_ms = 1000;
@@ -28,7 +37,12 @@ struct Config {
   uint64_t num_objects_to_overwrite = 0;
   bool force = false;  // load: tolerate pre-existing buckets
 
-  int total_threads() const { return worker_count * threads_per_worker; }
+  bool async_mode() const { return driver_mode == "async"; }
+  bool open_loop() const { return rate_ops_per_sec > 0; }
+  // Key-space generators per worker: the streams in closed loop, one per
+  // driver thread in open loop. Global stream id gsid = worker_index * streams() + sid.
+  int streams() const { return open_loop() ? driver_threads : streams_per_worker; }
+  int total_streams() const { return worker_count * streams(); }
   bool has_ops() const { return ops > 0; }
   bool has_duration() const { return duration_ms > 0; }
 };

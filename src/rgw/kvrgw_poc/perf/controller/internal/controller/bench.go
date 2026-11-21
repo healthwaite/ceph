@@ -55,7 +55,7 @@ func (v *invocation) runBenchmark(sigCtx, mctx context.Context, benchStarted cha
 	v.intervalMs = cfg.ReportIntervalMs
 	v.ev.At(v.runStartMs, "benchmark_start")
 	time.AfterFunc(time.Until(runStart), func() { v.setFDBPhase("benchmark") })
-	fmt.Fprintf(v.out, "benchmark starting in 1s (%d workers x %d threads)\n", cfg.WorkerCount, cfg.ThreadsPerWorker)
+	fmt.Fprintf(v.out, "benchmark starting in 1s (%s)\n", cfg.ConcurrencyLabel())
 
 	streams := make([]grpc.BidiStreamingClient[pb.RunControl, pb.PhaseEvent], n)
 	sendMu := make([]sync.Mutex, n)
@@ -207,7 +207,8 @@ func (v *invocation) handleWindows(wins []*stats.Window) {
 			}
 			if stats.IsCounter(op) {
 				v.metricsCSV.Row(results.I(ts), results.I(w.Index), op, results.U(m.Count), results.U(m.Errors),
-					results.F(rate), "", "", "", "", "", "", results.U(c[0]), results.U(c[1]))
+					results.F(rate), "", "", "", "", "", "", results.U(c[0]), results.U(c[1]),
+					results.U(m.QueueFull), results.U(m.Missed))
 				parts = append(parts, fmt.Sprintf("%s %s/s total=%s", op, human(rate), human(float64(c[0]))))
 				continue
 			}
@@ -218,10 +219,16 @@ func (v *invocation) handleWindows(wins []*stats.Window) {
 			v.metricsCSV.Row(results.I(ts), results.I(w.Index), op, results.U(m.Count), results.U(m.Errors),
 				results.F(rate), results.F(mean), results.U(m.Hist.Quantile(0.5)), results.U(m.Hist.Quantile(0.9)),
 				results.U(m.Hist.Quantile(0.99)), results.U(m.Hist.Quantile(0.999)), results.U(m.Hist.Max()),
-				results.U(c[0]), results.U(c[1]))
+				results.U(c[0]), results.U(c[1]), results.U(m.QueueFull), results.U(m.Missed))
 			idx, cnt := m.Hist.Sparse()
 			for k := range idx {
 				v.histCSV.Row(results.I(w.Index), op, results.I(int64(idx[k])), results.U(cnt[k]))
+			}
+			if m.QueueFull > 0 {
+				errNote += fmt.Sprintf(" qfull=%d", m.QueueFull)
+			}
+			if m.Missed > 0 {
+				errNote += fmt.Sprintf(" missed=%d", m.Missed)
 			}
 			parts = append(parts, fmt.Sprintf("%s %s ops/s total=%s p50=%s p99=%s err=%d%s", op, human(rate),
 				human(float64(c[0])), fmtUs(m.Hist.Quantile(0.5)), fmtUs(m.Hist.Quantile(0.99)), m.Errors, errNote))

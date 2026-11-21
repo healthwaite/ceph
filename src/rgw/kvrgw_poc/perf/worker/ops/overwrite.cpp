@@ -33,7 +33,7 @@ class OverwriteOp : public Operation {
 
   std::string init(RunContext &ctx) override
   {
-    puts_.assign(static_cast<size_t>(ctx.cfg.threads_per_worker), 0);
+    puts_.assign(static_cast<size_t>(ctx.streams()), 0);
     std::vector<uint64_t> all;
     for (uint64_t b = 0; b < ctx.cfg.num_buckets; ++b) all.push_back(b);
     if (!versioned_) return check_buckets(ctx, all, VersioningCheck::kUnversioned);
@@ -51,20 +51,53 @@ class OverwriteOp : public Operation {
     return check_buckets(ctx, all, VersioningCheck::kEnabled);
   }
 
-  Range window(const RunContext &ctx, uint64_t gtid) const
+  Range window(const RunContext &ctx, uint64_t gsid) const
   {
-    return overwrite_window(gtid, static_cast<uint64_t>(ctx.total_threads()), ctx.cfg.num_objects,
+    return overwrite_window(gsid, static_cast<uint64_t>(ctx.total_streams()), ctx.cfg.num_objects,
                             versioned_ ? ctx.cfg.num_objects_to_overwrite : 0);
   }
 
-  void run_thread(RunContext &ctx, int tid) override
+  // The put of key index i failed the unversioned check: fail the run.
+  void fail_created_version(RunContext &ctx, uint64_t b)
+  {
+    // The put added a version instead of replacing the object, so this run is not measuring
+    // an unversioned overwrite.
+    ctx.fail("put_object created a new version in " + ctx.bucket(b) +
+             ": the bucket has versioning enabled; run-put-object-overwrite needs "
+             "never-versioned buckets (use a new bucket_name_prefix and load)");
+  }
+
+  kvrgw::async::Task<void> run_stream(RunContext &ctx, Stream &s) override
+  {
+    const Range w = window(ctx, s.gsid);
+    if (w.count == 0) co_return;
+    const uint64_t quota = ctx.cfg.has_ops() ? ctx.ops_quota(s.gsid) : UINT64_MAX;
+    uint64_t puts = 0;
+    while (!ctx.stopped() && puts < quota && !ctx.expired()) {
+      const uint64_t i = w.start + puts % w.count;
+      const auto b = bucket_for_index(i, ctx.cfg.num_objects, ctx.cfg.num_buckets);
+      const std::string key = load_key(i, ctx.cfg.padding_bytes);
+      bool created_version = false;
+      if (!co_await put_with_retry_a(ctx, s, ctx.bucket(b), key,
+                                     versioned_ ? nullptr : &created_version)) {
+        break;
+      }
+      if (created_version) {
+        fail_created_version(ctx, b);
+        break;
+      }
+      puts_[static_cast<size_t>(s.sid)] = ++puts;
+    }
+  }
+
+  void run_thread(RunContext &ctx, int sid) override
   {
     if (!ctx.wait_start()) return;
-    const uint64_t gtid = static_cast<uint64_t>(ctx.worker_index * ctx.cfg.threads_per_worker + tid);
-    const Range w = window(ctx, gtid);
+    const uint64_t gsid = ctx.gsid(sid);
+    const Range w = window(ctx, gsid);
     if (w.count == 0) return;
-    ThreadStats &ts = ctx.stats->thread(tid);
-    const uint64_t quota = ctx.cfg.has_ops() ? ctx.ops_quota(gtid) : UINT64_MAX;
+    ThreadStats &ts = ctx.stats->thread(sid);
+    const uint64_t quota = ctx.cfg.has_ops() ? ctx.ops_quota(gsid) : UINT64_MAX;
     uint64_t puts = 0;
     while (!ctx.stopped() && puts < quota && !ctx.expired()) {
       const uint64_t i = w.start + puts % w.count;
@@ -75,15 +108,11 @@ class OverwriteOp : public Operation {
         break;
       }
       if (created_version) {
-        // The put added a version instead of replacing the object, so this run is not measuring
-        // an unversioned overwrite.
-        ctx.fail("put_object created a new version in " + ctx.bucket(b) +
-                 ": the bucket has versioning enabled; run-put-object-overwrite needs "
-                 "never-versioned buckets (use a new bucket_name_prefix and load)");
+        fail_created_version(ctx, b);
         break;
       }
       ++puts;
-      puts_[static_cast<size_t>(tid)] = puts;
+      puts_[static_cast<size_t>(sid)] = puts;
     }
   }
 
@@ -107,11 +136,10 @@ class OverwriteOp : public Operation {
   // Point-lookup verification of version counts for this worker's own windows.
   std::string verify_versions(RunContext &ctx, VerifyReport *out)
   {
-    const int T = ctx.cfg.threads_per_worker;
-    std::vector<uint64_t> cum(static_cast<size_t>(T) + 1, 0);  // prefix sums of window sizes
-    for (int t = 0; t < T; ++t) {
-      const uint64_t gtid = static_cast<uint64_t>(ctx.worker_index * T + t);
-      cum[static_cast<size_t>(t) + 1] = cum[static_cast<size_t>(t)] + window(ctx, gtid).count;
+    const int S = ctx.streams();
+    std::vector<uint64_t> cum(static_cast<size_t>(S) + 1, 0);  // prefix sums of window sizes
+    for (int t = 0; t < S; ++t) {
+      cum[static_cast<size_t>(t) + 1] = cum[static_cast<size_t>(t)] + window(ctx, ctx.gsid(t)).count;
     }
     const uint64_t total = cum.back();
     ctx.verify_keys_total = total;
@@ -122,8 +150,7 @@ class OverwriteOp : public Operation {
         const uint64_t n = next.fetch_add(1);
         if (n >= total) return;
         const int t = static_cast<int>(std::upper_bound(cum.begin(), cum.end(), n) - cum.begin()) - 1;
-        const uint64_t gtid = static_cast<uint64_t>(ctx.worker_index * T + t);
-        const Range w = window(ctx, gtid);
+        const Range w = window(ctx, ctx.gsid(t));
         const uint64_t p = n - cum[static_cast<size_t>(t)];
         const uint64_t id = w.start + p;
         const std::string key = load_key(id, ctx.cfg.padding_bytes);
