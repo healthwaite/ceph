@@ -146,8 +146,27 @@ int64_t sys_now_ns()
 
 }  // namespace
 
-void WorkerService::fill_server_stats(perf::v1::ServerStats *out)
+void WorkerService::fill_server_stats(
+    perf::v1::ServerStats *out, std::vector<std::unique_ptr<kvrgw::async::ExecutorThread>> *drivers)
 {
+  for (const auto &t : rt_.thread_usage()) {
+    auto *o = out->add_threads();
+    o->set_name(t.name);
+    o->set_group(t.group);
+    o->set_cpu_ns(t.cpu_ns);
+    o->set_wall_ns(t.wall_ns);
+  }
+  if (drivers) {
+    for (auto &d : *drivers) {
+      const auto u = d->cpu_usage();
+      auto *o = out->add_threads();
+      o->set_name(d->name());
+      o->set_group("driver");
+      o->set_cpu_ns(u.cpu_ns);
+      o->set_wall_ns(u.wall_ns);
+    }
+  }
+  out->set_fdb_network_busyness(rt_.fdb_network_busyness());
   auto &svc = rt_.service();
   auto &ls = svc.latency_stats();
   for (int i = 0; i < static_cast<int>(kvrgw::OpType::kCount); ++i) {
@@ -390,7 +409,7 @@ grpc::Status WorkerService::RunBenchmark(
     for (const auto &[code, text] : error_texts()) (*p->mutable_error_descriptions())[code] = text;
     p->set_cumulative_as_of_unix_ns(sys_now_ns());
     if (ctx.cfg.open_loop()) p->set_target_rate(ctx.cfg.rate_ops_per_sec);
-    fill_server_stats(p->mutable_server_stats());
+    fill_server_stats(p->mutable_server_stats(), &drivers);
     s->Write(ev);
   };
 

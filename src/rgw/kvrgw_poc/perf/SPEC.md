@@ -692,6 +692,10 @@ read.**
   `missed`), and latency counts from the scheduled time. A reporter snapshots/merges
   at each window boundary and calls `ServerWriter::Write`. Use a monotonic clock for
   latency; windows are derived from `run_start_unix_ns`.
+- Thread utilisation: `ServerStats.threads` carries cumulative CPU and wall time per
+  backend worker, FDB network thread and (async mode) driver executor, and
+  `fdb_network_busyness` libfdb_c's own gauge; the report turns them into busy % per
+  thread over the analysed window and tuning hints (§8.3).
 - Latency accounting: the async ops (and their sync wrappers) record their own
   server-side latency once per call; the worker does not wrap them in
   `ScopedRequestLatency`.

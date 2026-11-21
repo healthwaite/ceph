@@ -87,6 +87,9 @@ func (v *invocation) printFinal(s *results.Summary) {
 			fmt.Fprintln(v.out, line)
 		}
 	}
+	if gs := stats.GroupUtils(stats.CumulativeThreadUtils(v.lastServer)); len(gs) > 0 {
+		fmt.Fprintf(v.out, "  thread busy (CPU/wall, whole run): %s\n", stats.FormatGroupUtils(gs))
+	}
 	if s.TargetOpsPerSec > 0 {
 		fmt.Fprintf(v.out, "  open loop: target %s ops/s, achieved %s ops/s (latency measured from scheduled send time)\n",
 			human(s.TargetOpsPerSec), human(s.AchievedOpsPerSec))

@@ -708,8 +708,12 @@ type ServerStats struct {
 	InflightOpsPeak        uint64                 `protobuf:"varint,11,opt,name=inflight_ops_peak,json=inflightOpsPeak,proto3" json:"inflight_ops_peak,omitempty"`                               // peak concurrent async ops (gauge, not diffed)
 	FramesHeapFallback     uint64                 `protobuf:"varint,12,opt,name=frames_heap_fallback,json=framesHeapFallback,proto3" json:"frames_heap_fallback,omitempty"`                      // coroutine frames above the pool's largest class
 	MaxFrameSize           uint64                 `protobuf:"varint,13,opt,name=max_frame_size,json=maxFrameSize,proto3" json:"max_frame_size,omitempty"`                                        // largest coroutine frame seen, bytes (gauge)
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// Utilisation feedback for tuning thread counts: one entry per backend
+	// worker, the FDB client network thread and (async mode) each perf driver.
+	Threads            []*ThreadUsage `protobuf:"bytes,14,rep,name=threads,proto3" json:"threads,omitempty"`
+	FdbNetworkBusyness float64        `protobuf:"fixed64,15,opt,name=fdb_network_busyness,json=fdbNetworkBusyness,proto3" json:"fdb_network_busyness,omitempty"` // libfdb_c's own estimate, 0..1, recent (gauge)
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ServerStats) Reset() {
@@ -833,6 +837,90 @@ func (x *ServerStats) GetMaxFrameSize() uint64 {
 	return 0
 }
 
+func (x *ServerStats) GetThreads() []*ThreadUsage {
+	if x != nil {
+		return x.Threads
+	}
+	return nil
+}
+
+func (x *ServerStats) GetFdbNetworkBusyness() float64 {
+	if x != nil {
+		return x.FdbNetworkBusyness
+	}
+	return 0
+}
+
+// Cumulative CPU and wall time of one thread since it started; utilisation over
+// an interval is delta(cpu_ns) / delta(wall_ns).
+type ThreadUsage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`   // e.g. "kvrgw-be-0", "fdb-network", "perf-drv-1"
+	Group         string                 `protobuf:"bytes,2,opt,name=group,proto3" json:"group,omitempty"` // "backend", "fdb-network" or "driver"
+	CpuNs         uint64                 `protobuf:"varint,3,opt,name=cpu_ns,json=cpuNs,proto3" json:"cpu_ns,omitempty"`
+	WallNs        uint64                 `protobuf:"varint,4,opt,name=wall_ns,json=wallNs,proto3" json:"wall_ns,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ThreadUsage) Reset() {
+	*x = ThreadUsage{}
+	mi := &file_worker_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ThreadUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ThreadUsage) ProtoMessage() {}
+
+func (x *ThreadUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_worker_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ThreadUsage.ProtoReflect.Descriptor instead.
+func (*ThreadUsage) Descriptor() ([]byte, []int) {
+	return file_worker_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ThreadUsage) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ThreadUsage) GetGroup() string {
+	if x != nil {
+		return x.Group
+	}
+	return ""
+}
+
+func (x *ThreadUsage) GetCpuNs() uint64 {
+	if x != nil {
+		return x.CpuNs
+	}
+	return 0
+}
+
+func (x *ThreadUsage) GetWallNs() uint64 {
+	if x != nil {
+		return x.WallNs
+	}
+	return 0
+}
+
 type ServerOpStats struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Op            string                 `protobuf:"bytes,1,opt,name=op,proto3" json:"op,omitempty"` // e.g. "PutObject", "ListObjects"
@@ -849,7 +937,7 @@ type ServerOpStats struct {
 
 func (x *ServerOpStats) Reset() {
 	*x = ServerOpStats{}
-	mi := &file_worker_proto_msgTypes[10]
+	mi := &file_worker_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -861,7 +949,7 @@ func (x *ServerOpStats) String() string {
 func (*ServerOpStats) ProtoMessage() {}
 
 func (x *ServerOpStats) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[10]
+	mi := &file_worker_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -874,7 +962,7 @@ func (x *ServerOpStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerOpStats.ProtoReflect.Descriptor instead.
 func (*ServerOpStats) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{10}
+	return file_worker_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ServerOpStats) GetOp() string {
@@ -950,7 +1038,7 @@ type OpStats struct {
 
 func (x *OpStats) Reset() {
 	*x = OpStats{}
-	mi := &file_worker_proto_msgTypes[11]
+	mi := &file_worker_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -962,7 +1050,7 @@ func (x *OpStats) String() string {
 func (*OpStats) ProtoMessage() {}
 
 func (x *OpStats) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[11]
+	mi := &file_worker_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -975,7 +1063,7 @@ func (x *OpStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpStats.ProtoReflect.Descriptor instead.
 func (*OpStats) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{11}
+	return file_worker_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *OpStats) GetOperationType() string {
@@ -1044,7 +1132,7 @@ type Histogram struct {
 
 func (x *Histogram) Reset() {
 	*x = Histogram{}
-	mi := &file_worker_proto_msgTypes[12]
+	mi := &file_worker_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1056,7 +1144,7 @@ func (x *Histogram) String() string {
 func (*Histogram) ProtoMessage() {}
 
 func (x *Histogram) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[12]
+	mi := &file_worker_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1069,7 +1157,7 @@ func (x *Histogram) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Histogram.ProtoReflect.Descriptor instead.
 func (*Histogram) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{12}
+	return file_worker_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Histogram) GetBucketIndex() []uint32 {
@@ -1102,7 +1190,7 @@ type VerifyResult struct {
 
 func (x *VerifyResult) Reset() {
 	*x = VerifyResult{}
-	mi := &file_worker_proto_msgTypes[13]
+	mi := &file_worker_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1114,7 +1202,7 @@ func (x *VerifyResult) String() string {
 func (*VerifyResult) ProtoMessage() {}
 
 func (x *VerifyResult) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[13]
+	mi := &file_worker_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1127,7 +1215,7 @@ func (x *VerifyResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyResult.ProtoReflect.Descriptor instead.
 func (*VerifyResult) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{13}
+	return file_worker_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *VerifyResult) GetBuckets() []*BucketVerify {
@@ -1199,7 +1287,7 @@ type BucketVerify struct {
 
 func (x *BucketVerify) Reset() {
 	*x = BucketVerify{}
-	mi := &file_worker_proto_msgTypes[14]
+	mi := &file_worker_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1211,7 +1299,7 @@ func (x *BucketVerify) String() string {
 func (*BucketVerify) ProtoMessage() {}
 
 func (x *BucketVerify) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[14]
+	mi := &file_worker_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1224,7 +1312,7 @@ func (x *BucketVerify) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BucketVerify.ProtoReflect.Descriptor instead.
 func (*BucketVerify) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{14}
+	return file_worker_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *BucketVerify) GetBucket() string {
@@ -1323,7 +1411,7 @@ const file_worker_proto_rawDesc = "" +
 	"targetRate\x1aD\n" +
 	"\x16ErrorDescriptionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x93\x05\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf5\x05\n" +
 	"\vServerStats\x12(\n" +
 	"\x03ops\x18\x01 \x03(\v2\x16.perf.v1.ServerOpStatsR\x03ops\x12#\n" +
 	"\rbatch_commits\x18\x02 \x01(\x04R\fbatchCommits\x12#\n" +
@@ -1339,10 +1427,17 @@ const file_worker_proto_rawDesc = "" +
 	" \x01(\x04R\x10queueFullRejects\x12*\n" +
 	"\x11inflight_ops_peak\x18\v \x01(\x04R\x0finflightOpsPeak\x120\n" +
 	"\x14frames_heap_fallback\x18\f \x01(\x04R\x12framesHeapFallback\x12$\n" +
-	"\x0emax_frame_size\x18\r \x01(\x04R\fmaxFrameSize\x1a9\n" +
+	"\x0emax_frame_size\x18\r \x01(\x04R\fmaxFrameSize\x12.\n" +
+	"\athreads\x18\x0e \x03(\v2\x14.perf.v1.ThreadUsageR\athreads\x120\n" +
+	"\x14fdb_network_busyness\x18\x0f \x01(\x01R\x12fdbNetworkBusyness\x1a9\n" +
 	"\vErrorsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x04R\x05value:\x028\x01\"\xe2\x01\n" +
+	"\x05value\x18\x02 \x01(\x04R\x05value:\x028\x01\"g\n" +
+	"\vThreadUsage\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05group\x18\x02 \x01(\tR\x05group\x12\x15\n" +
+	"\x06cpu_ns\x18\x03 \x01(\x04R\x05cpuNs\x12\x17\n" +
+	"\awall_ns\x18\x04 \x01(\x04R\x06wallNs\"\xe2\x01\n" +
 	"\rServerOpStats\x12\x0e\n" +
 	"\x02op\x18\x01 \x01(\tR\x02op\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\x04R\x05count\x12\x19\n" +
@@ -1408,7 +1503,7 @@ func file_worker_proto_rawDescGZIP() []byte {
 }
 
 var file_worker_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_worker_proto_goTypes = []any{
 	(PhaseEvent_State)(0),  // 0: perf.v1.PhaseEvent.State
 	(*InitRequest)(nil),    // 1: perf.v1.InitRequest
@@ -1421,44 +1516,46 @@ var file_worker_proto_goTypes = []any{
 	(*RunSummary)(nil),     // 8: perf.v1.RunSummary
 	(*ProgressReport)(nil), // 9: perf.v1.ProgressReport
 	(*ServerStats)(nil),    // 10: perf.v1.ServerStats
-	(*ServerOpStats)(nil),  // 11: perf.v1.ServerOpStats
-	(*OpStats)(nil),        // 12: perf.v1.OpStats
-	(*Histogram)(nil),      // 13: perf.v1.Histogram
-	(*VerifyResult)(nil),   // 14: perf.v1.VerifyResult
-	(*BucketVerify)(nil),   // 15: perf.v1.BucketVerify
-	nil,                    // 16: perf.v1.ProgressReport.ErrorDescriptionsEntry
-	nil,                    // 17: perf.v1.ServerStats.ErrorsEntry
-	nil,                    // 18: perf.v1.OpStats.ErrorCodesEntry
+	(*ThreadUsage)(nil),    // 11: perf.v1.ThreadUsage
+	(*ServerOpStats)(nil),  // 12: perf.v1.ServerOpStats
+	(*OpStats)(nil),        // 13: perf.v1.OpStats
+	(*Histogram)(nil),      // 14: perf.v1.Histogram
+	(*VerifyResult)(nil),   // 15: perf.v1.VerifyResult
+	(*BucketVerify)(nil),   // 16: perf.v1.BucketVerify
+	nil,                    // 17: perf.v1.ProgressReport.ErrorDescriptionsEntry
+	nil,                    // 18: perf.v1.ServerStats.ErrorsEntry
+	nil,                    // 19: perf.v1.OpStats.ErrorCodesEntry
 }
 var file_worker_proto_depIdxs = []int32{
 	3,  // 0: perf.v1.RunControl.cancel:type_name -> perf.v1.Cancel
 	0,  // 1: perf.v1.PhaseEvent.state:type_name -> perf.v1.PhaseEvent.State
 	9,  // 2: perf.v1.PhaseEvent.progress:type_name -> perf.v1.ProgressReport
-	14, // 3: perf.v1.PhaseEvent.verify:type_name -> perf.v1.VerifyResult
+	15, // 3: perf.v1.PhaseEvent.verify:type_name -> perf.v1.VerifyResult
 	8,  // 4: perf.v1.PhaseEvent.run_summary:type_name -> perf.v1.RunSummary
 	7,  // 5: perf.v1.PhaseEvent.verify_progress:type_name -> perf.v1.VerifyProgress
-	12, // 6: perf.v1.ProgressReport.window_stats:type_name -> perf.v1.OpStats
-	12, // 7: perf.v1.ProgressReport.cumulative_stats:type_name -> perf.v1.OpStats
+	13, // 6: perf.v1.ProgressReport.window_stats:type_name -> perf.v1.OpStats
+	13, // 7: perf.v1.ProgressReport.cumulative_stats:type_name -> perf.v1.OpStats
 	10, // 8: perf.v1.ProgressReport.server_stats:type_name -> perf.v1.ServerStats
-	16, // 9: perf.v1.ProgressReport.error_descriptions:type_name -> perf.v1.ProgressReport.ErrorDescriptionsEntry
-	11, // 10: perf.v1.ServerStats.ops:type_name -> perf.v1.ServerOpStats
-	17, // 11: perf.v1.ServerStats.errors:type_name -> perf.v1.ServerStats.ErrorsEntry
-	13, // 12: perf.v1.OpStats.latency:type_name -> perf.v1.Histogram
-	18, // 13: perf.v1.OpStats.error_codes:type_name -> perf.v1.OpStats.ErrorCodesEntry
-	15, // 14: perf.v1.VerifyResult.buckets:type_name -> perf.v1.BucketVerify
-	1,  // 15: perf.v1.Worker.Init:input_type -> perf.v1.InitRequest
-	2,  // 16: perf.v1.Worker.RunBenchmark:input_type -> perf.v1.RunControl
-	4,  // 17: perf.v1.Worker.Verify:input_type -> perf.v1.VerifyRequest
-	5,  // 18: perf.v1.Worker.Cleanup:input_type -> perf.v1.CleanupRequest
-	6,  // 19: perf.v1.Worker.Init:output_type -> perf.v1.PhaseEvent
-	6,  // 20: perf.v1.Worker.RunBenchmark:output_type -> perf.v1.PhaseEvent
-	6,  // 21: perf.v1.Worker.Verify:output_type -> perf.v1.PhaseEvent
-	6,  // 22: perf.v1.Worker.Cleanup:output_type -> perf.v1.PhaseEvent
-	19, // [19:23] is the sub-list for method output_type
-	15, // [15:19] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	17, // 9: perf.v1.ProgressReport.error_descriptions:type_name -> perf.v1.ProgressReport.ErrorDescriptionsEntry
+	12, // 10: perf.v1.ServerStats.ops:type_name -> perf.v1.ServerOpStats
+	18, // 11: perf.v1.ServerStats.errors:type_name -> perf.v1.ServerStats.ErrorsEntry
+	11, // 12: perf.v1.ServerStats.threads:type_name -> perf.v1.ThreadUsage
+	14, // 13: perf.v1.OpStats.latency:type_name -> perf.v1.Histogram
+	19, // 14: perf.v1.OpStats.error_codes:type_name -> perf.v1.OpStats.ErrorCodesEntry
+	16, // 15: perf.v1.VerifyResult.buckets:type_name -> perf.v1.BucketVerify
+	1,  // 16: perf.v1.Worker.Init:input_type -> perf.v1.InitRequest
+	2,  // 17: perf.v1.Worker.RunBenchmark:input_type -> perf.v1.RunControl
+	4,  // 18: perf.v1.Worker.Verify:input_type -> perf.v1.VerifyRequest
+	5,  // 19: perf.v1.Worker.Cleanup:input_type -> perf.v1.CleanupRequest
+	6,  // 20: perf.v1.Worker.Init:output_type -> perf.v1.PhaseEvent
+	6,  // 21: perf.v1.Worker.RunBenchmark:output_type -> perf.v1.PhaseEvent
+	6,  // 22: perf.v1.Worker.Verify:output_type -> perf.v1.PhaseEvent
+	6,  // 23: perf.v1.Worker.Cleanup:output_type -> perf.v1.PhaseEvent
+	20, // [20:24] is the sub-list for method output_type
+	16, // [16:20] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_worker_proto_init() }
@@ -1475,7 +1572,7 @@ func file_worker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_worker_proto_rawDesc), len(file_worker_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

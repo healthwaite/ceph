@@ -49,6 +49,15 @@ Async runtime knobs live in the `kvrgw:` section (`backend_workers`,
 `max_inflight_ops`. To compare against the pre-async backend, run the old worker
 binary with the same configuration.
 
+Thread utilisation: every progress report carries CPU and wall time for each backend
+worker (`kvrgw-be-N`), the FDB client network thread (`fdb-network`) and each async
+driver (`perf-drv-N`), plus libfdb_c's own network-thread busyness. The report's
+"Thread utilisation" section shows busy % per group (per thread with `--detailed`)
+over the analysed window, with hints: a saturated `fdb-network` means add worker
+processes; saturated backend workers or drivers mean raise `backend_workers` /
+`driver_threads`; mostly idle ones can be lowered. The run summary prints the same
+per-group figures for the whole run.
+
 ## Running on another machine
 
 To run the harness somewhere that has Docker and an FDB cluster but no build environment, package it

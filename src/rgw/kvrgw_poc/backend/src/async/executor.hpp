@@ -27,6 +27,15 @@ namespace kvrgw::async {
 // first 15 bytes.
 void set_thread_name(std::string_view name) noexcept;
 
+// CPU and wall time of one thread since it started; utilisation over an
+// interval is delta(cpu_ns) / delta(wall_ns).
+struct ThreadCpu {
+  uint64_t cpu_ns{0};
+  uint64_t wall_ns{0};
+};
+// CPU time consumed so far by a live thread (0 if it cannot be read).
+uint64_t thread_cpu_ns(std::thread::native_handle_type t) noexcept;
+
 // Intrusive queue node. When `fn` is set the executor calls fn(node) instead of
 // resuming `h` (used for small non-coroutine tasks such as "arm a timer").
 struct MpscNode {
@@ -169,10 +178,14 @@ class ExecutorThread {
   void start();
   void stop_and_join();
   Executor& executor() noexcept { return ex_; }
+  const std::string& name() const noexcept { return ex_.name(); }
+  // Zero before start() / after stop_and_join().
+  ThreadCpu cpu_usage() noexcept;
 
  private:
   Executor ex_;
   std::thread t_;
+  std::chrono::steady_clock::time_point started_{};
 };
 
 // co_await switch_to(ex): suspend, post to ex, resume there. No-op if already on ex.

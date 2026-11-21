@@ -57,6 +57,9 @@ class BackendWorkers {
   }
   // Index of the worker the calling thread runs, or -1.
   int current_index() const noexcept;
+  // CPU / wall time of worker i's thread.
+  async::ThreadCpu cpu_usage(int i) noexcept { return ex_[static_cast<size_t>(i)]->cpu_usage(); }
+  const std::string& name(int i) const noexcept { return ex_[static_cast<size_t>(i)]->name(); }
 
  private:
   std::vector<std::unique_ptr<async::ExecutorThread>> ex_;

@@ -41,6 +41,14 @@ void set_thread_name(std::string_view name) noexcept {
   (void)pthread_setname_np(pthread_self(), buf);
 }
 
+uint64_t thread_cpu_ns(std::thread::native_handle_type t) noexcept {
+  clockid_t cid;
+  if (pthread_getcpuclockid(t, &cid) != 0) return 0;
+  timespec ts{};
+  if (clock_gettime(cid, &ts) != 0) return 0;
+  return static_cast<uint64_t>(ts.tv_sec) * 1000000000ull + static_cast<uint64_t>(ts.tv_nsec);
+}
+
 Executor* Executor::current() noexcept { return tl_current; }
 
 Executor::Executor(std::string name) : name_(std::move(name)) {
@@ -179,7 +187,16 @@ void Executor::run() {
   tl_current = prev;
 }
 
+ThreadCpu ExecutorThread::cpu_usage() noexcept {
+  if (!t_.joinable()) return {};
+  const auto wall = std::chrono::steady_clock::now() - started_;
+  return ThreadCpu{thread_cpu_ns(t_.native_handle()),
+                   static_cast<uint64_t>(
+                       std::chrono::duration_cast<std::chrono::nanoseconds>(wall).count())};
+}
+
 void ExecutorThread::start() {
+  started_ = std::chrono::steady_clock::now();
   t_ = std::thread([this] {
     if (!ex_.name().empty()) set_thread_name(ex_.name());
     ex_.run();

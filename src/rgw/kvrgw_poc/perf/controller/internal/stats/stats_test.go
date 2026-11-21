@@ -152,3 +152,27 @@ func TestMsFormatting(t *testing.T) {
 		t.Fatal(Ms(5772))
 	}
 }
+
+func TestThreadUtils(t *testing.T) {
+	m := map[string]uint64{
+		ThreadKey("backend", 0, "kvrgw-be-0", "cpu_ns"): 600, ThreadKey("backend", 0, "kvrgw-be-0", "wall_ns"): 1000,
+		ThreadKey("backend", 0, "kvrgw-be-1", "cpu_ns"): 200, ThreadKey("backend", 0, "kvrgw-be-1", "wall_ns"): 1000,
+		ThreadKey("fdb-network", 0, "fdb-network", "cpu_ns"): 900, ThreadKey("fdb-network", 0, "fdb-network", "wall_ns"): 1000,
+		"txn.retries": 3,
+	}
+	g, w, n, f, ok := ParseThreadKey(ThreadKey("driver", 3, "perf-drv-1", "wall_ns"))
+	if !ok || g != "driver" || w != "w3" || n != "perf-drv-1" || f != "wall_ns" {
+		t.Fatalf("parse: %v %v %v %v %v", g, w, n, f, ok)
+	}
+	if _, _, _, _, ok := ParseThreadKey("txn.retries"); ok {
+		t.Fatal("non-thread key parsed")
+	}
+	gs := GroupUtils(CumulativeThreadUtils(m))
+	if len(gs) != 2 || gs[0].Group != "backend" || gs[0].Threads != 2 || gs[0].Avg != 0.4 || gs[0].Max != 0.6 ||
+		gs[0].Busiest != "w0 kvrgw-be-0" || gs[1].Group != "fdb-network" || gs[1].Avg != 0.9 {
+		t.Fatalf("%+v", gs)
+	}
+	if s := FormatGroupUtils(gs); s != "backend 2 x 40% (max 60%), fdb-network 1 x 90%" {
+		t.Fatal(s)
+	}
+}

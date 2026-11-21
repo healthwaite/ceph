@@ -399,6 +399,7 @@ func (d *data) print(w io.Writer, o Options) {
 	d.printClient(w, o, from, to)
 	d.printCPU(w, o, from, to)
 	d.printServer(w, o, from, to)
+	d.printThreads(w, o, from, to)
 	if d.hasFDB {
 		d.printFDB(w, o, from, to)
 	}
@@ -1532,4 +1533,125 @@ func (d *data) printFDBDisk(w io.Writer) {
 		fmt.Fprintf(w, "   end %s   change %s%s", bytesStr(end), sign, bytesStr(math.Abs(end-start)))
 	}
 	fmt.Fprintln(w)
+}
+
+// Thread utilisation -----------------------------------------------------------------------
+
+// Utilisation thresholds for the tuning hints.
+const (
+	threadHot  = 0.85
+	threadCool = 0.25
+)
+
+// threadUtils returns each runtime thread's busy fraction (delta CPU / delta wall) over the
+// analysed window.
+func (d *data) threadUtils(from, to int64) []stats.ThreadUtil {
+	var out []stats.ThreadUtil
+	for n := range d.server {
+		g, wk, name, f, ok := stats.ParseThreadKey(n)
+		if !ok || f != "cpu_ns" {
+			continue
+		}
+		cpu, ok1 := d.serverDelta(n, from, to)
+		wall, ok2 := d.serverDelta("thread."+g+"."+wk+"."+name+".wall_ns", from, to)
+		if !ok1 || !ok2 || wall <= 0 || cpu < 0 {
+			continue
+		}
+		out = append(out, stats.ThreadUtil{Group: g, Worker: wk, Name: name, Util: cpu / wall})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Group != out[j].Group {
+			return out[i].Group < out[j].Group
+		}
+		if out[i].Worker != out[j].Worker {
+			return natLess(out[i].Worker, out[j].Worker)
+		}
+		return natLess(out[i].Name, out[j].Name)
+	})
+	return out
+}
+
+func (d *data) printThreads(w io.Writer, o Options, from, to int64) {
+	ts := d.threadUtils(from, to)
+	if len(ts) == 0 {
+		return
+	}
+	banner(w, "Thread utilisation")
+	subHeading(w, "Run totals", fmt.Sprintf("%s analysed; busy = CPU time / wall time per thread", time.Duration(to-from)*time.Millisecond),
+		"backend: kvrgw backend workers (backend_workers); fdb-network: the FDB client network thread "+
+			"(one per worker process); driver: perf async driver executors (driver_threads)")
+	gs := stats.GroupUtils(ts)
+	fmt.Fprintf(w, " %-14s%9s%11s%11s   %s\n", "group", "threads", "avg_busy", "max_busy", "busiest")
+	for _, g := range gs {
+		fmt.Fprintf(w, " %-14s%9d%10.1f%%%10.1f%%   %s\n", g.Group, g.Threads, 100*g.Avg, 100*g.Max, g.Busiest)
+	}
+	// libfdb_c's own view of its network thread (a recent-window gauge, sampled per window).
+	var busy []float64
+	for n, s := range d.server {
+		if strings.HasPrefix(n, "fdbnet.") && strings.HasSuffix(n, ".busyness_ppm") {
+			for _, v := range inSamples(s, from, to) {
+				busy = append(busy, v/1e6)
+			}
+		}
+	}
+	var busyMax float64
+	if len(busy) > 0 {
+		sm := stats.Summarize(busy, o.Deviation)
+		busyMax = sm.Max
+		fmt.Fprintf(w, "\n fdb client network busyness (libfdb_c): avg %.1f%%, max %.1f%% over %d samples\n",
+			100*sm.Avg, 100*sm.Max, len(busy))
+	}
+	if o.Detailed {
+		fmt.Fprintf(w, "\n %-14s%-8s%-18s%11s\n", "group", "worker", "thread", "busy")
+		for _, t := range ts {
+			fmt.Fprintf(w, " %-14s%-8s%-18s%10.1f%%\n", t.Group, t.Worker, t.Name, 100*t.Util)
+		}
+	}
+
+	// Tuning hints.
+	fmt.Fprintln(w)
+	get := func(group string) (stats.GroupUtil, bool) {
+		for _, g := range gs {
+			if g.Group == group {
+				return g, true
+			}
+		}
+		return stats.GroupUtil{}, false
+	}
+	hot := false
+	if g, ok := get("fdb-network"); ok && (g.Max >= threadHot || busyMax >= threadHot) {
+		hot = true
+		fmt.Fprintf(w, " [WARN] FDB client network thread near saturation (busiest %.0f%%, libfdb_c max %.0f%%): it is the per-process ceiling; add worker processes (worker_count), not threads\n",
+			100*g.Max, 100*busyMax)
+	}
+	if g, ok := get("backend"); ok {
+		switch {
+		case g.Avg >= threadHot:
+			hot = true
+			fmt.Fprintf(w, " [WARN] backend workers saturated (avg %.0f%%): raise backend_workers if the host has idle cores\n", 100*g.Avg)
+		case g.Max >= threadHot:
+			hot = true
+			fmt.Fprintf(w, " [WARN] backend worker %s at %.0f%% while the average is %.0f%%: ops are pinned to one worker each, so load is uneven\n",
+				g.Busiest, 100*g.Max, 100*g.Avg)
+		case g.Avg < threadCool && g.Threads > 1:
+			fmt.Fprintf(w, " [INFO] backend workers mostly idle (avg %.0f%%): backend_workers could be lowered\n", 100*g.Avg)
+		}
+	}
+	if g, ok := get("driver"); ok {
+		switch {
+		case g.Avg >= threadHot:
+			hot = true
+			fmt.Fprintf(w, " [WARN] async driver threads saturated (avg %.0f%%): raise driver_threads; client latency includes driver queueing\n", 100*g.Avg)
+		case g.Max >= threadHot:
+			hot = true
+			fmt.Fprintf(w, " [WARN] driver %s at %.0f%% while the average is %.0f%%: streams are pinned to drivers, so load is uneven\n",
+				g.Busiest, 100*g.Max, 100*g.Avg)
+		case g.Avg < threadCool && g.Threads > 1:
+			fmt.Fprintf(w, " [INFO] async driver threads mostly idle (avg %.0f%%): driver_threads could be lowered\n", 100*g.Avg)
+		}
+	}
+	if !hot {
+		fmt.Fprintln(w, " [OK] no backend, FDB network or driver thread is saturated: the limit is elsewhere "+
+			"(FDB servers, host CPU, network) or in the offered load (streams / rate)")
+	}
 }

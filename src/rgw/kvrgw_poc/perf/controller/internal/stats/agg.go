@@ -89,8 +89,32 @@ type Window struct {
 	Server     map[string]uint64 // summed server stats (cumulative) as of this window
 }
 
-// ServerFlat flattens a ServerStats message to the names used in server_stats.csv.
-func ServerFlat(s *pb.ServerStats) map[string]uint64 {
+// ThreadKey is the server_stats.csv name of a per-thread counter of worker w, e.g.
+// "thread.backend.w0.kvrgw-be-1.cpu_ns". Per-thread names carry the worker index, so
+// summing snapshots across workers leaves them distinct.
+func ThreadKey(group string, w int, name, field string) string {
+	return fmt.Sprintf("thread.%s.w%d.%s.%s", group, w, name, field)
+}
+
+// ParseThreadKey splits a ThreadKey; ok is false for other names.
+func ParseThreadKey(k string) (group, worker, name, field string, ok bool) {
+	rest, found := strings.CutPrefix(k, "thread.")
+	if !found {
+		return "", "", "", "", false
+	}
+	p := strings.SplitN(rest, ".", 3)
+	if len(p) != 3 {
+		return "", "", "", "", false
+	}
+	i := strings.LastIndex(p[2], ".")
+	if i < 0 {
+		return "", "", "", "", false
+	}
+	return p[0], p[1], p[2][:i], p[2][i+1:], true
+}
+
+// ServerFlat flattens worker w's ServerStats message to the names used in server_stats.csv.
+func ServerFlat(w int, s *pb.ServerStats) map[string]uint64 {
 	out := map[string]uint64{}
 	if s == nil {
 		return out
@@ -115,6 +139,14 @@ func ServerFlat(s *pb.ServerStats) map[string]uint64 {
 	out["async.inflight_ops_peak"] = s.InflightOpsPeak
 	out["async.frames_heap_fallback"] = s.FramesHeapFallback
 	out["async.max_frame_size"] = s.MaxFrameSize
+	for _, t := range s.Threads {
+		out[ThreadKey(t.Group, w, t.Name, "cpu_ns")] = t.CpuNs
+		out[ThreadKey(t.Group, w, t.Name, "wall_ns")] = t.WallNs
+	}
+	if len(s.Threads) > 0 {
+		// A gauge, in parts per million so it fits the integer server stats.
+		out[fmt.Sprintf("fdbnet.w%d.busyness_ppm", w)] = uint64(s.FdbNetworkBusyness*1e6 + 0.5)
+	}
 	for k, v := range s.Errors {
 		out["error."+k] = v
 	}
@@ -163,7 +195,7 @@ func (a *Aggregator) Add(w int, p *pb.ProgressReport) []*Window {
 		cur.Merge(&m)
 	}
 	if p.ServerStats != nil {
-		a.lastSrv[w] = ServerFlat(p.ServerStats)
+		a.lastSrv[w] = ServerFlat(w, p.ServerStats)
 	}
 	if p.Window > a.latest[w] {
 		a.latest[w] = p.Window
@@ -214,4 +246,85 @@ func (a *Aggregator) release() []*Window {
 		}
 		a.next++
 	}
+}
+
+// ThreadGroups is the display order of the per-thread groups.
+var ThreadGroups = []string{"backend", "fdb-network", "driver"}
+
+// GroupUtil summarises one thread group's utilisation (busy = CPU time / wall time).
+type GroupUtil struct {
+	Group    string
+	Threads  int
+	Avg, Max float64 // fractions, 0..1 per thread
+	Busiest  string  // "w<worker> <thread name>"
+}
+
+// ThreadUtil is one thread's utilisation.
+type ThreadUtil struct {
+	Group, Worker, Name string
+	Util                float64
+}
+
+// GroupUtils groups per-thread utilisations, in ThreadGroups order.
+func GroupUtils(ts []ThreadUtil) []GroupUtil {
+	var out []GroupUtil
+	for _, g := range ThreadGroups {
+		gu := GroupUtil{Group: g}
+		var sum float64
+		for _, t := range ts {
+			if t.Group != g {
+				continue
+			}
+			gu.Threads++
+			sum += t.Util
+			if t.Util >= gu.Max {
+				gu.Max, gu.Busiest = t.Util, t.Worker+" "+t.Name
+			}
+		}
+		if gu.Threads > 0 {
+			gu.Avg = sum / float64(gu.Threads)
+			out = append(out, gu)
+		}
+	}
+	return out
+}
+
+// CumulativeThreadUtils computes utilisation since each thread started from one
+// flattened server-stats snapshot (e.g. the last one of a run).
+func CumulativeThreadUtils(m map[string]uint64) []ThreadUtil {
+	var out []ThreadUtil
+	for k, cpu := range m {
+		g, w, n, f, ok := ParseThreadKey(k)
+		if !ok || f != "cpu_ns" {
+			continue
+		}
+		wall := m["thread."+g+"."+w+"."+n+".wall_ns"]
+		if wall == 0 {
+			continue
+		}
+		out = append(out, ThreadUtil{g, w, n, float64(cpu) / float64(wall)})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Group != out[j].Group {
+			return out[i].Group < out[j].Group
+		}
+		if out[i].Worker != out[j].Worker {
+			return out[i].Worker < out[j].Worker
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+// FormatGroupUtils renders "backend 4 x 61% (max 70%), fdb-network 1 x 45%".
+func FormatGroupUtils(gs []GroupUtil) string {
+	parts := make([]string, 0, len(gs))
+	for _, g := range gs {
+		s := fmt.Sprintf("%s %d x %.0f%%", g.Group, g.Threads, 100*g.Avg)
+		if g.Threads > 1 {
+			s += fmt.Sprintf(" (max %.0f%%)", 100*g.Max)
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, ", ")
 }

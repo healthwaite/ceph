@@ -58,6 +58,34 @@ KvRgwServiceImpl &KvRgwRuntime::service() { return *service_; }
 
 KvStore &KvRgwRuntime::store() { return *store_; }
 
+std::vector<KvRgwRuntime::ThreadUsage> KvRgwRuntime::thread_usage()
+{
+  std::vector<ThreadUsage> out;
+  if (service_) {
+    auto &w = service_->backend_workers();
+    for (int i = 0; i < w.size(); ++i) {
+      const auto u = w.cpu_usage(i);
+      out.push_back({w.name(i), "backend", u.cpu_ns, u.wall_ns});
+    }
+  }
+  if (network_started_ && network_thread_.joinable()) {
+    const auto wall = std::chrono::steady_clock::now() - network_start_tp_;
+    out.push_back({"fdb-network", "fdb-network",
+                   async::thread_cpu_ns(network_thread_.native_handle()),
+                   static_cast<uint64_t>(
+                       std::chrono::duration_cast<std::chrono::nanoseconds>(wall).count())});
+  }
+  return out;
+}
+
+double KvRgwRuntime::fdb_network_busyness()
+{
+  if (!store_) {
+    return 0;
+  }
+  return fdb_database_get_main_thread_busyness(store_->database());
+}
+
 PerfDataStore *KvRgwRuntime::perf_data_store()
 {
   if (!perf_data_store_) {
@@ -179,6 +207,7 @@ bool KvRgwRuntime::start(const KvRgwStartOptions &opts)
               << std::endl;
     return false;
   }
+  network_start_tp_ = std::chrono::steady_clock::now();
   network_thread_ = std::thread(run_network);
   network_started_ = true;
 

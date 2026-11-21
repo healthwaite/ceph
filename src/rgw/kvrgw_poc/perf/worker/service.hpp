@@ -5,6 +5,7 @@
 #include "ops/ops.hpp"
 #include "stats.hpp"
 
+#include "async/executor.hpp"
 #include "kvrgw_runtime.hpp"
 #include "worker.grpc.pb.h"
 
@@ -29,7 +30,9 @@ class WorkerService final : public perf::v1::Worker::Service {
 
  private:
   std::string do_init(const perf::v1::InitRequest &req);
-  void fill_server_stats(perf::v1::ServerStats *out);
+  // `drivers`: the async driver executors of the running benchmark, if any.
+  void fill_server_stats(perf::v1::ServerStats *out,
+                         std::vector<std::unique_ptr<kvrgw::async::ExecutorThread>> *drivers = nullptr);
 
   kvrgw::KvRgwRuntime &rt_;
   std::mutex mu_;  // protects the pointers below (phases are sequential per invocation)

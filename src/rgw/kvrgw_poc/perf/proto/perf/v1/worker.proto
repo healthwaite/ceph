@@ -90,6 +90,18 @@ message ServerStats {
   uint64 inflight_ops_peak = 11;    // peak concurrent async ops (gauge, not diffed)
   uint64 frames_heap_fallback = 12; // coroutine frames above the pool's largest class
   uint64 max_frame_size = 13;       // largest coroutine frame seen, bytes (gauge)
+  // Utilisation feedback for tuning thread counts: one entry per backend
+  // worker, the FDB client network thread and (async mode) each perf driver.
+  repeated ThreadUsage threads = 14;
+  double fdb_network_busyness = 15; // libfdb_c's own estimate, 0..1, recent (gauge)
+}
+// Cumulative CPU and wall time of one thread since it started; utilisation over
+// an interval is delta(cpu_ns) / delta(wall_ns).
+message ThreadUsage {
+  string name = 1;    // e.g. "kvrgw-be-0", "fdb-network", "perf-drv-1"
+  string group = 2;   // "backend", "fdb-network" or "driver"
+  uint64 cpu_ns = 3;
+  uint64 wall_ns = 4;
 }
 message ServerOpStats {
   string op = 1;                    // e.g. "PutObject", "ListObjects"
