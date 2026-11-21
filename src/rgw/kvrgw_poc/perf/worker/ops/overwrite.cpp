@@ -116,6 +116,34 @@ class OverwriteOp : public Operation {
     }
   }
 
+  bool supports_open_loop() const override { return true; }
+
+  bool open_loop_more(RunContext &ctx, Stream &s, uint64_t i) override
+  {
+    return window(ctx, s.gsid).count > 0 && Operation::open_loop_more(ctx, s, i);
+  }
+
+  // Op i overwrites window key i % window size, as the closed loop does.
+  kvrgw::async::Task<void> open_loop_op(RunContext &ctx, Stream &s, uint64_t i,
+                                        SteadyClock::time_point sched) override
+  {
+    const Range w = window(ctx, s.gsid);
+    const uint64_t idx = w.start + i % w.count;
+    const auto b = bucket_for_index(idx, ctx.cfg.num_objects, ctx.cfg.num_buckets);
+    const std::string key = load_key(idx, ctx.cfg.padding_bytes);
+    bool created_version = false;
+    if (co_await put_with_retry_a(ctx, s, ctx.bucket(b), key,
+                                  versioned_ ? nullptr : &created_version, &sched) &&
+        created_version) {
+      fail_created_version(ctx, b);
+    }
+  }
+
+  void open_loop_done(RunContext &, Stream &s, uint64_t issued) override
+  {
+    puts_[static_cast<size_t>(s.sid)] = issued;
+  }
+
   std::vector<uint64_t> thread_counts() const override { return puts_; }
 
   std::string verify(RunContext &ctx, const std::vector<uint64_t> &counts,

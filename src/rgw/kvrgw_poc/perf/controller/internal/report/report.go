@@ -351,7 +351,11 @@ func (d *data) print(w io.Writer, o Options) {
 		if mode == "" {
 			mode = "sync" // results from before driver_mode existed
 		}
-		fmt.Fprintf(w, " Clients   : %d workers x %d streams   driver_mode: %s", p.WorkerCount, p.Streams(), mode)
+		if p.RateOpsPerSec > 0 {
+			fmt.Fprintf(w, " Clients   : %d workers x %d generators   driver_mode: %s", p.WorkerCount, p.Generators(), mode)
+		} else {
+			fmt.Fprintf(w, " Clients   : %d workers x %d streams   driver_mode: %s", p.WorkerCount, p.Streams(), mode)
+		}
 		if mode == "async" {
 			fmt.Fprintf(w, "   driver_threads: %d", p.DriverThreads)
 		}

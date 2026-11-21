@@ -3,6 +3,7 @@
 #include "error_codes.hpp"
 
 #include <algorithm>
+#include <map>
 
 namespace perfw {
 
@@ -13,6 +14,7 @@ class DeleteMultiOp : public Operation {
   std::string init(RunContext &ctx) override
   {
     deleted_.assign(static_cast<size_t>(ctx.streams()), 0);
+    gen_.assign(static_cast<size_t>(ctx.streams()), GenState{});
     std::vector<uint64_t> all;
     for (uint64_t b = 0; b < ctx.cfg.num_buckets; ++b) all.push_back(b);
     std::string err = check_buckets(ctx, all);
@@ -165,6 +167,61 @@ class DeleteMultiOp : public Operation {
     }
   }
 
+  // ---- open loop: each generator deletes its range in page_size calls, issued on
+  // schedule; several calls of one generator can be in flight at once.
+  bool supports_open_loop() const override { return true; }
+
+  struct GenState {
+    uint64_t next_pos = 0;              // range offset of the next call to issue
+    uint64_t done_upto = 0;             // keys [0, done_upto) of the range are deleted
+    std::map<uint64_t, uint64_t> done;  // finished calls beyond done_upto: first -> end offset
+  };
+
+  bool open_loop_more(RunContext &ctx, Stream &s, uint64_t i) override
+  {
+    return gen_[static_cast<size_t>(s.sid)].next_pos < thread_range(ctx, s.gsid).count &&
+           Operation::open_loop_more(ctx, s, i);
+  }
+
+  kvrgw::async::Task<void> open_loop_op(RunContext &ctx, Stream &s, uint64_t,
+                                        SteadyClock::time_point sched) override
+  {
+    GenState &g = gen_[static_cast<size_t>(s.sid)];
+    const Range r = thread_range(ctx, s.gsid);
+    uint64_t bucket = 0, first = 0, last = 0;
+    next_batch(ctx, r, g.next_pos, &bucket, &first, &last);
+    const uint64_t start_off = g.next_pos;
+    g.next_pos = last - r.start;  // claimed at issue time, in issue order
+    std::vector<std::string> keys;
+    for (uint64_t i = first; i < last; ++i) keys.push_back(load_key(i, ctx.cfg.padding_bytes));
+    std::vector<kvrgw::KvRgwServiceImpl::DeleteMultiKeyOutcome> outcomes;
+    int queue_full_in_a_row = 0;
+    for (;;) {
+      const kvrgw::KvrgwErrorCode ec =
+          co_await ctx.svc->delete_multi_a(ctx.tenant, ctx.bucket(bucket), keys, &outcomes);
+      if (ec == kvrgw::KVRGW_ERR_QUEUE_FULL && !ctx.stopped()) {
+        s.ts->add_queue_full(Metric::DeleteMulti);
+        co_await s.exec->sleep(queue_full_backoff(queue_full_in_a_row++));
+        continue;
+      }
+      const std::string bad = check_outcomes(*s.ts, ec, outcomes);
+      if (!bad.empty()) {
+        ctx.fail("delete_multi " + ctx.bucket(bucket) + " failed: " + bad);
+        co_return;
+      }
+      break;
+    }
+    s.ts->record(Metric::DeleteMulti, static_cast<uint64_t>(elapsed_us(sched)));
+    s.ts->add_units(Metric::KeysDeleted, keys.size());
+    // Progress is the contiguous prefix of finished calls (they may finish out of order).
+    g.done[start_off] = last - r.start;
+    for (auto it = g.done.begin(); it != g.done.end() && it->first == g.done_upto;) {
+      g.done_upto = it->second;
+      it = g.done.erase(it);
+    }
+    deleted_[static_cast<size_t>(s.sid)] = g.done_upto;
+  }
+
   std::vector<uint64_t> thread_counts() const override { return deleted_; }
 
   std::string verify(RunContext &ctx, const std::vector<uint64_t> &progress,
@@ -193,6 +250,7 @@ class DeleteMultiOp : public Operation {
 
  private:
   std::vector<uint64_t> deleted_;
+  std::vector<GenState> gen_;  // open loop, per generator (touched by its driver only)
 };
 
 }  // namespace

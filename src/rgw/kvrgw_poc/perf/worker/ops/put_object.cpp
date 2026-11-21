@@ -47,6 +47,25 @@ class PutObjectOp : public Operation {
     }
   }
 
+  bool supports_open_loop() const override { return true; }
+
+  // Op i puts key i of this generator: the counter advances at issue, and every
+  // put retries until it succeeds or the run fails, so after the drain the keys
+  // are [0, issued) with no gaps.
+  kvrgw::async::Task<void> open_loop_op(RunContext &ctx, Stream &s, uint64_t i,
+                                        SteadyClock::time_point sched) override
+  {
+    const std::string &bucket = ctx.bucket(s.gsid % ctx.cfg.num_buckets);
+    const std::string key = put_key(static_cast<uint64_t>(ctx.run_start_unix_s),
+                                    static_cast<uint32_t>(s.gsid), i, ctx.cfg.padding_bytes);
+    co_await put_with_retry_a(ctx, s, bucket, key, nullptr, &sched);
+  }
+
+  void open_loop_done(RunContext &, Stream &s, uint64_t issued) override
+  {
+    counts_[static_cast<size_t>(s.sid)] = issued;
+  }
+
   std::vector<uint64_t> thread_counts() const override { return counts_; }
 
   std::string verify(RunContext &ctx, const std::vector<uint64_t> &counts,

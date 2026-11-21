@@ -126,7 +126,8 @@ std::chrono::microseconds queue_full_backoff(int n)
 }
 
 kvrgw::async::Task<bool> put_with_retry_a(RunContext &ctx, Stream &s, const std::string &bucket,
-                                          const std::string &key, bool *created_version)
+                                          const std::string &key, bool *created_version,
+                                          const SteadyClock::time_point *sched)
 {
   constexpr int kAttempts = 10;
   kvrgw::KvrgwErrorCode last = kvrgw::KVRGW_ERR_OK;
@@ -137,7 +138,7 @@ kvrgw::async::Task<bool> put_with_retry_a(RunContext &ctx, Stream &s, const std:
         ctx.tenant, bucket, key, reinterpret_cast<const uint8_t *>(ctx.payload.data()),
         ctx.payload.size(), "application/octet-stream", ctx.payload.size(), nullptr, {}, {});
     if (res.error_code == kvrgw::KVRGW_ERR_OK) {
-      s.ts->record(Metric::PutObject, static_cast<uint64_t>(elapsed_us(t0)));
+      s.ts->record(Metric::PutObject, static_cast<uint64_t>(elapsed_us(sched ? *sched : t0)));
       if (created_version) {
         *created_version = res.version_id.is_valid() && !res.version_id.is_null();
       }

@@ -128,6 +128,27 @@ class Operation {
     ctx.fail("driver_mode async is not supported for " + ctx.cfg.operation);
     co_return;
   }
+  // ---- Open loop (rate_ops_per_sec > 0, async mode). Each driver thread is
+  // one generator `s` (gsid = worker_index * driver_threads + driver) that
+  // issues ops on a fixed schedule whether or not earlier ones finished.
+  virtual bool supports_open_loop() const { return false; }
+  // May the generator issue its op number `i` (0-based, in issue order)?
+  virtual bool open_loop_more(RunContext &ctx, Stream &s, uint64_t i)
+  {
+    return !ctx.cfg.has_ops() || i < ctx.ops_quota(s.gsid);
+  }
+  // Op number `i`, scheduled for `sched`; latency is recorded from `sched`.
+  // Runs synchronously up to its first co_await at issue time, so per-generator
+  // state advanced there advances in issue order.
+  virtual kvrgw::async::Task<void> open_loop_op(RunContext &ctx, Stream &s, uint64_t i,
+                                                SteadyClock::time_point sched)
+  {
+    (void)ctx, (void)s, (void)i, (void)sched;
+    co_return;
+  }
+  // After every issued op has finished: `issued` ops were issued.
+  virtual void open_loop_done(RunContext &, Stream &, uint64_t issued) { (void)issued; }
+
   // Per-local-stream counters reported in RunSummary (indexed by sid).
   virtual std::vector<uint64_t> thread_counts() const { return {}; }
   virtual bool has_verify() const { return true; }
@@ -181,9 +202,12 @@ bool put_with_retry(RunContext &ctx, ThreadStats &ts, const std::string &bucket,
 // (100 us x 2^n, capped at 10 ms) and counts it as queue_full on the metric.
 // Latency runs from just before the co_await to the stream's resume.
 // `bucket` and `key` must outlive the call (the caller's frame holds them).
+// `sched`, if set, is the open-loop scheduled send time: latency is measured
+// from it instead of from the call.
 kvrgw::async::Task<bool> put_with_retry_a(RunContext &ctx, Stream &s, const std::string &bucket,
                                           const std::string &key,
-                                          bool *created_version = nullptr);
+                                          bool *created_version = nullptr,
+                                          const SteadyClock::time_point *sched = nullptr);
 
 // Back off after a QUEUE_FULL: 100 us x 2^n, capped at 10 ms.
 std::chrono::microseconds queue_full_backoff(int n);
