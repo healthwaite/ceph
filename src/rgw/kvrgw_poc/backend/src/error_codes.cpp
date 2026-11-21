@@ -81,6 +81,8 @@ const char *KvrgwErrorCode_Name(KvrgwErrorCode code)
     return "KVRGW_ERR_TRANSACTION_CONFLICT";
   case KVRGW_ERR_MAX_RETRIES_EXCEEDED:
     return "KVRGW_ERR_MAX_RETRIES_EXCEEDED";
+  case KVRGW_ERR_QUEUE_FULL:
+    return "KVRGW_ERR_QUEUE_FULL";
   case KVRGW_ERR_NO_SUCH_UPLOAD:
     return "KVRGW_ERR_NO_SUCH_UPLOAD";
   case KVRGW_ERR_INVALID_PART:
@@ -165,6 +167,8 @@ const char *kvrgw_strerror(KvrgwErrorCode code)
     return "Transaction conflict limit exceeded";
   case KVRGW_ERR_MAX_RETRIES_EXCEEDED:
     return "Max retries exceeded";
+  case KVRGW_ERR_QUEUE_FULL:
+    return "In-flight op limit reached; nothing was done (retry after backoff)";
   case KVRGW_ERR_NO_SUCH_UPLOAD:
     return "The specified multipart upload does not exist";
   case KVRGW_ERR_INVALID_PART:

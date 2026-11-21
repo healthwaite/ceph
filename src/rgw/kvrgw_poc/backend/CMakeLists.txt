@@ -68,6 +68,7 @@ set(KVRGW_LIB_SRCS
   src/id_tag.cpp
   src/id_meta.cpp
   src/service_impl.cpp
+  src/service_async.cpp
   src/service_impl_multipart.cpp
   src/bucket_policy.cpp
   src/sweeper.cpp
@@ -467,8 +468,21 @@ set_target_properties(multipart_goa_test PROPERTIES
 add_executable(async_runtime_test tests/async_runtime_test.cpp)
 target_link_libraries(async_runtime_test PRIVATE kvrgw_async)
 
+add_executable(async_fdb_test tests/async_fdb_test.cpp)
+target_include_directories(async_fdb_test PRIVATE
+  "${CMAKE_SOURCE_DIR}/src"
+  "${FDB_INCLUDE_DIR}"
+  ${YAML_CPP_INCLUDE_DIRS}
+)
+target_link_libraries(async_fdb_test PRIVATE kvrgw)
+set_target_properties(async_fdb_test PROPERTIES
+  BUILD_RPATH "${FDB_LIB_DIR};$ORIGIN"
+  INSTALL_RPATH "${FDB_LIB_DIR};$ORIGIN"
+)
+
 enable_testing()
 add_test(NAME async_runtime_test COMMAND async_runtime_test)
+add_test(NAME async_fdb_test COMMAND async_fdb_test)
 add_test(NAME object_value_test COMMAND object_value_test)
 add_test(NAME l_key_test COMMAND l_key_test)
 add_test(NAME multipart_key_test COMMAND multipart_key_test)

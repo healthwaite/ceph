@@ -303,6 +303,15 @@ fdb_error_t FdbGetHolder::wait() noexcept
   if (fdb_error_t err = fdb_future_block_until_ready(f_.raw())) {
     return err;
   }
+  return fill();
+}
+
+//---------------------------------------------------------------------------------
+fdb_error_t FdbGetHolder::fill() noexcept
+{
+  if (fdb_error_t err = fdb_future_get_error(f_.raw())) {
+    return err;
+  }
   fdb_bool_t present = 0;
   if (fdb_error_t err = fdb_future_get_value(f_.raw(), &present, &data_, &len_)) {
     return err;
@@ -322,6 +331,15 @@ FdbGetHolder KvTransaction::kv_async_get_holder(std::string_view key)
 fdb_error_t FdbRangeHolder::wait() noexcept
 {
   if (fdb_error_t err = fdb_future_block_until_ready(f_.raw())) {
+    return err;
+  }
+  return fill();
+}
+
+//---------------------------------------------------------------------------------
+fdb_error_t FdbRangeHolder::fill() noexcept
+{
+  if (fdb_error_t err = fdb_future_get_error(f_.raw())) {
     return err;
   }
   fdb_bool_t more = 0;
@@ -415,6 +433,40 @@ FdbFuture KvTransaction::commit_async()
 fdb_error_t KvTransaction::resolve_commit(FdbFuture &f)
 {
   return fdb_future_get_error(f.raw());
+}
+
+FdbFutureAwait KvTransaction::commit_a()
+{
+  return FdbFutureAwait(fdb_transaction_commit(impl_->tr));
+}
+
+FdbFutureAwait KvTransaction::on_error_a(fdb_error_t err)
+{
+  return FdbFutureAwait(fdb_transaction_on_error(impl_->tr, err));
+}
+
+fdb_error_t KvTransaction::set_timeout_ms(int64_t ms)
+{
+  return fdb_transaction_set_option(impl_->tr, FDB_TR_OPTION_TIMEOUT,
+                                    reinterpret_cast<const uint8_t *>(&ms),
+                                    sizeof(ms));
+}
+
+async::Task<std::expected<std::optional<std::string>, fdb_error_t>>
+KvStore::get_a(std::string_view key)
+{
+  auto tr = begin_transaction();
+  if (!tr) {
+    co_return std::unexpected(tr.error());
+  }
+  FdbGetHolder h = (*tr)->get_a(key);
+  if (fdb_error_t err = co_await h) {
+    co_return std::unexpected(err);
+  }
+  if (!h.present()) {
+    co_return std::optional<std::string>{};
+  }
+  co_return std::optional<std::string>(std::string(h.value()));
 }
 
 } // namespace kvrgw

@@ -30,6 +30,7 @@
 #include "kv_store.hpp"
 #include "object_value.hpp"
 #include "ref_tag.hpp"
+#include "service_async.hpp"
 #include "sweeper.hpp"
 #include "tenant_value.hpp"
 #include "typed_ids.hpp"
@@ -239,6 +240,23 @@ class KvRgwServiceImpl final {
  public:
   KvRgwServiceImpl(KvStore& store, DataStore& data_store, RefTagGenerator& ref_tags,
                    TierConfigState& tier_config, Sweeper& sweeper);
+  // Shutdown: refuse new async ops, complete queued batch entries, wait for
+  // in-flight ops to finish, then stop the backend workers.
+  ~KvRgwServiceImpl();
+
+  // ---- async runtime (see service_async.hpp)
+  const AsyncConfig& async_config() const { return async_cfg_; }
+  AsyncStats& async_stats() { return async_stats_; }
+  Admission& admission() { return admission_; }
+  BackendWorkers& backend_workers() { return workers_; }
+  // Applies txn_timeout_ms / stats to a policy for ordinary in-scope ops.
+  RetryPolicy retry_policy(int max_attempts = 0) {
+    RetryPolicy p;
+    p.max_attempts = max_attempts > 0 ? max_attempts : async_cfg_.txn_max_attempts;
+    p.timeout_ms = async_cfg_.txn_timeout_ms;
+    p.stats = &latency_stats_;
+    return p;
+  }
 
   LatencyStats& latency_stats() { return latency_stats_; }
   OpsStats& ops_stats() { return ops_stats_; }
@@ -1076,6 +1094,12 @@ class KvRgwServiceImpl final {
   KvStore& store_;
   DataStore& data_store_;
   RefTagGenerator& ref_tags_;
+  // Async runtime state. Declared before everything that may hold ops, so it
+  // is destroyed last; the destructor body drains in-flight ops first.
+  AsyncConfig async_cfg_;
+  AsyncStats async_stats_;
+  Admission admission_{async_stats_};
+  BackendWorkers workers_;
   TierConfigState& tier_config_state_;
   Sweeper& sweeper_;
   LatencyStats latency_stats_;

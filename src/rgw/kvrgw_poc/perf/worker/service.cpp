@@ -77,6 +77,13 @@ void WorkerService::fill_server_stats(perf::v1::ServerStats *out)
   out->set_batch_conflict_pushbacks(static_cast<uint64_t>(bs.conflict_pushbacks.load()));
   out->set_txn_retries(static_cast<uint64_t>(ls.txn_retries.load()));
   out->set_txn_hard_failures(static_cast<uint64_t>(ls.txn_hard_failures.load()));
+  auto &as = svc.async_stats();
+  out->set_queue_full_rejects(as.queue_full_rejects.load(std::memory_order_relaxed));
+  out->set_inflight_ops_peak(
+      static_cast<uint64_t>(as.inflight_ops_peak.load(std::memory_order_relaxed)));
+  auto &fp = kvrgw::async::frame_pool_counters();
+  out->set_frames_heap_fallback(fp.frames_heap_fallback.load(std::memory_order_relaxed));
+  out->set_max_frame_size(fp.max_frame_size.load(std::memory_order_relaxed));
   auto &es = svc.error_stats();
   for (int i = 0; i < kvrgw::KvrgwErrorCode_ARRAYSIZE; ++i) {
     auto c = es.counts[i].load(std::memory_order_relaxed);

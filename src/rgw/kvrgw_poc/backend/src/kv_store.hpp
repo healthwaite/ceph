@@ -14,6 +14,8 @@
 
 #pragma once
 
+#include "async/fdb_await.hpp"
+#include "async/task.hpp"
 #include "error_codes.hpp"
 #include "fdb.hpp"
 
@@ -62,6 +64,18 @@ class FdbFuture {
   FDBFuture* f_;
 };
 
+// Owns an FdbFuture and awaits it; co_await yields fdb_future_get_error().
+// Non-movable: returned by value (guaranteed elision) and awaited in place.
+class FdbFutureAwait : public async::FdbAwait {
+ public:
+  explicit FdbFutureAwait(FDBFuture* f) noexcept : async::FdbAwait(f), owned_(f) {}
+  FdbFutureAwait(const FdbFutureAwait&) = delete;
+  FdbFutureAwait& operator=(const FdbFutureAwait&) = delete;
+
+ private:
+  FdbFuture owned_;
+};
+
 struct RangeScanResult {
   std::string key;
   std::string value;
@@ -88,6 +102,17 @@ public:
   // Block until ready and populate internal buffer pointer.
   // Returns 0 on success, non-zero FDB error code on failure.
   fdb_error_t wait() noexcept;
+
+  // Populate from a future that is already ready (no blocking).
+  fdb_error_t fill() noexcept;
+
+  // co_await holder -> fdb_error_t; on 0 the holder is ready, as after wait().
+  struct Awaiter : async::FdbAwait {
+    FdbGetHolder* self;
+    Awaiter(FdbGetHolder* h) noexcept : async::FdbAwait(h->f_.raw()), self(h) {}
+    fdb_error_t await_resume() noexcept { return self->fill(); }
+  };
+  Awaiter operator co_await() noexcept { return Awaiter(this); }
 
   bool is_ready()  const noexcept { return f_.is_ready(); }
   bool present()   const noexcept { assert(ready_); return present_; }
@@ -129,6 +154,17 @@ public:
   // Block until ready and populate internal buffer pointers.
   // Returns 0 on success, non-zero FDB error code on failure.
   fdb_error_t wait() noexcept;
+
+  // Populate from a future that is already ready (no blocking).
+  fdb_error_t fill() noexcept;
+
+  // co_await holder -> fdb_error_t; on 0 the holder is ready, as after wait().
+  struct Awaiter : async::FdbAwait {
+    FdbRangeHolder* self;
+    Awaiter(FdbRangeHolder* h) noexcept : async::FdbAwait(h->f_.raw()), self(h) {}
+    fdb_error_t await_resume() noexcept { return self->fill(); }
+  };
+  Awaiter operator co_await() noexcept { return Awaiter(this); }
 
   bool is_ready() const noexcept { return f_.is_ready(); }
   bool more()     const noexcept { return more_; }
@@ -237,6 +273,8 @@ class KvStore {
   KvStore& operator=(const KvStore&) = delete;
 
   std::expected<std::optional<std::string>, fdb_error_t> get(std::string_view key);
+  // Awaitable get on a one-shot transaction (copies the value out).
+  async::Task<std::expected<std::optional<std::string>, fdb_error_t>> get_a(std::string_view key);
   fdb_error_t set(std::string_view key, std::string_view value);
   // disable_ryw: when true, sets FDB_TR_OPTION_READ_YOUR_WRITES_DISABLE on the
   // transaction before the GetRange call. This disables the client-side
@@ -322,6 +360,25 @@ class KvTransaction {
   fdb_error_t commit();
   FdbFuture commit_async();
   static fdb_error_t resolve_commit(FdbFuture& f);
+
+  // ---- Awaitable variants. Issuing is separate from awaiting, so several
+  // reads can be put in flight before the first co_await.
+  //   FdbGetHolder h = tr.get_a(key);      // issued
+  //   if (fdb_error_t e = co_await h) ...  // ready
+  FdbGetHolder get_a(std::string_view key) { return kv_async_get_holder(key); }
+  FdbRangeHolder get_range_a(std::string_view start, bool exclusive_begin,
+                             std::string_view end, int limit,
+                             FDBStreamingMode mode = FDB_STREAMING_MODE_EXACT) {
+    return kv_async_get_range_holder(start, exclusive_begin, end, limit, mode);
+  }
+  // co_await -> fdb_error_t (0 = committed).
+  FdbFutureAwait commit_a();
+  // co_await -> 0 = retry (transaction reset, FDB backoff elapsed), else the
+  // final error.
+  FdbFutureAwait on_error_a(fdb_error_t err);
+  // FDB_TR_OPTION_TIMEOUT; 0 = no timeout. From API version 610 on, FDB keeps
+  // the timeout across on_error resets.
+  fdb_error_t set_timeout_ms(int64_t ms);
 
  private:
   friend class KvStore;

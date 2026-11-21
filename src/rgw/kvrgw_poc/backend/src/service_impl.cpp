@@ -811,13 +811,33 @@ KvRgwServiceImpl::KvRgwServiceImpl(KvStore &store, DataStore &data_store,
                                    TierConfigState &tier_config,
                                    Sweeper &sweeper)
     : store_(store), data_store_(data_store), ref_tags_(ref_tags),
+      async_cfg_(AsyncConfig::from_env()),
       tier_config_state_(tier_config), sweeper_(sweeper),
       error_stats_(std::make_unique<ErrorStats>()), batch_queue_(*this)
 {
+  admission_.set_max(async_cfg_.max_inflight_ops);
+  workers_.start(async_cfg_.backend_workers);
   auto tc = tier_config.active_copy();
   if (tc.batch_size > 1) {
     batch_queue_.start(tc.batch_threads);
   }
+}
+
+//--------------------------------------------------------------------------------
+KvRgwServiceImpl::~KvRgwServiceImpl()
+{
+  // 1. New async ops (and sync wrappers) are refused from here on.
+  admission_.set_stopping();
+  // 2. Entries still queued for a batch are completed with KVRGW_ERR_INTERNAL.
+  batch_queue_.stop();
+  // 3. Running ops finish normally: every FDB future resolves eventually
+  //    (txn_timeout_ms bounds this when the cluster is unreachable). A
+  //    transaction must never be destroyed with a callback pending, so wait.
+  while (admission_.inflight() > 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  // 4. Stop and join the backend worker executors.
+  workers_.stop();
 }
 
 //--------------------------------------------------------------------------------

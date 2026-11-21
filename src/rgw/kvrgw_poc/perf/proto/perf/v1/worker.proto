@@ -34,9 +34,10 @@ message RunControl {
 message Cancel {}
 message VerifyRequest {
   string benchmark_id = 1;
-  // Indexed by global_thread_id (length total_threads), assembled by the controller from
-  // each worker's RunSummary: put_count (run-put-object) or delete_progress (run-delete-multi).
-  // Empty for other operations.
+  // Indexed by global stream id (length worker_count * streams_per_worker; in sync mode a
+  // stream is a thread), assembled by the controller from each worker's RunSummary:
+  // put_count (run-put-object) or delete_progress (run-delete-multi). Empty for other
+  // operations.
   repeated uint64 thread_counts = 2;
   int64 report_interval_ms = 3; // 0 disables VerifyProgress events
 }
@@ -58,7 +59,7 @@ message VerifyProgress {
 }
 message RunSummary {
   int32 worker_index = 1;
-  repeated uint64 thread_counts = 2; // indexed by thread_id within the worker
+  repeated uint64 thread_counts = 2; // indexed by stream id within the worker
 }
 message ProgressReport {
   int32 worker_index = 1;
@@ -69,6 +70,7 @@ message ProgressReport {
   int64 cumulative_as_of_unix_ns = 6;
   ServerStats server_stats = 7; // cumulative snapshot of in-process kvrgw stats
   map<string, string> error_descriptions = 8; // error code name -> human-readable text
+  double target_rate = 9;      // open loop only: this worker's target ops/s; 0 = closed loop
 }
 // Snapshot of the worker's in-process kvrgw statistics (the same counters the
 // legacy admin socket exposed via get-latency / get-batch-stats / get-error-stats).
@@ -84,6 +86,10 @@ message ServerStats {
   uint64 txn_retries = 7;           // if exposed; else 0
   uint64 txn_hard_failures = 8;     // if exposed; else 0
   map<string, uint64> errors = 9;   // KvrgwErrorCode name -> count, non-zero only
+  uint64 queue_full_rejects = 10;   // async ops refused at the in-flight limit
+  uint64 inflight_ops_peak = 11;    // peak concurrent async ops (gauge, not diffed)
+  uint64 frames_heap_fallback = 12; // coroutine frames above the pool's largest class
+  uint64 max_frame_size = 13;       // largest coroutine frame seen, bytes (gauge)
 }
 message ServerOpStats {
   string op = 1;                    // e.g. "PutObject", "ListObjects"
@@ -103,6 +109,8 @@ message OpStats {
   uint64 sum_micros = 4;
   Histogram latency = 5;       // empty for counter-style types (count = units)
   map<string, uint64> error_codes = 6; // errors by code name (sum == errors, same window/cumulative scope)
+  uint64 queue_full = 7;       // submits refused with KVRGW_ERR_QUEUE_FULL (backed off, not errors)
+  uint64 missed = 8;           // open loop: ops due but not issued (max_outstanding reached)
 }
 message Histogram { repeated uint32 bucket_index = 1; repeated uint64 bucket_count = 2; }
 message VerifyResult {

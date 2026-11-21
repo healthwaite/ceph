@@ -51,6 +51,10 @@ enum KvrgwErrorCode : int32_t {
   KVRGW_ERR_VALUE_TOO_LARGE = 403,
   KVRGW_ERR_TRANSACTION_CONFLICT = 404,
   KVRGW_ERR_MAX_RETRIES_EXCEEDED = 405,
+  // The async in-flight op limit (max_inflight_ops) was reached; nothing was
+  // done. Retriable by the caller after a backoff; is_retriable() stays false
+  // because it is not an FDB retry.
+  KVRGW_ERR_QUEUE_FULL = 406,
   KVRGW_ERR_NO_SUCH_UPLOAD = 500,
   KVRGW_ERR_INVALID_PART = 501,
   KVRGW_ERR_INVALID_PART_ORDER = 502,

@@ -103,10 +103,11 @@ int Executor::drain(int max) noexcept {
     }
     spins = 0;
     count_.fetch_sub(1, std::memory_order_acq_rel);
+    // Single writer: a plain load/store, no read-modify-write.
+    items_run_.store(items_run_.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
     run_node(n);
     ++ran;
   }
-  if (ran) items_run_.fetch_add(static_cast<uint64_t>(ran), std::memory_order_relaxed);
   return ran;
 }
 
