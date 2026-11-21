@@ -7,7 +7,9 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
+#include <pthread.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/timerfd.h>
@@ -30,6 +32,14 @@ thread_local Executor* tl_current = nullptr;
   std::abort();
 }
 }  // namespace
+
+void set_thread_name(std::string_view name) noexcept {
+  char buf[16];
+  const size_t n = std::min(name.size(), sizeof(buf) - 1);
+  std::memcpy(buf, name.data(), n);
+  buf[n] = '\0';
+  (void)pthread_setname_np(pthread_self(), buf);
+}
 
 Executor* Executor::current() noexcept { return tl_current; }
 
@@ -170,7 +180,10 @@ void Executor::run() {
 }
 
 void ExecutorThread::start() {
-  t_ = std::thread([this] { ex_.run(); });
+  t_ = std::thread([this] {
+    if (!ex_.name().empty()) set_thread_name(ex_.name());
+    ex_.run();
+  });
 }
 
 void ExecutorThread::stop_and_join() {

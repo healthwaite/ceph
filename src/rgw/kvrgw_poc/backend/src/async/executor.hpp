@@ -17,10 +17,15 @@
 #include <coroutine>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 namespace kvrgw::async {
+
+// Names the calling thread (shown by top -H, ps -L, gdb). Linux keeps the
+// first 15 bytes.
+void set_thread_name(std::string_view name) noexcept;
 
 // Intrusive queue node. When `fn` is set the executor calls fn(node) instead of
 // resuming `h` (used for small non-coroutine tasks such as "arm a timer").

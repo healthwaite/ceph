@@ -317,6 +317,7 @@ grpc::Status WorkerService::RunBenchmark(
 
   // Reader thread: watches for Cancel until the client half-closes.
   std::thread reader([&]() {
+    kvrgw::async::set_thread_name("perf-cancel-rd");
     perf::v1::RunControl m;
     while (s->Read(&m)) {
       if (m.has_cancel()) ctx.cancel = true;
@@ -339,6 +340,7 @@ grpc::Status WorkerService::RunBenchmark(
     // Sync mode: one blocking thread per stream, calling the sync wrappers.
     for (int t = 0; t < T; ++t) {
       threads.emplace_back([&, t]() {
+        kvrgw::async::set_thread_name("perf-sync-" + std::to_string(t));
         try {
           op_->run_thread(ctx, t);
         } catch (const std::exception &e) {
@@ -458,6 +460,7 @@ grpc::Status WorkerService::Verify(grpc::ServerContext *, const perf::v1::Verify
     std::mutex done_mu;
     std::condition_variable done_cv;
     std::thread vt([&] {
+      kvrgw::async::set_thread_name("perf-verify");
       try {
         err = op_->verify(*ctx_, counts, &rep);
       } catch (const std::exception &e) {

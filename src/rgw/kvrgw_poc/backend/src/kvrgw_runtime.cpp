@@ -16,6 +16,7 @@
 
 #include "error_codes.hpp"
 #include "fdb.hpp"
+#include "async/executor.hpp"
 #include "gc_policy.hpp"
 
 #include <cstdlib>
@@ -36,6 +37,7 @@ int env_int(const char *name, int default_value)
 
 void run_network()
 {
+  kvrgw::async::set_thread_name("fdb-network");
   if (fdb_error_t err = fdb_run_network()) {
     std::cerr << "fdb_run_network failed: " << fdb_get_error(err) << std::endl;
     std::abort();
@@ -223,14 +225,21 @@ bool KvRgwRuntime::start(const KvRgwStartOptions &opts)
                         &service_->min_part_size());
 
   admin_thread_ = std::thread([this]() {
+    async::set_thread_name("kvrgw-admin");
     if (!admin_server_->run()) {
       std::cerr << "admin server startup failed" << std::endl;
     }
   });
 
   if (!perf_mode_) {
-    sweeper_thread_ = std::thread([this]() { sweeper_->run(); });
-    gc_thread_ = std::thread([this]() { gc_worker_->run(); });
+    sweeper_thread_ = std::thread([this]() {
+      async::set_thread_name("kvrgw-sweeper");
+      sweeper_->run();
+    });
+    gc_thread_ = std::thread([this]() {
+      async::set_thread_name("kvrgw-gc");
+      gc_worker_->run();
+    });
   }
 
   started_ = true;

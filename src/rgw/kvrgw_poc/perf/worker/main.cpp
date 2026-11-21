@@ -1,6 +1,7 @@
 // kvrgw-perf-worker: gRPC server driving the in-process kvrgw service layer.
 #include "service.hpp"
 
+#include "async/executor.hpp"
 #include "async/frame_pool.hpp"
 
 #include <grpcpp/grpcpp.h>
@@ -58,6 +59,7 @@ int main(int argc, char **argv)
   std::cerr << "kvrgw-perf-worker listening on " << listen << std::endl;
 
   std::thread watcher([&]() {
+    kvrgw::async::set_thread_name("perf-sigwatch");
     while (!g_stop) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     server->Shutdown(std::chrono::system_clock::now() + std::chrono::seconds(5));
   });
