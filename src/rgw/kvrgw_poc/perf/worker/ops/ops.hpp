@@ -49,6 +49,18 @@ struct RunContext {
   std::atomic<uint64_t> verify_keys_checked{0};
   std::atomic<uint64_t> verify_keys_total{0};
 
+  // Open loop: rate changes (RunControl.set_rate), appended by the control
+  // reader and applied by every generator at `at`.
+  struct RateChange {
+    int64_t step = 0;
+    double rate = 0;  // per worker
+    SteadyClock::time_point at;
+  };
+  std::mutex rate_mu;
+  std::vector<RateChange> rate_changes;  // under rate_mu, in arrival order
+  // Open loop: ops issued and not yet finished, all generators (gauge).
+  std::atomic<int64_t> outstanding{0};
+
   std::atomic<bool> cancel{false};
   std::atomic<bool> failed{false};
   std::mutex err_mu;

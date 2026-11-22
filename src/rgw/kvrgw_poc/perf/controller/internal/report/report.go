@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"kvrgw-perf/internal/collect"
+	"kvrgw-perf/internal/ramp"
 	"kvrgw-perf/internal/results"
 	"kvrgw-perf/internal/stats"
 )
@@ -396,6 +397,10 @@ func (d *data) print(w io.Writer, o Options) {
 		}
 	}
 
+	if d.sum != nil && d.sum.Ramp != nil {
+		banner(w, "Ramp")
+		ramp.PrintTable(w, d.sum.Ramp)
+	}
 	d.printClient(w, o, from, to)
 	d.printCPU(w, o, from, to)
 	d.printServer(w, o, from, to)
@@ -1575,9 +1580,9 @@ func (d *data) printFDBDisk(w io.Writer) {
 // op's own latency; it is blamed on the drivers only when they are busy, otherwise it
 // comes from bursts (late timer wake-ups, preparing due ops back to back).
 const (
-	sendLagWarnUs     = 1000 // below this p99 the lag is never reported
-	sendLagShare      = 0.10 // lag p99 / op p99 above this is significant
-	sendLagDriverBusy = 0.50 // drivers at or above this are a plausible cause
+	sendLagWarnUs     = stats.SendLagMinUs // below this p99 the lag is never reported
+	sendLagShare      = stats.SendLagShare // lag p99 / op p99 above this is significant
+	sendLagDriverBusy = 0.50               // drivers at or above this are a plausible cause
 )
 
 // sendLagHint returns the report line for open-loop send lag, or "" when there is nothing

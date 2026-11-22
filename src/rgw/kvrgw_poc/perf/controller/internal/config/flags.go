@@ -28,7 +28,12 @@ var flagKeys = map[string]string{
 	"backend-workers": "backend_workers", "max-inflight-ops": "max_inflight_ops",
 	"txn-max-attempts": "txn_max_attempts", "batch-txn-max-attempts": "batch_txn_max_attempts",
 	"txn-timeout-ms": "txn_timeout_ms",
-	"verify-threads": "verify_threads", "tenant-name": "tenant_name",
+	"arrival":        "arrival", "ramp-start-rate": "ramp_start_rate", "ramp-step-rate": "ramp_step_rate",
+	"ramp-max-rate": "ramp_max_rate", "ramp-warmup": "ramp_warmup", "ramp-measure": "ramp_measure",
+	"ramp-max-p99-ms": "ramp_max_p99_ms", "ramp-max-missed-pct": "ramp_max_missed_pct",
+	"ramp-max-error-pct": "ramp_max_error_pct", "ramp-min-achieved-pct": "ramp_min_achieved_pct",
+	"ramp-max-backlog-growth-pct": "ramp_max_backlog_growth_pct",
+	"verify-threads":              "verify_threads", "tenant-name": "tenant_name",
 	"batch-size": "batch_size", "batch-timeout-us": "batch_timeout_us",
 	"batch-threads": "batch_threads", "max-inline": "max_inline", "max-kv-store": "max_kv_store",
 	"kv-store-coalescing": "kv_store_coalescing", "report-interval-ms": "report_interval_ms",
@@ -67,6 +72,13 @@ func (o *Overrides) Register(fs *flag.FlagSet) {
 			v = "true"
 		}
 		o.vals["force"] = v
+		return nil
+	})
+	fs.BoolFunc("ramp", "run-put-*: open-loop ramp to the maximum sustainable rate (see perf/RAMP.md)", func(v string) error {
+		if v == "" {
+			v = "true"
+		}
+		o.vals["ramp"] = v
 		return nil
 	})
 	fs.BoolFunc("no-fdb-stats", "disable FDB status sampling", func(v string) error {
@@ -119,6 +131,11 @@ func Set(c *Config, key, v string) error {
 		*dst = x
 		return err
 	}
+	f := func(dst *float64) error {
+		x, err := strconv.ParseFloat(v, 64)
+		*dst = x
+		return err
+	}
 	b := func(dst *bool) error {
 		x, err := strconv.ParseBool(v)
 		*dst = x
@@ -163,6 +180,30 @@ func Set(c *Config, key, v string) error {
 		return i(&c.Kvrgw.BatchTxnMaxAttempts)
 	case "txn_timeout_ms":
 		return i64(&c.Kvrgw.TxnTimeoutMs)
+	case "arrival":
+		c.Arrival = v
+	case "ramp":
+		return b(&c.Ramp)
+	case "ramp_start_rate":
+		return f(&c.RampStartRate)
+	case "ramp_step_rate":
+		return f(&c.RampStepRate)
+	case "ramp_max_rate":
+		return f(&c.RampMaxRate)
+	case "ramp_warmup":
+		c.RampWarmup = v
+	case "ramp_measure":
+		c.RampMeasure = v
+	case "ramp_max_p99_ms":
+		return f(&c.RampMaxP99Ms)
+	case "ramp_max_missed_pct":
+		return f(&c.RampMaxMissedPct)
+	case "ramp_max_error_pct":
+		return f(&c.RampMaxErrorPct)
+	case "ramp_min_achieved_pct":
+		return f(&c.RampMinAchievedPct)
+	case "ramp_max_backlog_growth_pct":
+		return f(&c.RampMaxBacklogGrowthPct)
 	case "verify_threads":
 		return i(&c.VerifyThreads)
 	case "tenant_name":

@@ -64,7 +64,7 @@ func (x PhaseEvent_State) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use PhaseEvent_State.Descriptor instead.
 func (PhaseEvent_State) EnumDescriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{5, 0}
+	return file_worker_proto_rawDescGZIP(), []int{6, 0}
 }
 
 type InitRequest struct {
@@ -159,6 +159,7 @@ type RunControl struct {
 	// Types that are valid to be assigned to Msg:
 	//
 	//	*RunControl_Cancel
+	//	*RunControl_SetRate
 	Msg           isRunControl_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -231,6 +232,15 @@ func (x *RunControl) GetCancel() *Cancel {
 	return nil
 }
 
+func (x *RunControl) GetSetRate() *SetRate {
+	if x != nil {
+		if x, ok := x.Msg.(*RunControl_SetRate); ok {
+			return x.SetRate
+		}
+	}
+	return nil
+}
+
 type isRunControl_Msg interface {
 	isRunControl_Msg()
 }
@@ -239,7 +249,13 @@ type RunControl_Cancel struct {
 	Cancel *Cancel `protobuf:"bytes,4,opt,name=cancel,proto3,oneof"`
 }
 
+type RunControl_SetRate struct {
+	SetRate *SetRate `protobuf:"bytes,5,opt,name=set_rate,json=setRate,proto3,oneof"` // open loop: change this worker's target rate
+}
+
 func (*RunControl_Cancel) isRunControl_Msg() {}
+
+func (*RunControl_SetRate) isRunControl_Msg() {}
 
 type Cancel struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -277,6 +293,69 @@ func (*Cancel) Descriptor() ([]byte, []int) {
 	return file_worker_proto_rawDescGZIP(), []int{2}
 }
 
+// Open loop (ramp): from effective_at_unix_ns on, every generator of the worker
+// re-anchors its schedule there at the new rate. Sent ahead of time so all
+// workers switch on the same window boundary.
+type SetRate struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Step              int64                  `protobuf:"varint,1,opt,name=step,proto3" json:"step,omitempty"`                                                        // ramp step number (for logs)
+	RateOpsPerSec     float64                `protobuf:"fixed64,2,opt,name=rate_ops_per_sec,json=rateOpsPerSec,proto3" json:"rate_ops_per_sec,omitempty"`            // this worker's new target (cluster total / workers)
+	EffectiveAtUnixNs int64                  `protobuf:"varint,3,opt,name=effective_at_unix_ns,json=effectiveAtUnixNs,proto3" json:"effective_at_unix_ns,omitempty"` // controller wall clock
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *SetRate) Reset() {
+	*x = SetRate{}
+	mi := &file_worker_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetRate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetRate) ProtoMessage() {}
+
+func (x *SetRate) ProtoReflect() protoreflect.Message {
+	mi := &file_worker_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetRate.ProtoReflect.Descriptor instead.
+func (*SetRate) Descriptor() ([]byte, []int) {
+	return file_worker_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SetRate) GetStep() int64 {
+	if x != nil {
+		return x.Step
+	}
+	return 0
+}
+
+func (x *SetRate) GetRateOpsPerSec() float64 {
+	if x != nil {
+		return x.RateOpsPerSec
+	}
+	return 0
+}
+
+func (x *SetRate) GetEffectiveAtUnixNs() int64 {
+	if x != nil {
+		return x.EffectiveAtUnixNs
+	}
+	return 0
+}
+
 type VerifyRequest struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	BenchmarkId string                 `protobuf:"bytes,1,opt,name=benchmark_id,json=benchmarkId,proto3" json:"benchmark_id,omitempty"`
@@ -292,7 +371,7 @@ type VerifyRequest struct {
 
 func (x *VerifyRequest) Reset() {
 	*x = VerifyRequest{}
-	mi := &file_worker_proto_msgTypes[3]
+	mi := &file_worker_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -304,7 +383,7 @@ func (x *VerifyRequest) String() string {
 func (*VerifyRequest) ProtoMessage() {}
 
 func (x *VerifyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[3]
+	mi := &file_worker_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -317,7 +396,7 @@ func (x *VerifyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyRequest.ProtoReflect.Descriptor instead.
 func (*VerifyRequest) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{3}
+	return file_worker_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *VerifyRequest) GetBenchmarkId() string {
@@ -350,7 +429,7 @@ type CleanupRequest struct {
 
 func (x *CleanupRequest) Reset() {
 	*x = CleanupRequest{}
-	mi := &file_worker_proto_msgTypes[4]
+	mi := &file_worker_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -362,7 +441,7 @@ func (x *CleanupRequest) String() string {
 func (*CleanupRequest) ProtoMessage() {}
 
 func (x *CleanupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[4]
+	mi := &file_worker_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -375,7 +454,7 @@ func (x *CleanupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanupRequest.ProtoReflect.Descriptor instead.
 func (*CleanupRequest) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{4}
+	return file_worker_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CleanupRequest) GetBenchmarkId() string {
@@ -399,7 +478,7 @@ type PhaseEvent struct {
 
 func (x *PhaseEvent) Reset() {
 	*x = PhaseEvent{}
-	mi := &file_worker_proto_msgTypes[5]
+	mi := &file_worker_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -411,7 +490,7 @@ func (x *PhaseEvent) String() string {
 func (*PhaseEvent) ProtoMessage() {}
 
 func (x *PhaseEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[5]
+	mi := &file_worker_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -424,7 +503,7 @@ func (x *PhaseEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PhaseEvent.ProtoReflect.Descriptor instead.
 func (*PhaseEvent) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{5}
+	return file_worker_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PhaseEvent) GetState() PhaseEvent_State {
@@ -480,7 +559,7 @@ type VerifyProgress struct {
 
 func (x *VerifyProgress) Reset() {
 	*x = VerifyProgress{}
-	mi := &file_worker_proto_msgTypes[6]
+	mi := &file_worker_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -492,7 +571,7 @@ func (x *VerifyProgress) String() string {
 func (*VerifyProgress) ProtoMessage() {}
 
 func (x *VerifyProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[6]
+	mi := &file_worker_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -505,7 +584,7 @@ func (x *VerifyProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyProgress.ProtoReflect.Descriptor instead.
 func (*VerifyProgress) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{6}
+	return file_worker_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *VerifyProgress) GetWorkerIndex() int32 {
@@ -539,7 +618,7 @@ type RunSummary struct {
 
 func (x *RunSummary) Reset() {
 	*x = RunSummary{}
-	mi := &file_worker_proto_msgTypes[7]
+	mi := &file_worker_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -551,7 +630,7 @@ func (x *RunSummary) String() string {
 func (*RunSummary) ProtoMessage() {}
 
 func (x *RunSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[7]
+	mi := &file_worker_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -564,7 +643,7 @@ func (x *RunSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunSummary.ProtoReflect.Descriptor instead.
 func (*RunSummary) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{7}
+	return file_worker_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RunSummary) GetWorkerIndex() int32 {
@@ -592,13 +671,14 @@ type ProgressReport struct {
 	ServerStats          *ServerStats           `protobuf:"bytes,7,opt,name=server_stats,json=serverStats,proto3" json:"server_stats,omitempty"`                                                                                             // cumulative snapshot of in-process kvrgw stats
 	ErrorDescriptions    map[string]string      `protobuf:"bytes,8,rep,name=error_descriptions,json=errorDescriptions,proto3" json:"error_descriptions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // error code name -> human-readable text
 	TargetRate           float64                `protobuf:"fixed64,9,opt,name=target_rate,json=targetRate,proto3" json:"target_rate,omitempty"`                                                                                              // open loop only: this worker's target ops/s; 0 = closed loop
+	Outstanding          uint64                 `protobuf:"varint,10,opt,name=outstanding,proto3" json:"outstanding,omitempty"`                                                                                                              // open loop: ops issued and not yet finished, at the window end (gauge)
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
 
 func (x *ProgressReport) Reset() {
 	*x = ProgressReport{}
-	mi := &file_worker_proto_msgTypes[8]
+	mi := &file_worker_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -610,7 +690,7 @@ func (x *ProgressReport) String() string {
 func (*ProgressReport) ProtoMessage() {}
 
 func (x *ProgressReport) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[8]
+	mi := &file_worker_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -623,7 +703,7 @@ func (x *ProgressReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProgressReport.ProtoReflect.Descriptor instead.
 func (*ProgressReport) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{8}
+	return file_worker_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ProgressReport) GetWorkerIndex() int32 {
@@ -689,6 +769,13 @@ func (x *ProgressReport) GetTargetRate() float64 {
 	return 0
 }
 
+func (x *ProgressReport) GetOutstanding() uint64 {
+	if x != nil {
+		return x.Outstanding
+	}
+	return 0
+}
+
 // Snapshot of the worker's in-process kvrgw statistics (the same counters the
 // legacy admin socket exposed via get-latency / get-batch-stats / get-error-stats).
 // All values are cumulative since process start; the controller diffs them.
@@ -718,7 +805,7 @@ type ServerStats struct {
 
 func (x *ServerStats) Reset() {
 	*x = ServerStats{}
-	mi := &file_worker_proto_msgTypes[9]
+	mi := &file_worker_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -730,7 +817,7 @@ func (x *ServerStats) String() string {
 func (*ServerStats) ProtoMessage() {}
 
 func (x *ServerStats) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[9]
+	mi := &file_worker_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -743,7 +830,7 @@ func (x *ServerStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerStats.ProtoReflect.Descriptor instead.
 func (*ServerStats) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{9}
+	return file_worker_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ServerStats) GetOps() []*ServerOpStats {
@@ -865,7 +952,7 @@ type ThreadUsage struct {
 
 func (x *ThreadUsage) Reset() {
 	*x = ThreadUsage{}
-	mi := &file_worker_proto_msgTypes[10]
+	mi := &file_worker_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -877,7 +964,7 @@ func (x *ThreadUsage) String() string {
 func (*ThreadUsage) ProtoMessage() {}
 
 func (x *ThreadUsage) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[10]
+	mi := &file_worker_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -890,7 +977,7 @@ func (x *ThreadUsage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ThreadUsage.ProtoReflect.Descriptor instead.
 func (*ThreadUsage) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{10}
+	return file_worker_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ThreadUsage) GetName() string {
@@ -937,7 +1024,7 @@ type ServerOpStats struct {
 
 func (x *ServerOpStats) Reset() {
 	*x = ServerOpStats{}
-	mi := &file_worker_proto_msgTypes[11]
+	mi := &file_worker_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -949,7 +1036,7 @@ func (x *ServerOpStats) String() string {
 func (*ServerOpStats) ProtoMessage() {}
 
 func (x *ServerOpStats) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[11]
+	mi := &file_worker_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -962,7 +1049,7 @@ func (x *ServerOpStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerOpStats.ProtoReflect.Descriptor instead.
 func (*ServerOpStats) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{11}
+	return file_worker_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ServerOpStats) GetOp() string {
@@ -1025,8 +1112,9 @@ type OpStats struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OperationType string                 `protobuf:"bytes,1,opt,name=operation_type,json=operationType,proto3" json:"operation_type,omitempty"` // "put_object","list_objects","delete_multi",
 	// plus counter-style types: "keys_listed","keys_deleted",
-	// and "send_lag" (open loop: send time - scheduled time per
-	// op; a latency histogram, count = ops sent)
+	// and, open loop only, latency histograms that are not op types:
+	// "send_lag" (send time - scheduled time; count = ops sent) and
+	// "service_time" (send -> completion, retries included)
 	Count         uint64            `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"` // successes; latency covers only these
 	Errors        uint64            `protobuf:"varint,3,opt,name=errors,proto3" json:"errors,omitempty"`
 	SumMicros     uint64            `protobuf:"varint,4,opt,name=sum_micros,json=sumMicros,proto3" json:"sum_micros,omitempty"`
@@ -1040,7 +1128,7 @@ type OpStats struct {
 
 func (x *OpStats) Reset() {
 	*x = OpStats{}
-	mi := &file_worker_proto_msgTypes[12]
+	mi := &file_worker_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1052,7 +1140,7 @@ func (x *OpStats) String() string {
 func (*OpStats) ProtoMessage() {}
 
 func (x *OpStats) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[12]
+	mi := &file_worker_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1065,7 +1153,7 @@ func (x *OpStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpStats.ProtoReflect.Descriptor instead.
 func (*OpStats) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{12}
+	return file_worker_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *OpStats) GetOperationType() string {
@@ -1134,7 +1222,7 @@ type Histogram struct {
 
 func (x *Histogram) Reset() {
 	*x = Histogram{}
-	mi := &file_worker_proto_msgTypes[13]
+	mi := &file_worker_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1146,7 +1234,7 @@ func (x *Histogram) String() string {
 func (*Histogram) ProtoMessage() {}
 
 func (x *Histogram) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[13]
+	mi := &file_worker_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1159,7 +1247,7 @@ func (x *Histogram) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Histogram.ProtoReflect.Descriptor instead.
 func (*Histogram) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{13}
+	return file_worker_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Histogram) GetBucketIndex() []uint32 {
@@ -1192,7 +1280,7 @@ type VerifyResult struct {
 
 func (x *VerifyResult) Reset() {
 	*x = VerifyResult{}
-	mi := &file_worker_proto_msgTypes[14]
+	mi := &file_worker_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1204,7 +1292,7 @@ func (x *VerifyResult) String() string {
 func (*VerifyResult) ProtoMessage() {}
 
 func (x *VerifyResult) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[14]
+	mi := &file_worker_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1217,7 +1305,7 @@ func (x *VerifyResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyResult.ProtoReflect.Descriptor instead.
 func (*VerifyResult) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{14}
+	return file_worker_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *VerifyResult) GetBuckets() []*BucketVerify {
@@ -1289,7 +1377,7 @@ type BucketVerify struct {
 
 func (x *BucketVerify) Reset() {
 	*x = BucketVerify{}
-	mi := &file_worker_proto_msgTypes[15]
+	mi := &file_worker_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1301,7 +1389,7 @@ func (x *BucketVerify) String() string {
 func (*BucketVerify) ProtoMessage() {}
 
 func (x *BucketVerify) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[15]
+	mi := &file_worker_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1314,7 +1402,7 @@ func (x *BucketVerify) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BucketVerify.ProtoReflect.Descriptor instead.
 func (*BucketVerify) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{15}
+	return file_worker_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *BucketVerify) GetBucket() string {
@@ -1364,15 +1452,20 @@ const file_worker_proto_rawDesc = "" +
 	"\fworker_index\x18\x03 \x01(\x05R\vworkerIndex\x12!\n" +
 	"\fworker_count\x18\x04 \x01(\x05R\vworkerCount\x12!\n" +
 	"\fbenchmark_id\x18\x05 \x01(\tR\vbenchmarkId\x12'\n" +
-	"\x10run_start_unix_s\x18\x06 \x01(\x03R\rrunStartUnixS\"\xba\x01\n" +
+	"\x10run_start_unix_s\x18\x06 \x01(\x03R\rrunStartUnixS\"\xe9\x01\n" +
 	"\n" +
 	"RunControl\x12!\n" +
 	"\fbenchmark_id\x18\x01 \x01(\tR\vbenchmarkId\x12)\n" +
 	"\x11run_start_unix_ns\x18\x02 \x01(\x03R\x0erunStartUnixNs\x12,\n" +
 	"\x12report_interval_ms\x18\x03 \x01(\x03R\x10reportIntervalMs\x12)\n" +
-	"\x06cancel\x18\x04 \x01(\v2\x0f.perf.v1.CancelH\x00R\x06cancelB\x05\n" +
+	"\x06cancel\x18\x04 \x01(\v2\x0f.perf.v1.CancelH\x00R\x06cancel\x12-\n" +
+	"\bset_rate\x18\x05 \x01(\v2\x10.perf.v1.SetRateH\x00R\asetRateB\x05\n" +
 	"\x03msg\"\b\n" +
-	"\x06Cancel\"\x85\x01\n" +
+	"\x06Cancel\"w\n" +
+	"\aSetRate\x12\x12\n" +
+	"\x04step\x18\x01 \x01(\x03R\x04step\x12'\n" +
+	"\x10rate_ops_per_sec\x18\x02 \x01(\x01R\rrateOpsPerSec\x12/\n" +
+	"\x14effective_at_unix_ns\x18\x03 \x01(\x03R\x11effectiveAtUnixNs\"\x85\x01\n" +
 	"\rVerifyRequest\x12!\n" +
 	"\fbenchmark_id\x18\x01 \x01(\tR\vbenchmarkId\x12#\n" +
 	"\rthread_counts\x18\x02 \x03(\x04R\fthreadCounts\x12,\n" +
@@ -1399,7 +1492,7 @@ const file_worker_proto_rawDesc = "" +
 	"\n" +
 	"RunSummary\x12!\n" +
 	"\fworker_index\x18\x01 \x01(\x05R\vworkerIndex\x12#\n" +
-	"\rthread_counts\x18\x02 \x03(\x04R\fthreadCounts\"\xa2\x04\n" +
+	"\rthread_counts\x18\x02 \x03(\x04R\fthreadCounts\"\xc4\x04\n" +
 	"\x0eProgressReport\x12!\n" +
 	"\fworker_index\x18\x01 \x01(\x05R\vworkerIndex\x12\x16\n" +
 	"\x06window\x18\x02 \x01(\x03R\x06window\x12,\n" +
@@ -1410,7 +1503,9 @@ const file_worker_proto_rawDesc = "" +
 	"\fserver_stats\x18\a \x01(\v2\x14.perf.v1.ServerStatsR\vserverStats\x12]\n" +
 	"\x12error_descriptions\x18\b \x03(\v2..perf.v1.ProgressReport.ErrorDescriptionsEntryR\x11errorDescriptions\x12\x1f\n" +
 	"\vtarget_rate\x18\t \x01(\x01R\n" +
-	"targetRate\x1aD\n" +
+	"targetRate\x12 \n" +
+	"\voutstanding\x18\n" +
+	" \x01(\x04R\voutstanding\x1aD\n" +
 	"\x16ErrorDescriptionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf5\x05\n" +
@@ -1505,59 +1600,61 @@ func file_worker_proto_rawDescGZIP() []byte {
 }
 
 var file_worker_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_worker_proto_goTypes = []any{
 	(PhaseEvent_State)(0),  // 0: perf.v1.PhaseEvent.State
 	(*InitRequest)(nil),    // 1: perf.v1.InitRequest
 	(*RunControl)(nil),     // 2: perf.v1.RunControl
 	(*Cancel)(nil),         // 3: perf.v1.Cancel
-	(*VerifyRequest)(nil),  // 4: perf.v1.VerifyRequest
-	(*CleanupRequest)(nil), // 5: perf.v1.CleanupRequest
-	(*PhaseEvent)(nil),     // 6: perf.v1.PhaseEvent
-	(*VerifyProgress)(nil), // 7: perf.v1.VerifyProgress
-	(*RunSummary)(nil),     // 8: perf.v1.RunSummary
-	(*ProgressReport)(nil), // 9: perf.v1.ProgressReport
-	(*ServerStats)(nil),    // 10: perf.v1.ServerStats
-	(*ThreadUsage)(nil),    // 11: perf.v1.ThreadUsage
-	(*ServerOpStats)(nil),  // 12: perf.v1.ServerOpStats
-	(*OpStats)(nil),        // 13: perf.v1.OpStats
-	(*Histogram)(nil),      // 14: perf.v1.Histogram
-	(*VerifyResult)(nil),   // 15: perf.v1.VerifyResult
-	(*BucketVerify)(nil),   // 16: perf.v1.BucketVerify
-	nil,                    // 17: perf.v1.ProgressReport.ErrorDescriptionsEntry
-	nil,                    // 18: perf.v1.ServerStats.ErrorsEntry
-	nil,                    // 19: perf.v1.OpStats.ErrorCodesEntry
+	(*SetRate)(nil),        // 4: perf.v1.SetRate
+	(*VerifyRequest)(nil),  // 5: perf.v1.VerifyRequest
+	(*CleanupRequest)(nil), // 6: perf.v1.CleanupRequest
+	(*PhaseEvent)(nil),     // 7: perf.v1.PhaseEvent
+	(*VerifyProgress)(nil), // 8: perf.v1.VerifyProgress
+	(*RunSummary)(nil),     // 9: perf.v1.RunSummary
+	(*ProgressReport)(nil), // 10: perf.v1.ProgressReport
+	(*ServerStats)(nil),    // 11: perf.v1.ServerStats
+	(*ThreadUsage)(nil),    // 12: perf.v1.ThreadUsage
+	(*ServerOpStats)(nil),  // 13: perf.v1.ServerOpStats
+	(*OpStats)(nil),        // 14: perf.v1.OpStats
+	(*Histogram)(nil),      // 15: perf.v1.Histogram
+	(*VerifyResult)(nil),   // 16: perf.v1.VerifyResult
+	(*BucketVerify)(nil),   // 17: perf.v1.BucketVerify
+	nil,                    // 18: perf.v1.ProgressReport.ErrorDescriptionsEntry
+	nil,                    // 19: perf.v1.ServerStats.ErrorsEntry
+	nil,                    // 20: perf.v1.OpStats.ErrorCodesEntry
 }
 var file_worker_proto_depIdxs = []int32{
 	3,  // 0: perf.v1.RunControl.cancel:type_name -> perf.v1.Cancel
-	0,  // 1: perf.v1.PhaseEvent.state:type_name -> perf.v1.PhaseEvent.State
-	9,  // 2: perf.v1.PhaseEvent.progress:type_name -> perf.v1.ProgressReport
-	15, // 3: perf.v1.PhaseEvent.verify:type_name -> perf.v1.VerifyResult
-	8,  // 4: perf.v1.PhaseEvent.run_summary:type_name -> perf.v1.RunSummary
-	7,  // 5: perf.v1.PhaseEvent.verify_progress:type_name -> perf.v1.VerifyProgress
-	13, // 6: perf.v1.ProgressReport.window_stats:type_name -> perf.v1.OpStats
-	13, // 7: perf.v1.ProgressReport.cumulative_stats:type_name -> perf.v1.OpStats
-	10, // 8: perf.v1.ProgressReport.server_stats:type_name -> perf.v1.ServerStats
-	17, // 9: perf.v1.ProgressReport.error_descriptions:type_name -> perf.v1.ProgressReport.ErrorDescriptionsEntry
-	12, // 10: perf.v1.ServerStats.ops:type_name -> perf.v1.ServerOpStats
-	18, // 11: perf.v1.ServerStats.errors:type_name -> perf.v1.ServerStats.ErrorsEntry
-	11, // 12: perf.v1.ServerStats.threads:type_name -> perf.v1.ThreadUsage
-	14, // 13: perf.v1.OpStats.latency:type_name -> perf.v1.Histogram
-	19, // 14: perf.v1.OpStats.error_codes:type_name -> perf.v1.OpStats.ErrorCodesEntry
-	16, // 15: perf.v1.VerifyResult.buckets:type_name -> perf.v1.BucketVerify
-	1,  // 16: perf.v1.Worker.Init:input_type -> perf.v1.InitRequest
-	2,  // 17: perf.v1.Worker.RunBenchmark:input_type -> perf.v1.RunControl
-	4,  // 18: perf.v1.Worker.Verify:input_type -> perf.v1.VerifyRequest
-	5,  // 19: perf.v1.Worker.Cleanup:input_type -> perf.v1.CleanupRequest
-	6,  // 20: perf.v1.Worker.Init:output_type -> perf.v1.PhaseEvent
-	6,  // 21: perf.v1.Worker.RunBenchmark:output_type -> perf.v1.PhaseEvent
-	6,  // 22: perf.v1.Worker.Verify:output_type -> perf.v1.PhaseEvent
-	6,  // 23: perf.v1.Worker.Cleanup:output_type -> perf.v1.PhaseEvent
-	20, // [20:24] is the sub-list for method output_type
-	16, // [16:20] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	4,  // 1: perf.v1.RunControl.set_rate:type_name -> perf.v1.SetRate
+	0,  // 2: perf.v1.PhaseEvent.state:type_name -> perf.v1.PhaseEvent.State
+	10, // 3: perf.v1.PhaseEvent.progress:type_name -> perf.v1.ProgressReport
+	16, // 4: perf.v1.PhaseEvent.verify:type_name -> perf.v1.VerifyResult
+	9,  // 5: perf.v1.PhaseEvent.run_summary:type_name -> perf.v1.RunSummary
+	8,  // 6: perf.v1.PhaseEvent.verify_progress:type_name -> perf.v1.VerifyProgress
+	14, // 7: perf.v1.ProgressReport.window_stats:type_name -> perf.v1.OpStats
+	14, // 8: perf.v1.ProgressReport.cumulative_stats:type_name -> perf.v1.OpStats
+	11, // 9: perf.v1.ProgressReport.server_stats:type_name -> perf.v1.ServerStats
+	18, // 10: perf.v1.ProgressReport.error_descriptions:type_name -> perf.v1.ProgressReport.ErrorDescriptionsEntry
+	13, // 11: perf.v1.ServerStats.ops:type_name -> perf.v1.ServerOpStats
+	19, // 12: perf.v1.ServerStats.errors:type_name -> perf.v1.ServerStats.ErrorsEntry
+	12, // 13: perf.v1.ServerStats.threads:type_name -> perf.v1.ThreadUsage
+	15, // 14: perf.v1.OpStats.latency:type_name -> perf.v1.Histogram
+	20, // 15: perf.v1.OpStats.error_codes:type_name -> perf.v1.OpStats.ErrorCodesEntry
+	17, // 16: perf.v1.VerifyResult.buckets:type_name -> perf.v1.BucketVerify
+	1,  // 17: perf.v1.Worker.Init:input_type -> perf.v1.InitRequest
+	2,  // 18: perf.v1.Worker.RunBenchmark:input_type -> perf.v1.RunControl
+	5,  // 19: perf.v1.Worker.Verify:input_type -> perf.v1.VerifyRequest
+	6,  // 20: perf.v1.Worker.Cleanup:input_type -> perf.v1.CleanupRequest
+	7,  // 21: perf.v1.Worker.Init:output_type -> perf.v1.PhaseEvent
+	7,  // 22: perf.v1.Worker.RunBenchmark:output_type -> perf.v1.PhaseEvent
+	7,  // 23: perf.v1.Worker.Verify:output_type -> perf.v1.PhaseEvent
+	7,  // 24: perf.v1.Worker.Cleanup:output_type -> perf.v1.PhaseEvent
+	21, // [21:25] is the sub-list for method output_type
+	17, // [17:21] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_worker_proto_init() }
@@ -1567,6 +1664,7 @@ func file_worker_proto_init() {
 	}
 	file_worker_proto_msgTypes[1].OneofWrappers = []any{
 		(*RunControl_Cancel)(nil),
+		(*RunControl_SetRate)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1574,7 +1672,7 @@ func file_worker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_worker_proto_rawDesc), len(file_worker_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   19,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

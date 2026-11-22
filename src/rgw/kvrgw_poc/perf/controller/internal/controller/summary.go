@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"kvrgw-perf/internal/ramp"
 	"kvrgw-perf/internal/results"
 	"kvrgw-perf/internal/stats"
 )
@@ -36,7 +37,17 @@ func (v *invocation) buildSummary(exit int) *results.Summary {
 		}
 		s.Totals[op] = t
 	}
-	if cfg := v.o.Cfg; cfg.OpenLoop() {
+	if v.ramp != nil {
+		reason := "run ended"
+		switch {
+		case len(v.failures) > 0:
+			reason = "run failed: " + v.failures[0]
+		case v.o.Cfg.Duration != "":
+			reason = "duration " + v.o.Cfg.Duration + " reached"
+		}
+		s.Ramp = v.ramp.summary(reason)
+	}
+	if cfg := v.o.Cfg; cfg.OpenLoop() && v.ramp == nil {
 		s.TargetOpsPerSec = cfg.RateOpsPerSec * float64(cfg.WorkerCount)
 		if op := openLoopMetric(v.o.Command); op != "" {
 			s.AchievedOpsPerSec = s.Totals[op].OpsPerSec
@@ -70,8 +81,12 @@ func (v *invocation) printFinal(s *results.Summary) {
 			continue
 		}
 		if stats.IsLag(op) {
-			fmt.Fprintf(v.out, "  %-13s (open loop: send time - scheduled time) p50=%s p90=%s p99=%s p999=%s max=%s\n",
-				op, fmtUs(t.P50Us), fmtUs(t.P90Us), fmtUs(t.P99Us), fmtUs(t.P999Us), fmtUs(t.MaxUs))
+			what := "send time - scheduled time"
+			if op == "service_time" {
+				what = "send -> completion"
+			}
+			fmt.Fprintf(v.out, "  %-13s (open loop: %s) p50=%s p90=%s p99=%s p999=%s max=%s\n",
+				op, what, fmtUs(t.P50Us), fmtUs(t.P90Us), fmtUs(t.P99Us), fmtUs(t.P999Us), fmtUs(t.MaxUs))
 			continue
 		}
 		extra := ""
@@ -94,6 +109,9 @@ func (v *invocation) printFinal(s *results.Summary) {
 	}
 	if gs := stats.GroupUtils(stats.CumulativeThreadUtils(v.lastServer)); len(gs) > 0 {
 		fmt.Fprintf(v.out, "  thread busy (CPU/wall, whole run): %s\n", stats.FormatGroupUtils(gs))
+	}
+	if r := s.Ramp; r != nil {
+		ramp.PrintTable(v.out, r)
 	}
 	if s.TargetOpsPerSec > 0 {
 		fmt.Fprintf(v.out, "  open loop: target %s ops/s, achieved %s ops/s (latency measured from scheduled send time)\n",

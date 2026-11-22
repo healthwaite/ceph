@@ -68,8 +68,10 @@ type Summary struct {
 	Verify        *VerifySummary      `json:"verify,omitempty"`
 	OpErrors      uint64              `json:"op_errors"`
 	// Open loop only: the target rate (all workers) and the rate achieved.
-	TargetOpsPerSec   float64 `json:"target_ops_per_sec,omitempty"`
-	AchievedOpsPerSec float64 `json:"achieved_ops_per_sec,omitempty"`
+	TargetOpsPerSec float64 `json:"target_ops_per_sec,omitempty"`
+	// Ramp is set for --ramp runs.
+	Ramp              *RampSummary `json:"ramp,omitempty"`
+	AchievedOpsPerSec float64      `json:"achieved_ops_per_sec,omitempty"`
 	// VersionsWritten (run-put-object-overwrite-versioned only) is the number of new object
 	// versions the run wrote: one per successful put. The null versions made by load come on top.
 	VersionsWritten uint64 `json:"versions_written,omitempty"`

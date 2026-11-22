@@ -67,10 +67,26 @@ type Config struct {
 	DriverThreads    int `yaml:"driver_threads" json:"driver_threads"`
 	// RateOpsPerSec > 0 switches the run-* command to open loop at this per-worker rate
 	// (async mode only); latency is measured from each op's scheduled send time.
-	RateOpsPerSec    float64 `yaml:"rate_ops_per_sec" json:"rate_ops_per_sec"`
-	VerifyThreads    int     `yaml:"verify_threads" json:"verify_threads"`
-	TenantName       string  `yaml:"tenant_name" json:"tenant_name"`
-	ReportIntervalMs int64   `yaml:"report_interval_ms" json:"report_interval_ms"`
+	RateOpsPerSec float64 `yaml:"rate_ops_per_sec" json:"rate_ops_per_sec"`
+	// Arrival is the open-loop inter-arrival distribution: "constant" or "poisson".
+	Arrival string `yaml:"arrival" json:"arrival"`
+
+	// Ramp (--ramp, run-put-* only): an open-loop run whose target steps up linearly
+	// (cluster totals) until a step fails its criteria; see perf/RAMP.md.
+	Ramp                    bool    `yaml:"ramp" json:"ramp"`
+	RampStartRate           float64 `yaml:"ramp_start_rate" json:"ramp_start_rate"`
+	RampStepRate            float64 `yaml:"ramp_step_rate" json:"ramp_step_rate"` // 0 = ramp_start_rate
+	RampMaxRate             float64 `yaml:"ramp_max_rate" json:"ramp_max_rate"`   // 0 = none
+	RampWarmup              string  `yaml:"ramp_warmup" json:"ramp_warmup"`
+	RampMeasure             string  `yaml:"ramp_measure" json:"ramp_measure"`
+	RampMaxP99Ms            float64 `yaml:"ramp_max_p99_ms" json:"ramp_max_p99_ms"`
+	RampMaxMissedPct        float64 `yaml:"ramp_max_missed_pct" json:"ramp_max_missed_pct"`
+	RampMaxErrorPct         float64 `yaml:"ramp_max_error_pct" json:"ramp_max_error_pct"`
+	RampMinAchievedPct      float64 `yaml:"ramp_min_achieved_pct" json:"ramp_min_achieved_pct"`
+	RampMaxBacklogGrowthPct float64 `yaml:"ramp_max_backlog_growth_pct" json:"ramp_max_backlog_growth_pct"`
+	VerifyThreads           int     `yaml:"verify_threads" json:"verify_threads"`
+	TenantName              string  `yaml:"tenant_name" json:"tenant_name"`
+	ReportIntervalMs        int64   `yaml:"report_interval_ms" json:"report_interval_ms"`
 
 	FdbStats bool `yaml:"fdb_stats" json:"fdb_stats"`
 	// FdbStatusRaw also saves every `status json` sample, compacted, to fdb_status.jsonl
@@ -198,6 +214,72 @@ func (c *Config) ConcurrencyLabel() string {
 	return fmt.Sprintf("%d workers x %d streams (sync: one thread each)", c.WorkerCount, c.Streams())
 }
 
+// RampCommands are the commands that support --ramp.
+var RampCommands = []string{"run-put-object", "run-put-object-overwrite", "run-put-object-overwrite-versioned"}
+
+// RampStep returns the per-step increment (cluster total, ops/s).
+func (c *Config) RampStep() float64 {
+	if c.RampStepRate > 0 {
+		return c.RampStepRate
+	}
+	return c.RampStartRate
+}
+
+// RampRate returns step i's target (cluster total, ops/s).
+func (c *Config) RampRate(i int) float64 { return c.RampStartRate + float64(i)*c.RampStep() }
+
+// RampDurations parses ramp_warmup and ramp_measure.
+func (c *Config) RampDurations() (warmup, measure time.Duration, err error) {
+	if warmup, err = time.ParseDuration(c.RampWarmup); err != nil {
+		return 0, 0, fmt.Errorf("ramp_warmup: %w", err)
+	}
+	if measure, err = time.ParseDuration(c.RampMeasure); err != nil {
+		return 0, 0, fmt.Errorf("ramp_measure: %w", err)
+	}
+	return warmup, measure, nil
+}
+
+// validateRamp checks the --ramp settings.
+func (c *Config) validateRamp(command string) error {
+	ok := false
+	for _, x := range RampCommands {
+		ok = ok || x == command
+	}
+	if !ok {
+		return fmt.Errorf("--ramp is supported for %v, not %s", RampCommands, command)
+	}
+	if c.RateOpsPerSec > 0 {
+		return fmt.Errorf("--ramp sets the rate itself; drop rate_ops_per_sec")
+	}
+	if c.Ops != 0 {
+		return fmt.Errorf("--ramp runs until a step fails; ops is not allowed (duration is an optional cap)")
+	}
+	if c.RampStartRate <= 0 {
+		return fmt.Errorf("--ramp needs ramp_start_rate > 0 (ops/s, cluster total)")
+	}
+	if c.RampStepRate < 0 || c.RampMaxRate < 0 {
+		return fmt.Errorf("ramp_step_rate and ramp_max_rate must be >= 0")
+	}
+	if c.RampMaxRate > 0 && c.RampMaxRate < c.RampStartRate {
+		return fmt.Errorf("ramp_max_rate (%g) is below ramp_start_rate (%g)", c.RampMaxRate, c.RampStartRate)
+	}
+	w, m, err := c.RampDurations()
+	if err != nil {
+		return err
+	}
+	if w < 0 || m <= 0 {
+		return fmt.Errorf("ramp_warmup must be >= 0 and ramp_measure > 0")
+	}
+	if c.ReportIntervalMs <= 0 {
+		return fmt.Errorf("--ramp needs report_interval_ms > 0 (steps are whole report windows)")
+	}
+	if c.RampMaxP99Ms <= 0 || c.RampMaxMissedPct < 0 || c.RampMaxErrorPct < 0 ||
+		c.RampMinAchievedPct <= 0 || c.RampMinAchievedPct > 100 || c.RampMaxBacklogGrowthPct < 0 {
+		return fmt.Errorf("ramp criteria out of range (max_p99_ms > 0, pcts >= 0, min_achieved_pct in (0,100])")
+	}
+	return nil
+}
+
 // OpenLoopCommands are the commands that support rate_ops_per_sec.
 var OpenLoopCommands = []string{"run-put-object", "run-put-object-overwrite",
 	"run-put-object-overwrite-versioned", "run-delete-multi"}
@@ -208,7 +290,9 @@ func Defaults() Config {
 	return Config{
 		NumObjects: 1000000, NumBuckets: 10, BucketNamePrefix: "rgwkv",
 		PaddingBytes: 16, ObjectSizeBytes: 8192, MetadataCount: 6, MetadataSize: 64, WorkerCount: 1, ThreadsPerWorker: 1,
-		DriverMode: "sync", StreamsPerWorker: 0, DriverThreads: 2, RateOpsPerSec: 0,
+		DriverMode: "sync", StreamsPerWorker: 0, DriverThreads: 2, RateOpsPerSec: 0, Arrival: "constant",
+		RampWarmup: "30s", RampMeasure: "60s", RampMaxP99Ms: 50, RampMaxMissedPct: 0.1,
+		RampMaxErrorPct: 0.1, RampMinAchievedPct: 99, RampMaxBacklogGrowthPct: 50,
 		VerifyThreads: 4, TenantName: envOr("KVRGW_TENANT_NAME", "kv-poc"),
 		ReportIntervalMs: 1000,
 		FdbStats:         true, FdbStatusRaw: true, FdbClusterFile: os.Getenv("FDB_CLUSTER_FILE"), FdbcliPath: "/opt/foundationdb/usr/bin/fdbcli",
@@ -350,6 +434,14 @@ func (c *Config) Validate(command string) error {
 	if c.StreamsPerWorker < 0 {
 		return fmt.Errorf("streams_per_worker must be >= 0 (0 = threads_per_worker)")
 	}
+	if c.Arrival != "constant" && c.Arrival != "poisson" {
+		return fmt.Errorf("arrival must be constant or poisson, not %q", c.Arrival)
+	}
+	if c.Ramp {
+		if err := c.validateRamp(command); err != nil {
+			return err
+		}
+	}
 	if c.DriverMode != "sync" && c.DriverMode != "async" {
 		return fmt.Errorf("driver_mode must be sync or async, not %q", c.DriverMode)
 	}
@@ -359,7 +451,7 @@ func (c *Config) Validate(command string) error {
 	if c.RateOpsPerSec < 0 {
 		return fmt.Errorf("rate_ops_per_sec must be >= 0")
 	}
-	if c.OpenLoop() {
+	if c.OpenLoop() && !c.Ramp {
 		if c.DriverMode != "async" {
 			return fmt.Errorf("rate_ops_per_sec (open loop) requires driver_mode: async")
 		}
@@ -421,7 +513,7 @@ func (c *Config) Validate(command string) error {
 		if c.Ops != 0 || d != 0 {
 			return fmt.Errorf("ops/duration are not valid for load")
 		}
-	} else {
+	} else if !c.Ramp {
 		if (c.Ops != 0) == (d != 0) {
 			return fmt.Errorf("%s requires exactly one of --ops or --duration", command)
 		}
@@ -465,6 +557,15 @@ func (c *Config) VersionedOverwritePrompt() string {
 // ApplyCommandRules adjusts the config for command-specific semantics. It returns
 // human-readable warnings.
 func (c *Config) ApplyCommandRules(command string) (warnings []string) {
+	if c.Ramp {
+		// A ramp is an open-loop async run; the first step's rate is split evenly
+		// across the workers, later steps arrive as RunControl.set_rate.
+		if c.DriverMode != "async" {
+			warnings = append(warnings, "--ramp runs in driver_mode async")
+		}
+		c.DriverMode = "async"
+		c.RateOpsPerSec = c.RampStartRate / float64(c.WorkerCount)
+	}
 	switch command {
 	case "run-list-objects", "run-list-delete-multi":
 		if c.SingleThreadMode {
@@ -497,6 +598,7 @@ type workerJSON struct {
 	StreamsPerWorker      int     `json:"streams_per_worker"`
 	DriverThreads         int     `json:"driver_threads"`
 	RateOpsPerSec         float64 `json:"rate_ops_per_sec"`
+	Arrival               string  `json:"arrival"`
 	VerifyThreads         int     `json:"verify_threads"`
 	TenantName            string  `json:"tenant_name"`
 	ReportIntervalMs      int64   `json:"report_interval_ms"`
@@ -516,7 +618,7 @@ func (c *Config) WorkerJSON() ([]byte, error) {
 	}
 	return json.Marshal(workerJSON{
 		c.NumObjects, c.NumBuckets, c.BucketNamePrefix, c.PaddingBytes, c.ObjectSizeBytes, c.MetadataCount, c.MetadataSize,
-		c.ThreadsPerWorker, c.DriverMode, c.Streams(), c.DriverThreads, c.RateOpsPerSec,
+		c.ThreadsPerWorker, c.DriverMode, c.Streams(), c.DriverThreads, c.RateOpsPerSec, c.Arrival,
 		c.VerifyThreads, c.TenantName,
 		c.ReportIntervalMs, c.Ops, d.Milliseconds(), c.PageSize,
 		c.SingleThreadMode, c.NumObjectsToOverwrite, c.Force,

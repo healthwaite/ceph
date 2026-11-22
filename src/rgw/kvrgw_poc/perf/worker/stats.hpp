@@ -24,6 +24,9 @@ enum class Metric : int {
   // latency-style histogram; count = ops sent). Shows how much of the measured
   // latency is the driver failing to send on time.
   SendLag,
+  // Open loop only: send -> completion per op (retries included); with
+  // send_lag it splits end-to-end latency into client delay and service time.
+  ServiceTime,
   kCount
 };
 inline constexpr int kMetricCount = static_cast<int>(Metric::kCount);

@@ -26,6 +26,8 @@ struct Config {
   int driver_threads = 2;  // async mode only
   // Per-worker target rate; > 0 = open loop (async mode only).
   double rate_ops_per_sec = 0;
+  // Open-loop inter-arrival times: "constant" or "poisson".
+  std::string arrival = "constant";
   int verify_threads = 4;
   std::string tenant_name = "kv-poc";
   int64_t report_interval_ms = 1000;

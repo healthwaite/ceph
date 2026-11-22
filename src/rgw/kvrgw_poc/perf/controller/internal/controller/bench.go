@@ -16,7 +16,7 @@ import (
 )
 
 // metricOrder gives a stable output order for op types.
-var metricOrder = []string{"put_object", "list_objects", "delete_multi", "list_delete_multi", "keys_listed", "keys_deleted", "send_lag"}
+var metricOrder = []string{"put_object", "list_objects", "delete_multi", "list_delete_multi", "keys_listed", "keys_deleted", "send_lag", "service_time"}
 
 func (v *invocation) runBenchmark(sigCtx, mctx context.Context, benchStarted chan struct{}) ([]*pb.RunSummary, bool) {
 	cfg := v.o.Cfg
@@ -88,6 +88,33 @@ func (v *invocation) runBenchmark(sigCtx, mctx context.Context, benchStarted cha
 			v.fail("RunBenchmark send on worker %d: %v", i, err)
 			return nil, false
 		}
+	}
+	if cfg.Ramp {
+		rampCSV, err := v.dir.OpenCSV("ramp_steps.csv", results.RampStepsHeader...)
+		if err != nil {
+			v.fail("ramp_steps.csv: %v", err)
+			cancelAll()
+			return nil, false
+		}
+		defer rampCSV.Close()
+		setRate := func(step int, clusterRate float64, effectiveMs int64) {
+			msg := setRateMsg(step, clusterRate/float64(n), effectiveMs)
+			for i := range streams {
+				sendMu[i].Lock()
+				if err := streams[i].Send(msg); err != nil {
+					v.warn("ramp: set_rate to worker %d: %v", i, err)
+				}
+				sendMu[i].Unlock()
+			}
+			v.ev.At(effectiveMs, fmt.Sprintf("ramp_step_%d_%.0f_ops_per_sec", step, clusterRate))
+		}
+		if v.ramp, err = newRampDriver(v, rampCSV, setRate, cancelAll); err != nil {
+			v.fail("ramp: %v", err)
+			cancelAll()
+			return nil, false
+		}
+		v.ev.At(v.runStartMs, fmt.Sprintf("ramp_step_0_%.0f_ops_per_sec", cfg.RampStartRate))
+		v.ramp.start()
 	}
 	close(benchStarted)
 	stopSig := make(chan struct{})
@@ -231,7 +258,7 @@ func (v *invocation) handleWindows(wins []*stats.Window) {
 				errNote += fmt.Sprintf(" missed=%d", m.Missed)
 			}
 			if stats.IsLag(op) {
-				parts = append(parts, fmt.Sprintf("send_lag p50=%s p99=%s max=%s", fmtUs(m.Hist.Quantile(0.5)),
+				parts = append(parts, fmt.Sprintf("%s p50=%s p99=%s max=%s", op, fmtUs(m.Hist.Quantile(0.5)),
 					fmtUs(m.Hist.Quantile(0.99)), fmtUs(m.Hist.Max())))
 				continue
 			}
@@ -243,6 +270,9 @@ func (v *invocation) handleWindows(wins []*stats.Window) {
 		}
 		v.lastServer = w.Server
 		v.windows++
+		if v.ramp != nil {
+			v.ramp.onWindow(w)
+		}
 		fmt.Fprintln(v.out, progressLine(v.o.Command, fmtOffset(w.Index*v.intervalMs), parts))
 	}
 }

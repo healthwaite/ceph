@@ -12,6 +12,7 @@ const char *metric_name(Metric m)
     case Metric::KeysListed: return "keys_listed";
     case Metric::KeysDeleted: return "keys_deleted";
     case Metric::SendLag: return "send_lag";
+    case Metric::ServiceTime: return "service_time";
     default: return "unknown";
   }
 }

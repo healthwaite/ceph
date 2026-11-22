@@ -80,6 +80,7 @@ type invocation struct {
 	fdbStart, fdbEnd               *collect.ClusterSample
 	fdbConfig                      []collect.RoleRow
 	fdbSampler                     *collect.FDBSampler // nil when FDB stats are off
+	ramp                           *rampDriver         // --ramp runs only
 }
 
 // setFDBPhase tags the raw FDB status samples that start from now on.

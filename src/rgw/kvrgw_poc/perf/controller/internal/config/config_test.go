@@ -404,3 +404,50 @@ func TestFdbStatusRawDefaultsOnAndCanBeDisabled(t *testing.T) {
 		t.Fatalf("flag: %v %v", err, c.FdbStatusRaw)
 	}
 }
+
+func TestRampConfig(t *testing.T) {
+	c := Defaults()
+	c.Ramp = true
+	if err := c.Validate("run-put-object"); err == nil || !contains(err.Error(), "ramp_start_rate") {
+		t.Fatalf("start rate required: %v", err)
+	}
+	c.RampStartRate = 2000
+	if err := c.Validate("run-put-object"); err != nil {
+		t.Fatalf("ramp without ops/duration: %v", err)
+	}
+	if err := c.Validate("run-list-objects"); err == nil {
+		t.Fatal("ramp is run-put-* only")
+	}
+	c.Ops = 10
+	if err := c.Validate("run-put-object"); err == nil {
+		t.Fatal("ops not allowed with ramp")
+	}
+	c.Ops = 0
+	c.RampMaxRate = 1000
+	if err := c.Validate("run-put-object"); err == nil {
+		t.Fatal("max below start")
+	}
+	c.RampMaxRate = 0
+	c.Arrival = "bursty"
+	if err := c.Validate("run-put-object"); err == nil {
+		t.Fatal("bad arrival")
+	}
+	c.Arrival = "poisson"
+	c.WorkerCount = 4
+	w := c.ApplyCommandRules("run-put-object")
+	if c.DriverMode != "async" || c.RateOpsPerSec != 500 || len(w) != 1 || !c.OpenLoop() {
+		t.Fatalf("rules: %+v %v", c, w)
+	}
+	b, _ := c.WorkerJSON()
+	if !contains(string(b), `"arrival":"poisson"`) || !contains(string(b), `"rate_ops_per_sec":500`) {
+		t.Fatalf("%s", b)
+	}
+	ov := NewOverrides()
+	ov.vals["ramp"] = "true"
+	ov.vals["ramp_start_rate"] = "1500.5"
+	ov.vals["ramp_max_p99_ms"] = "20"
+	c2 := Defaults()
+	if err := ov.Apply(&c2); err != nil || !c2.Ramp || c2.RampStartRate != 1500.5 || c2.RampMaxP99Ms != 20 {
+		t.Fatalf("%v %+v", err, c2)
+	}
+}

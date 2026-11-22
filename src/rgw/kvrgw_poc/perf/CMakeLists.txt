@@ -49,7 +49,7 @@ set_target_properties(kvrgw-perf-worker PROPERTIES
   INSTALL_RPATH "${FDB_LIB_DIR};$ORIGIN")
 
 # ---- unit tests (plain executables, like the existing tests) ----
-foreach(t keys_test histogram_test verify_test stats_test)
+foreach(t keys_test histogram_test verify_test stats_test arrival_test)
   add_executable(perf_${t} worker/tests/${t}.cpp)
   target_link_libraries(perf_${t} PRIVATE perf_core)
   target_compile_definitions(perf_${t} PRIVATE

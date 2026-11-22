@@ -29,9 +29,20 @@ message RunControl {
   string benchmark_id = 1;     // first message only
   int64 run_start_unix_ns = 2; // first message only: aligns windows across workers
   int64 report_interval_ms = 3;// first message only; 0 disables progress
-  oneof msg { Cancel cancel = 4; }
+  oneof msg {
+    Cancel cancel = 4;
+    SetRate set_rate = 5;      // open loop: change this worker's target rate
+  }
 }
 message Cancel {}
+// Open loop (ramp): from effective_at_unix_ns on, every generator of the worker
+// re-anchors its schedule there at the new rate. Sent ahead of time so all
+// workers switch on the same window boundary.
+message SetRate {
+  int64 step = 1;                  // ramp step number (for logs)
+  double rate_ops_per_sec = 2;     // this worker's new target (cluster total / workers)
+  int64 effective_at_unix_ns = 3;  // controller wall clock
+}
 message VerifyRequest {
   string benchmark_id = 1;
   // Indexed by global stream id (length worker_count * streams_per_worker; in sync mode a
@@ -71,6 +82,7 @@ message ProgressReport {
   ServerStats server_stats = 7; // cumulative snapshot of in-process kvrgw stats
   map<string, string> error_descriptions = 8; // error code name -> human-readable text
   double target_rate = 9;      // open loop only: this worker's target ops/s; 0 = closed loop
+  uint64 outstanding = 10;     // open loop: ops issued and not yet finished, at the window end (gauge)
 }
 // Snapshot of the worker's in-process kvrgw statistics (the same counters the
 // legacy admin socket exposed via get-latency / get-batch-stats / get-error-stats).
@@ -116,8 +128,9 @@ message ServerOpStats {
 message OpStats {
   string operation_type = 1;   // "put_object","list_objects","delete_multi","list_delete_multi",
                                // plus counter-style types: "keys_listed","keys_deleted",
-                               // and "send_lag" (open loop: send time - scheduled time per
-                               // op; a latency histogram, count = ops sent)
+                               // and, open loop only, latency histograms that are not op types:
+                               // "send_lag" (send time - scheduled time; count = ops sent) and
+                               // "service_time" (send -> completion, retries included)
   uint64 count = 2;            // successes; latency covers only these
   uint64 errors = 3;
   uint64 sum_micros = 4;

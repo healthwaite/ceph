@@ -1,5 +1,7 @@
 #include "service.hpp"
 
+#include "arrival.hpp"
+
 #include "async/executor.hpp"
 #include "async/task.hpp"
 #include "error_codes.hpp"
@@ -7,7 +9,10 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
+#include <optional>
+#include <random>
 #include <coroutine>
 #include <cstdio>
 #include <functional>
@@ -81,43 +86,59 @@ struct Outstanding {
 kvrgw::async::Task<void> open_loop_one(RunContext &ctx, Operation &op, Stream &g, uint64_t i,
                                        SteadyClock::time_point sched, Outstanding &out)
 {
+  const auto sent = SteadyClock::now();
   try {
     co_await op.open_loop_op(ctx, g, i, sched);
   } catch (const std::exception &e) {
     ctx.fail(std::string("open loop op exception: ") + e.what());
   }
+  // Service time: from leaving the driver to completion (retries included).
+  g.ts->record(Metric::ServiceTime, static_cast<uint64_t>(elapsed_us(sent)));
+  ctx.outstanding.fetch_sub(1, std::memory_order_relaxed);
   if (--out.n == 0 && out.drain_waiter) {
     std::exchange(out.drain_waiter, {}).resume();
   }
 }
 
-// One generator: issues op k at t0 + k * D / rate (staggered by driver), on
-// its driver's timerfd. When it wakes late it issues every op that is due at
-// once; their latency still counts from their scheduled times. At most
-// max_outstanding ops are in flight; ops due beyond that are not issued and
-// are counted as missed.
+// One generator: issues its ops on the arrival schedule (constant: op k at
+// anchor + (k*D + driver) / rate; poisson: exponential gaps), on its driver's
+// timerfd. When it wakes late it issues every op that is due at once; their
+// latency still counts from their scheduled times. At most max_outstanding ops
+// are in flight; ops due beyond that are not issued and are counted as missed.
+// RunControl.set_rate re-anchors the schedule at the change's effective time.
 kvrgw::async::Task<void> open_loop_generator(RunContext &ctx, Operation &op, Stream &g,
                                              const std::function<void()> &on_done)
 {
   const int D = ctx.cfg.driver_threads;
-  const auto period = std::chrono::duration_cast<SteadyClock::duration>(
-      std::chrono::duration<double>(static_cast<double>(D) / ctx.cfg.rate_ops_per_sec));
-  const auto t0 = ctx.start_tp + std::chrono::duration_cast<SteadyClock::duration>(
-                                     std::chrono::duration<double>(g.driver / ctx.cfg.rate_ops_per_sec));
   const int64_t max_outstanding =
       std::max<int64_t>(1, ctx.svc->async_config().max_inflight_ops / D);
   const Metric metric = ctx.cfg.operation == "run-delete-multi" ? Metric::DeleteMulti : Metric::PutObject;
+  ArrivalSchedule sched_of(ctx.cfg.arrival == "poisson", D, g.driver,
+                           splitmix64_mix(static_cast<uint64_t>(ctx.run_start_unix_s) * 1000003ull + g.gsid));
+  sched_of.reset(ctx.start_tp, ctx.cfg.rate_ops_per_sec);
+  size_t applied = 0;  // rate changes already applied
+  // The next rate change not yet applied, if any.
+  auto pending = [&]() -> std::optional<RunContext::RateChange> {
+    std::lock_guard<std::mutex> lk(ctx.rate_mu);
+    if (applied < ctx.rate_changes.size()) return ctx.rate_changes[applied];
+    return std::nullopt;
+  };
   Outstanding out;
   uint64_t issued = 0;
-  uint64_t k = 0;  // schedule slot
   bool more = true;
   while (more && !ctx.stopped() && !ctx.expired()) {
-    co_await g.exec->sleep_until(t0 + period * static_cast<int64_t>(k));
+    auto change = pending();
+    if (change && change->at <= sched_of.next()) {
+      sched_of.reset(change->at, change->rate);
+      ++applied;
+      continue;
+    }
+    co_await g.exec->sleep_until(sched_of.next());
     const auto now = SteadyClock::now();
     uint64_t missed = 0;
-    // Issue every op that is due.
-    for (auto sched = t0 + period * static_cast<int64_t>(k); sched <= now;
-         ++k, sched = t0 + period * static_cast<int64_t>(k)) {
+    // Issue every op that is due (up to a rate change, which re-anchors).
+    for (auto sched = sched_of.next(); sched <= now; sched_of.advance(), sched = sched_of.next()) {
+      if (change && change->at <= sched) break;
       if (ctx.stopped() || ctx.expired() || !op.open_loop_more(ctx, g, issued)) {
         more = false;
         break;
@@ -127,6 +148,7 @@ kvrgw::async::Task<void> open_loop_generator(RunContext &ctx, Operation &op, Str
         continue;
       }
       ++out.n;
+      ctx.outstanding.fetch_add(1, std::memory_order_relaxed);
       ++issued;
       // Send lag: how late this op starts relative to its slot (late wake-ups,
       // and the preparation of earlier ops in the same burst).
@@ -343,6 +365,19 @@ grpc::Status WorkerService::RunBenchmark(
     perf::v1::RunControl m;
     while (s->Read(&m)) {
       if (m.has_cancel()) ctx.cancel = true;
+      if (m.has_set_rate()) {
+        // Map the controller's wall-clock boundary onto the steady clock, as
+        // for the start time.
+        const auto &sr = m.set_rate();
+        RunContext::RateChange c;
+        c.step = sr.step();
+        c.rate = sr.rate_ops_per_sec();
+        c.at = SteadyClock::now() + std::chrono::nanoseconds(sr.effective_at_unix_ns() - sys_now_ns());
+        if (c.rate > 0) {
+          std::lock_guard<std::mutex> lk(ctx.rate_mu);
+          ctx.rate_changes.push_back(c);
+        }
+      }
     }
   });
 
@@ -411,7 +446,19 @@ grpc::Status WorkerService::RunBenchmark(
     fill_stats(stats_->cumulative(), p->mutable_cumulative_stats());
     for (const auto &[code, text] : error_texts()) (*p->mutable_error_descriptions())[code] = text;
     p->set_cumulative_as_of_unix_ns(sys_now_ns());
-    if (ctx.cfg.open_loop()) p->set_target_rate(ctx.cfg.rate_ops_per_sec);
+    if (ctx.cfg.open_loop()) {
+      double rate = ctx.cfg.rate_ops_per_sec;
+      {
+        // The rate in force now (the latest change already effective).
+        std::lock_guard<std::mutex> lk(ctx.rate_mu);
+        const auto now = SteadyClock::now();
+        for (const auto &c : ctx.rate_changes) {
+          if (c.at <= now) rate = c.rate;
+        }
+      }
+      p->set_target_rate(rate);
+      p->set_outstanding(static_cast<uint64_t>(std::max<int64_t>(0, ctx.outstanding.load())));
+    }
     fill_server_stats(p->mutable_server_stats(), &drivers);
     s->Write(ev);
   };

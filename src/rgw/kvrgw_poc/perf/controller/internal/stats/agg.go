@@ -66,9 +66,24 @@ func (m *Metric) Empty() bool {
 // IsCounter reports counter-style op types (no latency).
 func IsCounter(op string) bool { return op == "keys_listed" || op == "keys_deleted" }
 
-// IsLag reports the open-loop send-lag metric: a latency histogram (send time minus
-// scheduled time per op), not an op type.
-func IsLag(op string) bool { return op == "send_lag" }
+// IsLag reports the open-loop latency histograms that are not op types: send_lag
+// (send time minus scheduled time per op) and service_time (send to completion).
+func IsLag(op string) bool { return op == "send_lag" || op == "service_time" }
+
+// Open-loop send lag is significant (part of the measured latency is client-side)
+// when its p99 is at least SendLagMinUs and at least SendLagShare of the op's p99.
+const (
+	SendLagMinUs = 1000
+	SendLagShare = 0.10
+)
+
+// SendLagSignificant applies the rule above; opP99Us == 0 counts as significant.
+func SendLagSignificant(lagP99Us, opP99Us uint64) bool {
+	if lagP99Us < SendLagMinUs {
+		return false
+	}
+	return opP99Us == 0 || float64(lagP99Us) >= SendLagShare*float64(opP99Us)
+}
 
 // FromProto converts an OpStats message.
 func FromProto(o *pb.OpStats) Metric {
@@ -91,6 +106,10 @@ type Window struct {
 	DurationNs int64
 	Ops        map[string]*Metric
 	Server     map[string]uint64 // summed server stats (cumulative) as of this window
+	// Open loop: ops in flight at the window's end and the target rate in force,
+	// both summed over workers.
+	Outstanding uint64
+	TargetRate  float64
 }
 
 // ThreadKey is the server_stats.csv name of a per-thread counter of worker w, e.g.
@@ -189,6 +208,8 @@ func (a *Aggregator) Add(w int, p *pb.ProgressReport) []*Window {
 	if p.WindowDurationNs > win.DurationNs {
 		win.DurationNs = p.WindowDurationNs
 	}
+	win.Outstanding += p.Outstanding
+	win.TargetRate += p.TargetRate
 	for _, o := range p.WindowStats {
 		m := FromProto(o)
 		cur := win.Ops[o.OperationType]

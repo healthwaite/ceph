@@ -32,6 +32,7 @@ std::string parse_config(const std::string &json_text, const std::string &operat
     get(j, "streams_per_worker", c.streams_per_worker);
     get(j, "driver_threads", c.driver_threads);
     get(j, "rate_ops_per_sec", c.rate_ops_per_sec);
+    get(j, "arrival", c.arrival);
     get(j, "verify_threads", c.verify_threads);
     get(j, "tenant_name", c.tenant_name);
     get(j, "report_interval_ms", c.report_interval_ms);
@@ -61,6 +62,7 @@ std::string parse_config(const std::string &json_text, const std::string &operat
   }
   if (c.driver_threads < 1) return "driver_threads must be >= 1";
   if (c.rate_ops_per_sec < 0) return "rate_ops_per_sec must be >= 0";
+  if (c.arrival != "constant" && c.arrival != "poisson") return "arrival must be constant or poisson";
   if (c.open_loop()) {
     if (!c.async_mode()) return "rate_ops_per_sec (open loop) requires driver_mode: async";
     if (operation != "run-put-object" && operation != "run-put-object-overwrite" &&
