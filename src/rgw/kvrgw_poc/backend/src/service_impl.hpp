@@ -576,6 +576,17 @@ class KvRgwServiceImpl final {
   KvrgwErrorCode get_object(tenant_id_t tenant_id, std::string_view bucket_name,
                             std::string_view key, std::optional<version_id_t> version_id,
                             const ByteRange* range, uint16_t part_number, GetObjectResult* out);
+  // Async GET: admission on the caller, then the KV reads (:O: / :V:, C:E, C:D,
+  // C:M, C:S, bucket state) are awaited on a backend worker. Data-tier file
+  // reads (storage tier, multipart parts, checksum file) stay blocking calls on
+  // that worker, as PUT's blob write does. Views passed in and *out must stay
+  // valid until the task completes. get_object is its sync wrapper.
+  async::Task<KvrgwErrorCode> get_object_a(tenant_id_t tenant_id, std::string_view bucket_name,
+                                           std::string_view key,
+                                           std::optional<version_id_t> version_id,
+                                           const ByteRange* range, uint16_t part_number,
+                                           GetObjectResult* out,
+                                           Caller caller = Caller::kAsync);
 
   // part_number: same contract as get_object's, minus any body read --
   // only overrides out->hdr.size to the resolved part's size.
@@ -871,6 +882,9 @@ class KvRgwServiceImpl final {
   KvrgwErrorCode resolve_bucket_error(tenant_id_t tenant_id,
                                       std::string_view bucket_name,
                                       KvrgwErrorCode tentative_err_code);
+  async::Task<KvrgwErrorCode> resolve_bucket_error_a(tenant_id_t tenant_id,
+                                                     std::string_view bucket_name,
+                                                     KvrgwErrorCode tentative_err_code);
 
   struct LoadResult {
     OwnedObjectValue value;
@@ -880,11 +894,18 @@ class KvRgwServiceImpl final {
   // The :O: value is read through an FdbGetHolder (zero-copy) and parsed in
   // place; only the <= 1 KB raw value is copied once into the result, so its
   // views outlive the future.
+  // The read helpers below have awaitable (_a) forms; each sync form is
+  // sync_wait() over it and runs inline on the calling thread (FDB awaits block
+  // there, as before). The sync forms must not be called on an executor thread.
   std::expected<std::optional<OwnedObjectValue>, fdb_error_t>
   load_object(bucket_id_t bucket_id, std::string_view object_name);
+  async::Task<std::expected<std::optional<OwnedObjectValue>, fdb_error_t>>
+  load_object_a(bucket_id_t bucket_id, std::string_view object_name);
 
   std::expected<std::optional<LoadResult>, fdb_error_t>
   load_object_with_data(bucket_id_t bucket_id, std::string_view object_name);
+  async::Task<std::expected<std::optional<LoadResult>, fdb_error_t>>
+  load_object_with_data_a(bucket_id_t bucket_id, std::string_view object_name);
 
   // want_manifest: bind the manifest (local copy, else C:E / C:M per the
   // location nibbles) into value->manifest_blob.
@@ -898,12 +919,30 @@ class KvRgwServiceImpl final {
       std::string* kv_data,
       std::string* error_detail,
       bool want_manifest = false);
+  async::Task<KvrgwErrorCode> load_object_for_read_a(
+      tenant_id_t tenant_id,
+      std::string_view bucket_name,
+      std::string_view key,
+      std::optional<version_id_t> version_id,
+      bool load_kv_data,
+      OwnedObjectValue* value,
+      std::string* kv_data,
+      std::string* error_detail,
+      bool want_manifest = false);
+  // The common tail of load_object_for_read_a: delete-marker check, then bind
+  // C:E and (on request) the manifest.
+  async::Task<KvrgwErrorCode> accept_read_a(
+      tenant_id_t tenant_id, std::string_view bucket_name, bucket_id_t bucket_id,
+      OwnedObjectValue obj, std::string data, OwnedObjectValue* value,
+      std::string* kv_data, std::string* error_detail, bool want_manifest);
 
   // Reads C:E for an object with kFlagExternalMetadata and binds its
   // metadata_frame (and, per the flags / manifest_loc, the manifest tail)
   // into `v`; the bytes live in v.child_e_raw. No-op without the flag.
   KvrgwErrorCode bind_child_e(bucket_id_t bucket_id, OwnedObjectValue& v,
                               KvTransaction* tr = nullptr);
+  async::Task<KvrgwErrorCode> bind_child_e_a(bucket_id_t bucket_id, OwnedObjectValue& v,
+                                             KvTransaction* tr = nullptr);
 
   // Multipart child loaders. Read rule: a local copy in :O: is always used;
   // C:E / C:M / C:S / the checksum file are read only when none is stored.
@@ -912,6 +951,8 @@ class KvRgwServiceImpl final {
   // v.manifest_blob (backed by v.child_e_raw).
   KvrgwErrorCode load_manifest(bucket_id_t bucket_id, OwnedObjectValue& v,
                                KvTransaction* tr = nullptr);
+  async::Task<KvrgwErrorCode> load_manifest_a(bucket_id_t bucket_id, OwnedObjectValue& v,
+                                              KvTransaction* tr = nullptr);
   // Per-part digests of entries [first_rank, first_rank + count) of the
   // object's included parts, concatenated (count * digest_len bytes).
   KvrgwErrorCode load_checksum_blob(bucket_id_t bucket_id, const ObjectValue& v,
@@ -922,6 +963,9 @@ class KvRgwServiceImpl final {
   KvrgwErrorCode load_checksum_slice(bucket_id_t bucket_id, const ObjectValue& v,
                                      size_t first_rank, size_t count, uint8_t* out,
                                      KvTransaction* tr = nullptr);
+  async::Task<KvrgwErrorCode> load_checksum_slice_a(bucket_id_t bucket_id, const ObjectValue& v,
+                                                    size_t first_rank, size_t count,
+                                                    uint8_t* out, KvTransaction* tr = nullptr);
 
   bool move_object_to_g(KvTransaction& tr, std::string_view object_key, const ObjectValue& value);
 

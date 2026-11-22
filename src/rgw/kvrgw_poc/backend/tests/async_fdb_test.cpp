@@ -15,6 +15,7 @@
 #include "async_test_util.hpp"
 
 #include <atomic>
+#include <span>
 #include <cstdlib>
 #include <latch>
 #include <memory>
@@ -295,12 +296,160 @@ ATEST(put_object_a_many_concurrent_from_one_executor) {
   ACHECK_EQ(svc().admission().inflight(), 0);
 }
 
+namespace {
+std::string pattern(size_t n, int seed) {
+  std::string s(n, '\0');
+  uint32_t x = 2166136261u ^ static_cast<uint32_t>(seed);
+  for (size_t i = 0; i < n; ++i) {
+    x = x * 16777619u + 7;
+    s[i] = static_cast<char>(x >> 24);
+  }
+  return s;
+}
+
+KvRgwServiceImpl::PutObjectResult put_sync(std::string_view bucket, const std::string& key,
+                                           const std::string& body,
+                                           std::span<const MetaPair> meta = {}) {
+  return svc().put_object(g_tenant, bucket, key, reinterpret_cast<const uint8_t*>(body.data()),
+                          body.size(), "", 0, nullptr, {}, meta);
+}
+}  // namespace
+
+ATEST(get_object_a_every_tier_ranges_and_errors) {
+  ensure_bucket();
+  ExecutorThread drv("get");
+  drv.start();
+  // inline (<= 256 B), C:D (<= 4 KiB), storage tier, and one with metadata.
+  struct Obj { std::string key; std::string body; };
+  std::vector<Obj> objs = {{"get-inline", pattern(100, 1)}, {"get-childd", pattern(3000, 2)},
+                           {"get-storage", pattern(200000, 3)}, {"get-meta", pattern(1500, 4)}};
+  const std::string big_meta(900, 'm');
+  const MetaPair meta[] = {{"x-amz-meta-a", "one"}, {"x-amz-meta-big", big_meta}};
+  for (auto& o : objs) {
+    auto r = o.key == "get-meta" ? put_sync(kBucket, o.key, o.body, meta) : put_sync(kBucket, o.key, o.body);
+    ACHECK_EQ(r.error_code, KVRGW_ERR_OK);
+  }
+  auto get = [&](std::string key, const ByteRange* range, KvRgwServiceImpl::GetObjectResult* out,
+                 Executor* where) -> Task<std::pair<KvrgwErrorCode, bool>> {
+    auto ec = co_await svc().get_object_a(g_tenant, kBucket, key, std::nullopt, range, 0, out);
+    co_return std::make_pair(ec, Executor::current() == where);
+  };
+  for (auto& o : objs) {
+    KvRgwServiceImpl::GetObjectResult res;
+    auto [ec, same] = sync_wait([&]() -> Task<std::pair<KvrgwErrorCode, bool>> {
+      co_await switch_to(drv.executor());
+      co_return co_await get(o.key, nullptr, &res, &drv.executor());
+    }());
+    ACHECK_EQ(ec, KVRGW_ERR_OK);
+    ACHECK(same);  // resumed on the caller's executor
+    ACHECK(res.body == o.body);
+    ACHECK_EQ(res.value.hdr.size, o.body.size());
+    // Range bytes=10-99, on every tier.
+    ByteRange rg;
+    rg.start = 10;
+    rg.end = 99;
+    KvRgwServiceImpl::GetObjectResult part;
+    ACHECK_EQ(sync_wait(svc().get_object_a(g_tenant, kBucket, o.key, std::nullopt, &rg, 0, &part)),
+              KVRGW_ERR_OK);
+    ACHECK(part.body == o.body.substr(10, 90));
+    // The sync wrapper returns the same bytes.
+    KvRgwServiceImpl::GetObjectResult s;
+    ACHECK_EQ(svc().get_object(g_tenant, kBucket, o.key, std::nullopt, nullptr, 0, &s), KVRGW_ERR_OK);
+    ACHECK(s.body == o.body);
+  }
+  {
+    ByteRange bad;
+    bad.start = 10000000;
+    bad.end = 10000010;
+    KvRgwServiceImpl::GetObjectResult r;
+    ACHECK_EQ(sync_wait(svc().get_object_a(g_tenant, kBucket, "get-childd", std::nullopt, &bad, 0, &r)),
+              KVRGW_ERR_INVALID_RANGE);
+  }
+  KvRgwServiceImpl::GetObjectResult r;
+  ACHECK_EQ(sync_wait(svc().get_object_a(g_tenant, kBucket, "get-missing", std::nullopt, nullptr, 0, &r)),
+            KVRGW_ERR_NO_SUCH_KEY);
+  ACHECK_EQ(sync_wait(svc().get_object_a(g_tenant, "async-no-such-bucket", "k", std::nullopt, nullptr, 0, &r)),
+            KVRGW_ERR_NO_SUCH_BUCKET);
+  ACHECK_EQ(sync_wait(svc().get_object_a(g_tenant, kBucket, "get-inline", std::nullopt, nullptr, 2, &r)),
+            KVRGW_ERR_INVALID_PART);
+  drv.stop_and_join();
+  ACHECK_EQ(svc().admission().inflight(), 0);
+}
+
+ATEST(get_object_a_versions_and_delete_marker) {
+  ensure_bucket();
+  const char* vb = "async-fdb-test-versioned";
+  ACHECK_EQ(svc().create_bucket(g_tenant, vb), KVRGW_ERR_OK);
+  ACHECK_EQ(svc().put_bucket_versioning(g_tenant, vb, VERSIONING_ENABLED), KVRGW_ERR_OK);
+  const std::string v1 = pattern(3000, 11), v2 = pattern(500000, 12);
+  auto r1 = put_sync(vb, "vk", v1);
+  auto r2 = put_sync(vb, "vk", v2);
+  ACHECK_EQ(r1.error_code, KVRGW_ERR_OK);
+  ACHECK_EQ(r2.error_code, KVRGW_ERR_OK);
+  KvRgwServiceImpl::GetObjectResult g;
+  ACHECK_EQ(sync_wait(svc().get_object_a(g_tenant, vb, "vk", std::nullopt, nullptr, 0, &g)), KVRGW_ERR_OK);
+  ACHECK(g.body == v2);
+  ACHECK_EQ(sync_wait(svc().get_object_a(g_tenant, vb, "vk", r1.version_id, nullptr, 0, &g)), KVRGW_ERR_OK);
+  ACHECK(g.body == v1);  // older version, read from :V:
+  ACHECK_EQ(sync_wait(svc().get_object_a(g_tenant, vb, "vk", r2.version_id, nullptr, 0, &g)), KVRGW_ERR_OK);
+  ACHECK(g.body == v2);  // current version, by id
+  KvRgwServiceImpl::DeleteResult dr;
+  ACHECK_EQ(svc().delete_object(g_tenant, vb, "vk", nullptr, &dr), KVRGW_ERR_OK);
+  ACHECK(dr.created_dm);
+  ACHECK_EQ(sync_wait(svc().get_object_a(g_tenant, vb, "vk", std::nullopt, nullptr, 0, &g)),
+            KVRGW_ERR_NO_SUCH_KEY);
+  ACHECK(!g.error_detail.empty());  // delete-marker detail is reported
+  ACHECK_EQ(sync_wait(svc().get_object_a(g_tenant, vb, "vk", version_id_t{}, nullptr, 0, &g)),
+            KVRGW_ERR_NO_SUCH_VERSION);
+}
+
+ATEST(get_object_a_many_concurrent_and_queue_full) {
+  ensure_bucket();
+  const std::string body = pattern(3000, 21);
+  ACHECK_EQ(put_sync(kBucket, "get-conc", body).error_code, KVRGW_ERR_OK);
+  ExecutorThread drv("getc");
+  drv.start();
+  constexpr int kN = 2000;
+  std::atomic<int> ok{0}, qf{0}, bad{0};
+  std::latch done(kN);
+  auto one = [&]() -> Task<void> {
+    KvRgwServiceImpl::GetObjectResult res;
+    auto ec = co_await svc().get_object_a(g_tenant, kBucket, "get-conc", std::nullopt, nullptr, 0, &res);
+    if (ec == KVRGW_ERR_OK && res.body == body) ok.fetch_add(1);
+    else if (ec == KVRGW_ERR_QUEUE_FULL) qf.fetch_add(1);
+    else bad.fetch_add(1);
+    done.count_down();
+  };
+  for (int i = 0; i < kN; ++i) spawn(drv.executor(), one());
+  done.wait();
+  drv.stop_and_join();
+  ACHECK_EQ(bad.load(), 0);
+  ACHECK_EQ(ok.load() + qf.load(), kN);
+  ACHECK(ok.load() > 0);
+  // At the limit an async GET is refused; the sync wrapper is not.
+  auto& adm = svc().admission();
+  std::vector<Admission::Guard> held(static_cast<size_t>(adm.max()));
+  for (auto& g : held) ACHECK_EQ(adm.admit(Caller::kAsync, &g), KVRGW_ERR_OK);
+  KvRgwServiceImpl::GetObjectResult res;
+  ACHECK_EQ(sync_wait(svc().get_object_a(g_tenant, kBucket, "get-conc", std::nullopt, nullptr, 0, &res)),
+            KVRGW_ERR_QUEUE_FULL);
+  ACHECK_EQ(svc().get_object(g_tenant, kBucket, "get-conc", std::nullopt, nullptr, 0, &res), KVRGW_ERR_OK);
+  ACHECK(res.body == body);
+  held.clear();
+  ACHECK_EQ(svc().admission().inflight(), 0);
+}
+
 int main(int argc, char** argv) {
   // Small async limits so the admission tests can reach them.
   setenv("KVRGW_MAX_INFLIGHT_OPS", "64", 0);
+  // A real file data store (perf mode's keeps no blobs), so storage-tier GETs
+  // return data.
+  char data_dir[] = "/tmp/kvrgw-async-fdb-test-XXXXXX";
+  if (mkdtemp(data_dir) == nullptr) return 1;
+  setenv("KVRGW_DATA", data_dir, 1);
   KvRgwRuntime rt;
   KvRgwStartOptions opts;
-  opts.perf_mode = true;
+  opts.perf_mode = false;
   if (!rt.start(opts)) {
     std::fprintf(stderr, "runtime start failed (is FDB running?)\n");
     return 1;
