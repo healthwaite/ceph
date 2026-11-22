@@ -54,6 +54,19 @@ Async runtime knobs live in the `kvrgw:` section (`backend_workers`,
 `max_inflight_ops`. To compare against the pre-async backend, run the old worker
 binary with the same configuration.
 
+Ramp: `--ramp` on run-put-object / -overwrite / -overwrite-versioned finds the maximum
+sustainable rate. It offers `ramp_start_rate`, then `+ ramp_step_rate` per step (cluster
+totals), each step a warm-up then a measured window, and stops at the first step that
+misses a criterion (p99 below `ramp_max_p99_ms`, achieved, missed, errors, backlog); a
+step where the load generator itself is the limit is reported as invalid. Example:
+
+    kvrgw-perf --ramp --ramp-start-rate 5000 --ramp-step-rate 1000 --duration 2h run-put-object-overwrite
+
+`--arrival poisson` uses exponential inter-arrival times (any open-loop run). Results:
+the live per-step lines, `ramp_steps.csv`, `summary.json` and the report's Ramp section.
+Prefer run-put-object-overwrite for a capacity number: run-put-object grows the data set
+for the whole ramp. Details: `RAMP.md`.
+
 Thread utilisation: every progress report carries CPU and wall time for each backend
 worker (`kvrgw-be-N`), the FDB client network thread (`fdb-network`) and each async
 driver (`perf-drv-N`), plus libfdb_c's own network-thread busyness. The report's
@@ -146,7 +159,7 @@ layout config. `run-*` commands take exactly one of `--ops N` / `--duration D`.
 Local mode (the only mode in v1) spawns `worker_count` workers on `127.0.0.1:<base-port+i>` (base port 19090 by default, `--base-port` to change);
 `--cpus 0-15` splits a CPU pool across them with `taskset`.
 
-Results directory: `config.resolved.json kvrgw.yaml events.csv metrics.csv errors.csv hist.csv server_stats.csv
+Results directory: `config.resolved.json kvrgw.yaml events.csv metrics.csv errors.csv hist.csv server_stats.csv ramp_steps.csv (--ramp)
 cpu.csv fdb_cluster.csv fdb_process.csv fdb_cpu.csv fdb_status_start.json fdb_status.jsonl summary.json controller.log
 worker-<i>.log` (spec section 8.1). FDB files are present only if `fdbcli` works.
 `fdb_status.jsonl` holds every raw `status json` sample, compacted and uncompressed, one JSON object per

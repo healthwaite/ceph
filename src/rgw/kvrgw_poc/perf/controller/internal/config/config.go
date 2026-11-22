@@ -565,6 +565,16 @@ func (c *Config) ApplyCommandRules(command string) (warnings []string) {
 		}
 		c.DriverMode = "async"
 		c.RateOpsPerSec = c.RampStartRate / float64(c.WorkerCount)
+		// duration (often set per command in the config file) caps the ramp.
+		if d, err := c.DurationValue(); err == nil && d > 0 {
+			if w, m, err := c.RampDurations(); err == nil && w+m > 0 {
+				if steps := int(d / (w + m)); steps < 3 {
+					warnings = append(warnings, fmt.Sprintf(
+						"duration %s caps the ramp at %d complete step(s) of %s; pass a longer --duration",
+						d, steps, w+m))
+				}
+			}
+		}
 	}
 	switch command {
 	case "run-list-objects", "run-list-delete-multi":

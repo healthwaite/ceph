@@ -1,4 +1,8 @@
-# kvrgw-perf: open-loop ramp (`--ramp`) — plan
+# kvrgw-perf: open-loop ramp (`--ramp`)
+
+Status: implemented (phases 1–4 below). Validated locally against a single-process FDB:
+a constant ramp (3k, 6k, 9k ops/s) stopped at 9k on p99; a Poisson ramp (4k … 8k, +1k)
+found 7k sustainable and failed 8k on p99 and backlog growth; verify passed after both.
 
 Find the **maximum sustainable throughput** of the PUT path by offering a fixed-rate,
 open-loop load that steps up linearly, judging every step against explicit criteria,
@@ -35,8 +39,9 @@ Decisions (agreed 2026-11-22):
 | `ramp_max_backlog_growth_pct` | 50 | outstanding ops at the end of the measure window vs its start |
 | `arrival` | `constant` | `constant` or `poisson` inter-arrival times |
 
-`duration` is optional with `--ramp` (an overall cap); `ops` is not allowed. `rate_ops_per_sec`
-is ignored (the ramp sets it).
+`duration` is optional with `--ramp` (an overall cap; the controller warns when it allows
+fewer than three steps); `ops` is not allowed; `rate_ops_per_sec` must not be set (the ramp
+sets it).
 
 ## Mechanism
 

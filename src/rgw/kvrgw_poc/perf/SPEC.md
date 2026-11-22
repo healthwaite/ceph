@@ -397,6 +397,8 @@ and `perf_driver.cpp` (`KVRGW_*` env handling, key prefix/suffix lengths,
 | `streams_per_worker` | = `threads_per_worker` (0 in the file) | closed-loop concurrency per worker |
 | `driver_threads` | 2 | async mode: executor threads driving the streams |
 | `rate_ops_per_sec` | 0 (closed loop) | per-worker target rate; > 0 = open loop (async mode; run-put-object, run-put-object-overwrite(-versioned), run-delete-multi). Latency is measured from each op's scheduled time; ops due beyond `max_inflight_ops / driver_threads` outstanding are counted as `missed`; `send_lag` records how late each op was sent |
+| `arrival` | `constant` | open-loop inter-arrival times: `constant` (op *k* at `anchor + (k·D + driver)/rate`) or `poisson` (exponential gaps, mean `D/rate`, per-generator seed) |
+| `ramp` (`--ramp`) | false | run-put-* only: an open-loop ramp to the maximum sustainable rate, configured by the `ramp_*` keys (see `perf/RAMP.md`): `ramp_start_rate` (required), `ramp_step_rate` (= start), `ramp_max_rate` (none) — cluster totals, ops/s; `ramp_warmup` 30s, `ramp_measure` 60s; criteria `ramp_max_p99_ms` 50, `ramp_max_missed_pct` 0.1, `ramp_max_error_pct` 0.1, `ramp_min_achieved_pct` 99, `ramp_max_backlog_growth_pct` 50. `ops` is not allowed; `duration` is an optional cap |
 | `verify_threads` | 4 | threads per worker for list-based Verify scans (§5.4); independent of `threads_per_worker` |
 | `tenant_name` | `kv-poc` (`KVRGW_TENANT_NAME`) | tenant to use |
 | `batch_size`, `batch_timeout_us` | from `kvrgw.yaml` | PutObject batch queue (`kvrgw:` section; exported as `KVRGW_BATCH_*`) |
@@ -709,6 +711,11 @@ read.**
   minus scheduled time is recorded as `send_lag`. A reporter snapshots/merges
   at each window boundary and calls `ServerWriter::Write`. Use a monotonic clock for
   latency; windows are derived from `run_start_unix_ns`.
+- Ramp (`--ramp`): the controller sends `RunControl.set_rate {step, rate, effective_at}`
+  one step ahead; each generator re-anchors its arrival schedule at `effective_at` (its key
+  counter continues, so verify is unchanged). `ProgressReport.outstanding` reports the
+  open-loop ops in flight at each window end, and `service_time` (send → completion)
+  complements `send_lag`. Step evaluation, criteria and outputs: `perf/RAMP.md`.
 - Thread utilisation: `ServerStats.threads` carries cumulative CPU and wall time per
   backend worker, FDB network thread and (async mode) driver executor, and
   `fdb_network_busyness` libfdb_c's own gauge; the report turns them into busy % per
@@ -773,6 +780,7 @@ All timestamps are Unix milliseconds UTC (`unix_ts_ms`) from the controller's cl
 | `events.csv` | `unix_ts_ms,event` for `invocation_start`, `init_done`, `benchmark_start` (= `run_start_unix_ns`), `benchmark_end` (last worker DONE), `verify_start`, `verify_end`, `invocation_end` |
 | `summary.json` | command, parameters, totals per op, per-worker `RunSummary`, verify result (incl. per-bucket missing counts/keys), error count, exit status |
 | `metrics.csv` | client metrics, one row per (window, op_type): `unix_ts_ms, window, op_type, count, errors, ops_per_sec, mean_us, p50_us, p90_us, p99_us, p999_us, max_us, cum_count, cum_errors, queue_full, missed`. Counter-style types (`keys_listed`, `keys_deleted`) fill `count`/`ops_per_sec` (= units/s) and leave latency columns empty. `send_lag` (open loop) is a latency row whose `count` is ops sent and whose latency columns are send time minus scheduled time. `queue_full` / `missed` (async / open loop) are absent in results from older versions. `unix_ts_ms` is the window end. Flushed every window |
+| `ramp_steps.csv` | `--ramp` only: one row per evaluated step — target, measure seconds, scheduled / completed / errors / missed, achieved ops/s and %, missed %, error %, end-to-end p50 / p99 / p99.9, service-time p99, send-lag p99, outstanding at the start and end of the measure window, backlog growth %, busiest driver %, verdict (`pass`, `fail`, `generator-limited`) and the failed criteria. `summary.json` gains `ramp` (steps, max sustainable, max achieved, stop reason) and `events.csv` a `ramp_step_<i>_<rate>_ops_per_sec` event per step |
 | `hist.csv` | sparse merged per-window histograms: `window, op_type, bucket_index, count` (lets `report` compute overall quantiles over any time range) |
 | `server_stats.csv` | server-side kvrgw stats summed over workers, long format, cumulative (consumers diff): `unix_ts_ms,window,name,value`. `name` is `<Op>.count`, `<Op>.total_us`, `<Op>.fdb_us`, `<Op>.fdb_get_us`, `<Op>.fdb_commit_us`, `<Op>.fdb_scan_us`, `<Op>.disk_us` (e.g. `PutObject.count`), `batch.commits`, `batch.entries`, `batch.wait_us_total`, `batch.queue_size_total`, `batch.conflict_pushbacks`, `txn.retries`, `txn.hard_failures`, `error.<KvrgwErrorCode name>`, `async.queue_full_rejects`, `async.inflight_ops_peak` (gauge), `async.frames_heap_fallback`, `async.max_frame_size` (gauge), per-thread `thread.<group>.w<worker>.<thread>.cpu_ns` / `.wall_ns` (group `backend`, `fdb-network` or `driver`; per worker, so not summed), or `fdbnet.w<worker>.busyness_ppm` (gauge, libfdb_c network busyness in parts per million) |
 | `cpu.csv` | `unix_ts_ms,source,cores` — `source` = `worker-<i>` (CPU of the worker process, in cores, from `/proc/<pid>/stat` utime+stime delta) or `system` (whole-host CPU busy in cores-equivalent from `/proc/stat` delta) |
@@ -892,6 +900,10 @@ as `keys_listed` print only ops/sec):
 (The numbers are illustrative; the block predates the async additions below.)
 
 Async and open-loop additions:
+- Ramp (`--ramp`): a Ramp section with the step table (target, achieved, p50 / p99,
+  service p99, missed, errors, backlog, driver busy, verdict and failed criteria), the stop
+  reason, the maximum sustainable rate (highest passing target) and the maximum achieved
+  rate.
 - Header: a `Clients` line with workers × streams (× generators in open loop),
   `driver_mode`, and in async mode `driver_threads` (and `rate_ops_per_sec`).
 - Client run totals: a `queue_full` column for async runs (or whenever non-zero), with a
