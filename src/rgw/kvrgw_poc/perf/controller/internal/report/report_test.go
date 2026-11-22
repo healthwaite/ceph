@@ -558,3 +558,23 @@ func TestFDBPerRoleWindows(t *testing.T) {
 		t.Fatal("per-role table must be --detailed only")
 	}
 }
+
+func TestSendLagHint(t *testing.T) {
+	cases := []struct {
+		lag, op uint64
+		drv     float64
+		want    string
+	}{
+		{900, 2000, 0.9, ""},                             // under 1 ms: nothing
+		{1070, 1917000, 0.12, "[INFO]"},                  // negligible next to op p99
+		{5000, 20000, 0.87, "raise driver_threads"},      // significant, drivers busy
+		{5000, 20000, 0.10, "the lag comes from bursts"}, // significant, drivers idle
+		{5000, 0, 0.10, "the lag comes from bursts"},     // no op p99 known
+	}
+	for _, c := range cases {
+		got := sendLagHint(c.lag, c.op, c.drv)
+		if (c.want == "" && got != "") || (c.want != "" && !strings.Contains(got, c.want)) {
+			t.Errorf("sendLagHint(%d, %d, %.2f) = %q, want %q", c.lag, c.op, c.drv, got, c.want)
+		}
+	}
+}

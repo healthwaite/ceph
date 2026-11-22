@@ -896,9 +896,11 @@ Async and open-loop additions:
   `driver_mode`, and in async mode `driver_threads` (and `rate_ops_per_sec`).
 - Client run totals: a `queue_full` column for async runs (or whenever non-zero), with a
   `[WARN]` when submits hit `max_inflight_ops`. In open loop: target vs achieved rate,
-  `missed` (`[WARN]` when non-zero), and the `send_lag` percentiles, with a `[WARN]`
-  when its p99 exceeds 1 ms (ops left the driver late: part of the latency is
-  client-side).
+  `missed` (`[WARN]` when non-zero), and the `send_lag` percentiles. When send-lag p99
+  exceeds 1 ms: `[INFO]` (negligible) if it is under 10% of the op's p99; otherwise a
+  `[WARN]` that part of the latency is client-side, suggesting more `driver_threads`
+  when the busiest driver is at least 50% busy and naming send bursts (late timer
+  wake-ups, back-to-back preparation of due ops) when it is not.
 - Server-side KVRGW: `queue_full_rejects` and the highest `inflight_ops_peak`.
 - Thread utilisation: busy % (delta CPU / delta wall over the analysed window) per
   group — `backend`, `fdb-network`, `driver` — with thread count, average, maximum and

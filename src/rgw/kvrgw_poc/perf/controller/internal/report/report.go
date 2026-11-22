@@ -570,9 +570,22 @@ func (d *data) printClient(w io.Writer, o Options, from, to int64) {
 				stats.MsNum(float64(lag.Quantile(0.5))), stats.MsNum(float64(lag.Quantile(0.9))),
 				stats.MsNum(float64(lag.Quantile(0.99))), stats.MsNum(float64(lag.Quantile(0.999))),
 				stats.MsNum(float64(lag.Max())))
-			if p99 := lag.Quantile(0.99); p99 >= sendLagWarnUs {
-				fmt.Fprintf(w, " [WARN] ops left the driver late (send lag p99 %s ms): part of the measured latency is "+
-					"client-side; check driver busy %% below and raise driver_threads\n", stats.MsNum(float64(p99)))
+			// Compare with the op's own p99 (the busiest open-loop op) and with driver busy %.
+			var opP99 uint64
+			var most uint64
+			for _, op := range latOps {
+				if t := totals[op]; t.count > most {
+					most, opP99 = t.count, t.hist.Quantile(0.99)
+				}
+			}
+			var driverMax float64
+			for _, g := range stats.GroupUtils(d.threadUtils(from, to)) {
+				if g.Group == "driver" {
+					driverMax = g.Max
+				}
+			}
+			if line := sendLagHint(lag.Quantile(0.99), opP99, driverMax); line != "" {
+				fmt.Fprintln(w, line)
 			}
 		}
 	}
@@ -1558,8 +1571,38 @@ func (d *data) printFDBDisk(w io.Writer) {
 
 // Thread utilisation -----------------------------------------------------------------------
 
-// sendLagWarnUs: open-loop send lag p99 above this is reported as client-side delay.
-const sendLagWarnUs = 1000
+// Open-loop send-lag hints. Send lag matters only when it is a meaningful share of the
+// op's own latency; it is blamed on the drivers only when they are busy, otherwise it
+// comes from bursts (late timer wake-ups, preparing due ops back to back).
+const (
+	sendLagWarnUs     = 1000 // below this p99 the lag is never reported
+	sendLagShare      = 0.10 // lag p99 / op p99 above this is significant
+	sendLagDriverBusy = 0.50 // drivers at or above this are a plausible cause
+)
+
+// sendLagHint returns the report line for open-loop send lag, or "" when there is nothing
+// to say. lagP99Us / opP99Us are microseconds; driverMax is the busiest driver (0..1).
+func sendLagHint(lagP99Us, opP99Us uint64, driverMax float64) string {
+	if lagP99Us < sendLagWarnUs {
+		return ""
+	}
+	lag := stats.MsNum(float64(lagP99Us))
+	share := 1.0
+	if opP99Us > 0 {
+		share = float64(lagP99Us) / float64(opP99Us)
+	}
+	if share < sendLagShare {
+		return fmt.Sprintf(" [INFO] send lag p99 %s ms is %.1f%% of op p99 %s ms: client-side sending delay is negligible",
+			lag, 100*share, stats.MsNum(float64(opP99Us)))
+	}
+	if driverMax >= sendLagDriverBusy {
+		return fmt.Sprintf(" [WARN] ops left the driver late (send lag p99 %s ms, %.0f%% of op p99) and the busiest driver is %.0f%% busy: "+
+			"part of the measured latency is client-side; raise driver_threads", lag, 100*share, 100*driverMax)
+	}
+	return fmt.Sprintf(" [WARN] ops left the driver late (send lag p99 %s ms, %.0f%% of op p99) although drivers are at most %.0f%% busy: "+
+		"the lag comes from bursts (late timer wake-ups, preparing due ops back to back); more driver_threads would spread them",
+		lag, 100*share, 100*driverMax)
+}
 
 // Utilisation thresholds for the tuning hints.
 const (

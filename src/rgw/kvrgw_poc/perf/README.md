@@ -44,7 +44,9 @@ Concurrency is counted in *streams*: sequential clients with one op in flight.
   ops that could not be issued (the rate was not held). `send_lag` (send time minus
   scheduled time per op) shows how much of that latency is the driver sending late:
   the driver thread that sends also prepares ops and handles their completions, so a
-  busy driver sends late. A send-lag p99 over 1 ms is flagged in the report.
+  busy driver sends late. The report flags send lag only when its p99 is over 1 ms and
+over 10% of the op's p99, and suggests more `driver_threads` when drivers are busy
+(otherwise the lag is from send bursts); a smaller lag is noted as negligible.
 
 Async runtime knobs live in the `kvrgw:` section (`backend_workers`,
 `max_inflight_ops`, `txn_max_attempts`, `batch_txn_max_attempts`,
