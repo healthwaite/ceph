@@ -2,7 +2,9 @@
 
 Status: implemented (phases 1–4 below). Validated locally against a single-process FDB:
 a constant ramp (3k, 6k, 9k ops/s) stopped at 9k on p99; a Poisson ramp (4k … 8k, +1k)
-found 7k sustainable and failed 8k on p99 and backlog growth; verify passed after both.
+found 7k sustainable and failed 8k on p99 and backlog growth; a throughput-mode ramp
+(6k … 18k, +3k) passed 15k at p99 299 ms and failed 18k at 64% achieved, where the
+in-flight cap (8,192 at 700 ms mean ≈ 11.7k ops/s) was the limit; verify passed after all.
 
 Find the **maximum sustainable throughput** of the PUT path by offering a fixed-rate,
 open-loop load that steps up linearly, judging every step against explicit criteria,
@@ -35,7 +37,8 @@ Decisions (agreed 2026-11-22):
 | `ramp_max_p99_ms` | 50 | end-to-end p99 must be below this |
 | `ramp_max_missed_pct` | 0.1 | missed / scheduled arrivals |
 | `ramp_max_error_pct` | 0.1 | errors / (completed + errors) |
-| `ramp_min_achieved_pct` | 99 | completed / target over the measure window |
+| `ramp_mode` | `sla` | `sla`: judge every criterion below; `throughput`: judge only achieved and errors — ramp until a step completes less than `ramp_min_achieved_pct` of its target, latency ignored |
+| `ramp_min_achieved_pct` | 0 = 99 (`sla`) / 98 (`throughput`) | completed / target over the measure window |
 | `ramp_max_backlog_growth_pct` | 50 | outstanding ops at the end of the measure window vs its start |
 | `arrival` | `constant` | `constant` or `poisson` inter-arrival times |
 
@@ -71,11 +74,22 @@ From the measure windows, summed / merged over workers:
 - outstanding ops (new per-window gauge) at the start and end of the measure window
 - busiest driver thread's busy %
 
+## Little's-law bound
+
+Before every async run the controller logs the in-flight cap and the rate it allows:
+cap = `max_inflight_ops` x workers in open loop (`min(streams, max_inflight_ops)` x workers
+in closed loop), and max rate = cap / mean latency, for 1 ms … 100 ms; for an `sla` ramp
+also at the p99 limit, and the mean latency `ramp_max_rate` would need. Each step's line
+(and `ramp_steps.csv`) adds the bound at the step's measured mean latency (`Little max`):
+when the achieved rate meets it, the cap rather than the backend is the limit.
+
 ## Verdict per step
 
-A step **passes** when every criterion holds: achieved ≥ `ramp_min_achieved_pct`,
-missed ≤ `ramp_max_missed_pct`, errors ≤ `ramp_max_error_pct`, p99 < `ramp_max_p99_ms`,
-backlog growth ≤ `ramp_max_backlog_growth_pct`. The failing criteria are listed.
+A step **passes** (`ramp_mode: sla`) when every criterion holds: achieved ≥
+`ramp_min_achieved_pct`, missed ≤ `ramp_max_missed_pct`, errors ≤ `ramp_max_error_pct`,
+p99 < `ramp_max_p99_ms`, backlog growth ≤ `ramp_max_backlog_growth_pct`. With
+`ramp_mode: throughput` only achieved (default 98%) and errors are judged; the other
+measurements are still reported. The failing criteria are listed.
 
 A step is **generator-limited** (result invalid, ramp stops) when the busiest driver is
 ≥ 85% busy, or send lag is significant (p99 ≥ 1 ms and ≥ 10% of op p99). The hint: raise

@@ -93,8 +93,55 @@ func TestSummarizeAndPlan(t *testing.T) {
 	if c.RampRate(2) != 3000 {
 		t.Fatal("step defaults to start")
 	}
-	r := Summarize(nil, "x")
-	if r.MaxSustainableOpsPerSec != 0 {
-		t.Fatal("empty")
+	r := Summarize(nil, "x", Criteria{ThroughputOnly: true, MinAchievedPct: 98})
+	if r.MaxSustainableOpsPerSec != 0 || r.Mode != "throughput" || r.MinAchievedPct != 98 {
+		t.Fatalf("empty: %+v", r)
+	}
+}
+
+func TestThroughputModeIgnoresLatency(t *testing.T) {
+	cr := baseCriteria()
+	cr.ThroughputOnly, cr.MinAchievedPct = true, 98
+	// Slow, backlogged, a few misses, but 98.5% of the target completed: passes.
+	in := Input{Step: 1, Target: 1000, MeasureSecs: 60, Op: lat(200000, 59100), SendLag: lat(20, 59100),
+		Service: lat(190000, 59100), OutstandingStart: 10, OutstandingEnd: 500}
+	in.Op.Missed = 100
+	if s := Evaluate(in, cr); s.Verdict != "pass" {
+		t.Fatalf("throughput mode should ignore latency/backlog/misses: %+v", s)
+	}
+	// Below 98% of the target: fails on throughput only.
+	in.Op = lat(200000, 58000)
+	s := Evaluate(in, cr)
+	if s.Verdict != "fail" || len(s.Failed) != 1 || !strings.Contains(s.Failed[0], "achieved") {
+		t.Fatalf("%+v", s)
+	}
+	// The Little's-law bound at the measured mean latency (200 ms, cap 8192).
+	if s.LittleMaxOpsPerSec < 40959 || s.LittleMaxOpsPerSec > 40961 || s.MeanMs != 200 {
+		t.Fatalf("little: %+v", s)
+	}
+}
+
+func TestLittleLines(t *testing.T) {
+	c := config.Defaults()
+	if LittleLines(&c) != nil {
+		t.Fatal("sync mode has no cap")
+	}
+	c.DriverMode, c.WorkerCount, c.Ramp, c.RampStartRate = "async", 2, true, 1000
+	c.ApplyCommandRules("run-put-object") // open loop
+	ls := LittleLines(&c)
+	all := strings.Join(ls, "\n")
+	if c.InflightCap() != 8192 || !strings.Contains(all, "8,192 ops in flight") ||
+		!strings.Contains(all, "10 ms -> 819,200") || !strings.Contains(all, "p99 limit (50 ms)") {
+		t.Fatalf("%v\n%s", c.InflightCap(), all)
+	}
+	c.RampMode = "throughput"
+	if strings.Contains(strings.Join(LittleLines(&c), "\n"), "p99 limit") {
+		t.Fatal("no p99 line in throughput mode")
+	}
+	// Closed loop: bounded by streams.
+	c2 := config.Defaults()
+	c2.DriverMode, c2.StreamsPerWorker, c2.WorkerCount = "async", 100, 3
+	if c2.InflightCap() != 300 || !strings.Contains(strings.Join(LittleLines(&c2), "\n"), "100 streams x 3") {
+		t.Fatal("closed loop cap")
 	}
 }

@@ -55,8 +55,10 @@ base:
   # Open-loop ramp (--ramp; run-put-object / -overwrite / -overwrite-versioned): offer
   # ramp_start_rate, then + ramp_step_rate per step (cluster totals, ops/s), each step a
   # warm-up then a measured window, until a step fails a criterion. Reports the maximum
-  # sustainable rate. See perf/RAMP.md. ops is not allowed; duration is an optional cap.
+  # sustainable rate. See perf/RAMP.md. ops is not allowed; duration is ignored.
   ramp: false
+  ramp_mode: sla             # sla: judge latency, misses, errors, backlog, throughput;
+                             # throughput: only achieved (and errors), latency ignored
   ramp_start_rate: 0         # required with --ramp
   ramp_step_rate: 0          # 0 = ramp_start_rate
   ramp_max_rate: 0           # 0 = no ceiling
@@ -65,7 +67,7 @@ base:
   ramp_max_p99_ms: 50        # end-to-end p99 (from scheduled send time) must be below this
   ramp_max_missed_pct: 0.1   # missed / scheduled arrivals
   ramp_max_error_pct: 0.1
-  ramp_min_achieved_pct: 99  # completed / target
+  ramp_min_achieved_pct: 0   # completed / target; 0 = 99 (sla) or 98 (throughput)
   ramp_max_backlog_growth_pct: 50  # ops in flight at the end of the window vs expected
   verify_threads: 16         # scan threads per worker during Verify
   # reporting and collectors

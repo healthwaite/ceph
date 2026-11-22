@@ -23,16 +23,19 @@ type Criteria struct {
 	MaxErrorPct         float64
 	MinAchievedPct      float64
 	MaxBacklogGrowthPct float64
-	// OutstandingCap is the most ops the cluster may have in flight (max_inflight_ops x
-	// workers); 0 = unknown.
+	// ThroughputOnly (ramp_mode throughput): only achieved throughput and errors fail
+	// a step; latency, misses and backlog are reported but not judged.
+	ThroughputOnly bool
+	// OutstandingCap is the most ops the cluster may have in flight (Config.InflightCap);
+	// 0 = unknown.
 	OutstandingCap uint64
 }
 
 // CriteriaFrom takes the limits from the config.
 func CriteriaFrom(c *config.Config) Criteria {
 	return Criteria{MaxP99Ms: c.RampMaxP99Ms, MaxMissedPct: c.RampMaxMissedPct, MaxErrorPct: c.RampMaxErrorPct,
-		MinAchievedPct: c.RampMinAchievedPct, MaxBacklogGrowthPct: c.RampMaxBacklogGrowthPct,
-		OutstandingCap: uint64(c.Kvrgw.MaxInflightOps) * uint64(c.WorkerCount)}
+		MinAchievedPct: c.RampMinAchieved(), MaxBacklogGrowthPct: c.RampMaxBacklogGrowthPct,
+		ThroughputOnly: c.RampThroughputOnly(), OutstandingCap: uint64(c.InflightCap())}
 }
 
 // Input is one step's measure window: metrics merged over its windows and workers.
@@ -89,20 +92,24 @@ func Evaluate(in Input, cr Criteria) results.RampStep {
 	if base >= 1 {
 		s.BacklogGrowthPct = 100 * (float64(in.OutstandingEnd) - base) / base
 	}
+	s.MeanMs = meanS * 1000
+	if cr.OutstandingCap > 0 && meanS > 0 {
+		s.LittleMaxOpsPerSec = float64(cr.OutstandingCap) / meanS
+	}
 
 	if s.AchievedPct < cr.MinAchievedPct {
 		s.Failed = append(s.Failed, fmt.Sprintf("achieved %.1f%% < %.4g%%", s.AchievedPct, cr.MinAchievedPct))
 	}
-	if s.P99Ms >= cr.MaxP99Ms {
+	if !cr.ThroughputOnly && s.P99Ms >= cr.MaxP99Ms {
 		s.Failed = append(s.Failed, fmt.Sprintf("p99 %.3g ms >= %.4g ms", s.P99Ms, cr.MaxP99Ms))
 	}
-	if s.MissedPct > cr.MaxMissedPct {
+	if !cr.ThroughputOnly && s.MissedPct > cr.MaxMissedPct {
 		s.Failed = append(s.Failed, fmt.Sprintf("missed %.3g%% > %.4g%%", s.MissedPct, cr.MaxMissedPct))
 	}
 	if s.ErrorPct > cr.MaxErrorPct {
 		s.Failed = append(s.Failed, fmt.Sprintf("errors %.3g%% > %.4g%%", s.ErrorPct, cr.MaxErrorPct))
 	}
-	if s.BacklogGrowthPct > cr.MaxBacklogGrowthPct {
+	if !cr.ThroughputOnly && s.BacklogGrowthPct > cr.MaxBacklogGrowthPct {
 		s.Failed = append(s.Failed, fmt.Sprintf("backlog +%.0f%% > %.4g%%", s.BacklogGrowthPct, cr.MaxBacklogGrowthPct))
 	}
 
@@ -147,8 +154,11 @@ func joinComma(a []string) string {
 }
 
 // Summarize builds the summary from the evaluated steps.
-func Summarize(steps []results.RampStep, stopReason string) *results.RampSummary {
-	r := &results.RampSummary{Steps: steps, StopReason: stopReason}
+func Summarize(steps []results.RampStep, stopReason string, cr Criteria) *results.RampSummary {
+	r := &results.RampSummary{Steps: steps, StopReason: stopReason, Mode: "sla", MinAchievedPct: cr.MinAchievedPct}
+	if cr.ThroughputOnly {
+		r.Mode = "throughput"
+	}
 	for _, s := range steps {
 		if s.Verdict == "pass" && s.TargetOpsPerSec > r.MaxSustainableOpsPerSec {
 			r.MaxSustainableOpsPerSec = s.TargetOpsPerSec
@@ -212,7 +222,11 @@ func num(f float64) string {
 
 // PrintTable prints the ramp steps and results (run summary and report).
 func PrintTable(w io.Writer, r *results.RampSummary) {
-	fmt.Fprintf(w, "\n  ramp: %d step(s) evaluated; stopped: %s\n", len(r.Steps), r.StopReason)
+	mode := r.Mode
+	if mode == "" {
+		mode = "sla"
+	}
+	fmt.Fprintf(w, "\n  ramp (%s): %d step(s) evaluated; stopped: %s\n", mode, len(r.Steps), r.StopReason)
 	if len(r.Steps) > 0 {
 		fmt.Fprintf(w, "  %4s %11s %11s %8s %9s %9s %9s %8s %7s %8s %7s  %s\n", "step", "target/s", "achieved/s", "achv%",
 			"p50_ms", "p99_ms", "svc_p99", "missed%", "err%", "backlog", "drv%", "verdict")
@@ -226,10 +240,46 @@ func PrintTable(w io.Writer, r *results.RampSummary) {
 			fmt.Fprintln(w)
 		}
 	}
-	if r.MaxSustainableOpsPerSec > 0 {
+	if r.MaxSustainableOpsPerSec > 0 && r.Mode == "throughput" {
+		fmt.Fprintf(w, "  max sustainable: %s ops/s (highest target completed at >= %g%%; latency not judged)\n",
+			num(r.MaxSustainableOpsPerSec), r.MinAchievedPct)
+	} else if r.MaxSustainableOpsPerSec > 0 {
 		fmt.Fprintf(w, "  max sustainable: %s ops/s (highest target that passed every criterion)\n", num(r.MaxSustainableOpsPerSec))
 	} else {
 		fmt.Fprintln(w, "  max sustainable: none (no step passed; lower ramp_start_rate)")
 	}
 	fmt.Fprintf(w, "  max achieved:    %s ops/s (highest completed rate of any step)\n", num(r.MaxAchievedOpsPerSec))
+}
+
+// LittleLines describes the in-flight cap and the rate it allows (Little's law:
+// max rate = ops in flight / latency), for the log before a run. Empty when the
+// cap is unknown (sync mode).
+func LittleLines(c *config.Config) []string {
+	cap := c.InflightCap()
+	if cap <= 0 {
+		return nil
+	}
+	how := fmt.Sprintf("max_inflight_ops %d x %d worker(s)", c.Kvrgw.MaxInflightOps, c.WorkerCount)
+	if !c.OpenLoop() && int64(c.Streams()) < c.Kvrgw.MaxInflightOps {
+		how = fmt.Sprintf("%d streams x %d worker(s)", c.Streams(), c.WorkerCount)
+	}
+	lats := []float64{1, 2, 5, 10, 20, 50, 100}
+	parts := make([]string, 0, len(lats))
+	for _, l := range lats {
+		parts = append(parts, fmt.Sprintf("%g ms -> %s", l, num(float64(cap)/(l/1000))))
+	}
+	out := []string{
+		fmt.Sprintf("Little's law: at most %s ops in flight (%s); max rate = in flight / mean latency:", num(float64(cap)), how),
+		"  " + strings.Join(parts, ", ") + " ops/s",
+	}
+	if c.Ramp && !c.RampThroughputOnly() {
+		out = append(out, fmt.Sprintf("  at the p99 limit (%g ms) that is about %s ops/s: a step needing more in flight "+
+			"misses arrivals at the cap (mean latency is below p99, so the real bound is somewhat higher)",
+			c.RampMaxP99Ms, num(float64(cap)/(c.RampMaxP99Ms/1000))))
+	}
+	if c.Ramp && c.RampMaxRate > 0 {
+		out = append(out, fmt.Sprintf("  ramp_max_rate %s ops/s needs a mean latency under %.3g ms to fit",
+			num(c.RampMaxRate), 1000*float64(cap)/c.RampMaxRate))
+	}
+	return out
 }

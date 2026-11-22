@@ -33,6 +33,7 @@ std::string parse_config(const std::string &json_text, const std::string &operat
     get(j, "driver_threads", c.driver_threads);
     get(j, "rate_ops_per_sec", c.rate_ops_per_sec);
     get(j, "arrival", c.arrival);
+    get(j, "ramp", c.ramp);
     get(j, "verify_threads", c.verify_threads);
     get(j, "tenant_name", c.tenant_name);
     get(j, "report_interval_ms", c.report_interval_ms);
@@ -78,7 +79,12 @@ std::string parse_config(const std::string &json_text, const std::string &operat
   }
   const bool is_run = operation != "load";
   if (is_run) {
-    if (c.has_ops() == c.has_duration()) return "exactly one of ops/duration must be set";
+    if (c.ramp) {
+      if (c.has_ops() || c.has_duration()) return "a ramp takes neither ops nor duration";
+      if (!c.open_loop()) return "a ramp needs rate_ops_per_sec > 0";
+    } else if (c.has_ops() == c.has_duration()) {
+      return "exactly one of ops/duration must be set";
+    }
   } else if (c.has_ops() || c.has_duration()) {
     return "ops/duration are not valid for load";
   }

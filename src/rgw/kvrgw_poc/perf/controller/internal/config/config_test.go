@@ -434,10 +434,27 @@ func TestRampConfig(t *testing.T) {
 	}
 	c.Arrival = "poisson"
 	c.WorkerCount = 4
+	c.Duration = "12h"
 	w := c.ApplyCommandRules("run-put-object")
-	if c.DriverMode != "async" || c.RateOpsPerSec != 500 || len(w) != 1 || !c.OpenLoop() {
-		t.Fatalf("rules: %+v %v", c, w)
+	if c.DriverMode != "async" || c.RateOpsPerSec != 500 || len(w) != 2 || !c.OpenLoop() || c.Duration != "" {
+		t.Fatalf("rules (async, rate, duration ignored): %+v %v", c, w)
 	}
+	if c.RampMinAchieved() != 99 {
+		t.Fatal("sla default")
+	}
+	c.RampMode = "throughput"
+	if c.RampMinAchieved() != 98 || !c.RampThroughputOnly() {
+		t.Fatal("throughput default")
+	}
+	c.RampMinAchievedPct = 95
+	if c.RampMinAchieved() != 95 {
+		t.Fatal("explicit")
+	}
+	c.RampMode = "bogus"
+	if c.Validate("run-put-object") == nil {
+		t.Fatal("bad ramp_mode")
+	}
+	c.RampMode = "sla"
 	b, _ := c.WorkerJSON()
 	if !contains(string(b), `"arrival":"poisson"`) || !contains(string(b), `"rate_ops_per_sec":500`) {
 		t.Fatalf("%s", b)

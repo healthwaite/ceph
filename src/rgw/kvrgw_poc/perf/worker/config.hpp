@@ -28,6 +28,8 @@ struct Config {
   double rate_ops_per_sec = 0;
   // Open-loop inter-arrival times: "constant" or "poisson".
   std::string arrival = "constant";
+  // Open-loop ramp: runs until the controller cancels it (no ops / duration).
+  bool ramp = false;
   int verify_threads = 4;
   std::string tenant_name = "kv-poc";
   int64_t report_interval_ms = 1000;

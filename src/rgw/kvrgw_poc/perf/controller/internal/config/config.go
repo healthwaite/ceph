@@ -73,7 +73,11 @@ type Config struct {
 
 	// Ramp (--ramp, run-put-* only): an open-loop run whose target steps up linearly
 	// (cluster totals) until a step fails its criteria; see perf/RAMP.md.
-	Ramp                    bool    `yaml:"ramp" json:"ramp"`
+	Ramp bool `yaml:"ramp" json:"ramp"`
+	// RampMode: "sla" judges steps on latency, misses, errors, backlog and throughput;
+	// "throughput" only on throughput (and errors): it ramps until a step completes
+	// less than ramp_min_achieved_pct of its target.
+	RampMode                string  `yaml:"ramp_mode" json:"ramp_mode"`
 	RampStartRate           float64 `yaml:"ramp_start_rate" json:"ramp_start_rate"`
 	RampStepRate            float64 `yaml:"ramp_step_rate" json:"ramp_step_rate"` // 0 = ramp_start_rate
 	RampMaxRate             float64 `yaml:"ramp_max_rate" json:"ramp_max_rate"`   // 0 = none
@@ -217,6 +221,43 @@ func (c *Config) ConcurrencyLabel() string {
 // RampCommands are the commands that support --ramp.
 var RampCommands = []string{"run-put-object", "run-put-object-overwrite", "run-put-object-overwrite-versioned"}
 
+// RampThroughputOnly reports ramp_mode throughput (latency, misses and backlog are
+// not failure criteria).
+func (c *Config) RampThroughputOnly() bool { return c.RampMode == "throughput" }
+
+// RampMinAchieved is ramp_min_achieved_pct, or its mode default when 0: 99% for
+// sla, 98% for throughput.
+func (c *Config) RampMinAchieved() float64 {
+	if c.RampMinAchievedPct > 0 {
+		return c.RampMinAchievedPct
+	}
+	if c.RampThroughputOnly() {
+		return 98
+	}
+	return 99
+}
+
+// InflightCap is the most async ops the cluster can have in flight: in open loop
+// each driver may have max_inflight_ops / driver_threads outstanding, in closed loop
+// each worker has at most min(streams, max_inflight_ops) (beyond it, QUEUE_FULL).
+// 0 for sync mode or when max_inflight_ops is unknown.
+func (c *Config) InflightCap() int64 {
+	if c.DriverMode != "async" || c.Kvrgw.MaxInflightOps <= 0 {
+		return 0
+	}
+	per := c.Kvrgw.MaxInflightOps
+	if c.OpenLoop() {
+		g := c.Kvrgw.MaxInflightOps / int64(c.DriverThreads)
+		if g < 1 {
+			g = 1
+		}
+		per = g * int64(c.DriverThreads)
+	} else if s := int64(c.Streams()); s < per {
+		per = s
+	}
+	return per * int64(c.WorkerCount)
+}
+
 // RampStep returns the per-step increment (cluster total, ops/s).
 func (c *Config) RampStep() float64 {
 	if c.RampStepRate > 0 {
@@ -252,7 +293,10 @@ func (c *Config) validateRamp(command string) error {
 		return fmt.Errorf("--ramp sets the rate itself; drop rate_ops_per_sec")
 	}
 	if c.Ops != 0 {
-		return fmt.Errorf("--ramp runs until a step fails; ops is not allowed (duration is an optional cap)")
+		return fmt.Errorf("--ramp runs until a step fails; ops is not allowed")
+	}
+	if c.RampMode != "sla" && c.RampMode != "throughput" {
+		return fmt.Errorf("ramp_mode must be sla or throughput, not %q", c.RampMode)
 	}
 	if c.RampStartRate <= 0 {
 		return fmt.Errorf("--ramp needs ramp_start_rate > 0 (ops/s, cluster total)")
@@ -274,8 +318,8 @@ func (c *Config) validateRamp(command string) error {
 		return fmt.Errorf("--ramp needs report_interval_ms > 0 (steps are whole report windows)")
 	}
 	if c.RampMaxP99Ms <= 0 || c.RampMaxMissedPct < 0 || c.RampMaxErrorPct < 0 ||
-		c.RampMinAchievedPct <= 0 || c.RampMinAchievedPct > 100 || c.RampMaxBacklogGrowthPct < 0 {
-		return fmt.Errorf("ramp criteria out of range (max_p99_ms > 0, pcts >= 0, min_achieved_pct in (0,100])")
+		c.RampMinAchievedPct < 0 || c.RampMinAchievedPct > 100 || c.RampMaxBacklogGrowthPct < 0 {
+		return fmt.Errorf("ramp criteria out of range (max_p99_ms > 0, pcts >= 0, min_achieved_pct in [0,100])")
 	}
 	return nil
 }
@@ -292,7 +336,7 @@ func Defaults() Config {
 		PaddingBytes: 16, ObjectSizeBytes: 8192, MetadataCount: 6, MetadataSize: 64, WorkerCount: 1, ThreadsPerWorker: 1,
 		DriverMode: "sync", StreamsPerWorker: 0, DriverThreads: 2, RateOpsPerSec: 0, Arrival: "constant",
 		RampWarmup: "30s", RampMeasure: "60s", RampMaxP99Ms: 50, RampMaxMissedPct: 0.1,
-		RampMaxErrorPct: 0.1, RampMinAchievedPct: 99, RampMaxBacklogGrowthPct: 50,
+		RampMaxErrorPct: 0.1, RampMinAchievedPct: 0, RampMaxBacklogGrowthPct: 50, RampMode: "sla",
 		VerifyThreads: 4, TenantName: envOr("KVRGW_TENANT_NAME", "kv-poc"),
 		ReportIntervalMs: 1000,
 		FdbStats:         true, FdbStatusRaw: true, FdbClusterFile: os.Getenv("FDB_CLUSTER_FILE"), FdbcliPath: "/opt/foundationdb/usr/bin/fdbcli",
@@ -565,15 +609,11 @@ func (c *Config) ApplyCommandRules(command string) (warnings []string) {
 		}
 		c.DriverMode = "async"
 		c.RateOpsPerSec = c.RampStartRate / float64(c.WorkerCount)
-		// duration (often set per command in the config file) caps the ramp.
-		if d, err := c.DurationValue(); err == nil && d > 0 {
-			if w, m, err := c.RampDurations(); err == nil && w+m > 0 {
-				if steps := int(d / (w + m)); steps < 3 {
-					warnings = append(warnings, fmt.Sprintf(
-						"duration %s caps the ramp at %d complete step(s) of %s; pass a longer --duration",
-						d, steps, w+m))
-				}
-			}
+		// The ramp runs until a step fails (or ramp_max_rate); duration, often
+		// set per command in the config file, does not apply.
+		if c.Duration != "" {
+			warnings = append(warnings, fmt.Sprintf("--ramp ignores duration (%s)", c.Duration))
+			c.Duration = ""
 		}
 	}
 	switch command {
@@ -609,6 +649,7 @@ type workerJSON struct {
 	DriverThreads         int     `json:"driver_threads"`
 	RateOpsPerSec         float64 `json:"rate_ops_per_sec"`
 	Arrival               string  `json:"arrival"`
+	Ramp                  bool    `json:"ramp,omitempty"`
 	VerifyThreads         int     `json:"verify_threads"`
 	TenantName            string  `json:"tenant_name"`
 	ReportIntervalMs      int64   `json:"report_interval_ms"`
@@ -628,7 +669,7 @@ func (c *Config) WorkerJSON() ([]byte, error) {
 	}
 	return json.Marshal(workerJSON{
 		c.NumObjects, c.NumBuckets, c.BucketNamePrefix, c.PaddingBytes, c.ObjectSizeBytes, c.MetadataCount, c.MetadataSize,
-		c.ThreadsPerWorker, c.DriverMode, c.Streams(), c.DriverThreads, c.RateOpsPerSec, c.Arrival,
+		c.ThreadsPerWorker, c.DriverMode, c.Streams(), c.DriverThreads, c.RateOpsPerSec, c.Arrival, c.Ramp,
 		c.VerifyThreads, c.TenantName,
 		c.ReportIntervalMs, c.Ops, d.Milliseconds(), c.PageSize,
 		c.SingleThreadMode, c.NumObjectsToOverwrite, c.Force,

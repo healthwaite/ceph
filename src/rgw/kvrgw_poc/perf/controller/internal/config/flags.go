@@ -28,7 +28,7 @@ var flagKeys = map[string]string{
 	"backend-workers": "backend_workers", "max-inflight-ops": "max_inflight_ops",
 	"txn-max-attempts": "txn_max_attempts", "batch-txn-max-attempts": "batch_txn_max_attempts",
 	"txn-timeout-ms": "txn_timeout_ms",
-	"arrival":        "arrival", "ramp-start-rate": "ramp_start_rate", "ramp-step-rate": "ramp_step_rate",
+	"arrival":        "arrival", "ramp-mode": "ramp_mode", "ramp-start-rate": "ramp_start_rate", "ramp-step-rate": "ramp_step_rate",
 	"ramp-max-rate": "ramp_max_rate", "ramp-warmup": "ramp_warmup", "ramp-measure": "ramp_measure",
 	"ramp-max-p99-ms": "ramp_max_p99_ms", "ramp-max-missed-pct": "ramp_max_missed_pct",
 	"ramp-max-error-pct": "ramp_max_error_pct", "ramp-min-achieved-pct": "ramp_min_achieved_pct",
@@ -184,6 +184,8 @@ func Set(c *Config, key, v string) error {
 		c.Arrival = v
 	case "ramp":
 		return b(&c.Ramp)
+	case "ramp_mode":
+		c.RampMode = v
 	case "ramp_start_rate":
 		return f(&c.RampStartRate)
 	case "ramp_step_rate":

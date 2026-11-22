@@ -49,10 +49,15 @@ func (r *rampDriver) boundaryMs(window int64) int64 { return r.v.runStartMs + wi
 // start announces the plan and sends step 1's rate.
 func (r *rampDriver) start() {
 	c := r.v.o.Cfg
-	fmt.Fprintf(r.v.out, "ramp: %s ops/s, +%s per step, %s warm-up + %s measured per step (%d + %d windows); "+
-		"pass if p99 < %g ms, achieved >= %g%%, missed <= %g%%, errors <= %g%%, backlog growth <= %g%%; arrival %s\n",
-		human(c.RampStartRate), human(c.RampStep()), c.RampWarmup, c.RampMeasure, r.plan.Warm, r.plan.Measure,
-		c.RampMaxP99Ms, c.RampMinAchievedPct, c.RampMaxMissedPct, c.RampMaxErrorPct, c.RampMaxBacklogGrowthPct, c.Arrival)
+	pass := fmt.Sprintf("pass if p99 < %g ms, achieved >= %g%%, missed <= %g%%, errors <= %g%%, backlog growth <= %g%%",
+		c.RampMaxP99Ms, c.RampMinAchieved(), c.RampMaxMissedPct, c.RampMaxErrorPct, c.RampMaxBacklogGrowthPct)
+	if c.RampThroughputOnly() {
+		pass = fmt.Sprintf("pass if achieved >= %g%% and errors <= %g%% (latency, misses and backlog not judged)",
+			c.RampMinAchieved(), c.RampMaxErrorPct)
+	}
+	fmt.Fprintf(r.v.out, "ramp (%s): %s ops/s, +%s per step, %s warm-up + %s measured per step (%d + %d windows); %s; arrival %s\n",
+		c.RampMode, human(c.RampStartRate), human(c.RampStep()), c.RampWarmup, c.RampMeasure, r.plan.Warm, r.plan.Measure,
+		pass, c.Arrival)
 	if r.plan.Exists(1) {
 		r.setRate(1, r.plan.Rate(1), r.boundaryMs(r.plan.StartWindow(1)))
 	}
@@ -163,8 +168,9 @@ func driverBusyMax(base, last map[string]uint64) float64 {
 
 func (r *rampDriver) printStep(s results.RampStep) {
 	line := fmt.Sprintf("ramp step %d: target %s ops/s, achieved %s (%.1f%%), p99 %.3g ms, missed %.3g%%, errors %.3g%%, "+
-		"backlog %+.0f%%, driver busy %.0f%% -> %s", s.Step, human(s.TargetOpsPerSec), human(s.AchievedOpsPerSec),
-		s.AchievedPct, s.P99Ms, s.MissedPct, s.ErrorPct, s.BacklogGrowthPct, s.DriverBusyMaxPct, strings.ToUpper(s.Verdict))
+		"backlog %+.0f%%, driver busy %.0f%%, Little max %s at mean %.3g ms -> %s", s.Step, human(s.TargetOpsPerSec),
+		human(s.AchievedOpsPerSec), s.AchievedPct, s.P99Ms, s.MissedPct, s.ErrorPct, s.BacklogGrowthPct, s.DriverBusyMaxPct,
+		human(s.LittleMaxOpsPerSec), s.MeanMs, strings.ToUpper(s.Verdict))
 	if len(s.Failed) > 0 {
 		line += " (" + strings.Join(s.Failed, "; ") + ")"
 	}
@@ -182,7 +188,7 @@ func (r *rampDriver) summary(otherReason string) *results.RampSummary {
 	if !r.stopped {
 		reason = otherReason
 	}
-	return ramp.Summarize(r.steps, reason)
+	return ramp.Summarize(r.steps, reason, r.criteria)
 }
 
 // setRateMsg builds the per-worker control message.

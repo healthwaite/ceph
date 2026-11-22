@@ -58,9 +58,14 @@ Ramp: `--ramp` on run-put-object / -overwrite / -overwrite-versioned finds the m
 sustainable rate. It offers `ramp_start_rate`, then `+ ramp_step_rate` per step (cluster
 totals), each step a warm-up then a measured window, and stops at the first step that
 misses a criterion (p99 below `ramp_max_p99_ms`, achieved, missed, errors, backlog); a
-step where the load generator itself is the limit is reported as invalid. Example:
+step where the load generator itself is the limit is reported as invalid. With
+`--ramp-mode throughput` only throughput counts: it ramps until a step completes less
+than 98% of its target, whatever the latency. `duration` does not apply to a ramp.
+Every async run first logs Little's-law bound: max rate = in-flight cap
+(`max_inflight_ops` x workers) / mean latency. Examples:
 
-    kvrgw-perf --ramp --ramp-start-rate 5000 --ramp-step-rate 1000 --duration 2h run-put-object-overwrite
+    kvrgw-perf --ramp --ramp-start-rate 5000 --ramp-step-rate 1000 run-put-object-overwrite
+    kvrgw-perf --ramp --ramp-mode throughput --ramp-start-rate 5000 --ramp-step-rate 2000 run-put-object-overwrite
 
 `--arrival poisson` uses exponential inter-arrival times (any open-loop run). Results:
 the live per-step lines, `ramp_steps.csv`, `summary.json` and the report's Ramp section.

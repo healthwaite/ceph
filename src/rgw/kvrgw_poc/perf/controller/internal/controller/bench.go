@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 
 	pb "kvrgw-perf/gen/perf/v1"
+	"kvrgw-perf/internal/ramp"
 	"kvrgw-perf/internal/results"
 	"kvrgw-perf/internal/stats"
 )
@@ -55,6 +56,10 @@ func (v *invocation) runBenchmark(sigCtx, mctx context.Context, benchStarted cha
 	v.intervalMs = cfg.ReportIntervalMs
 	v.ev.At(v.runStartMs, "benchmark_start")
 	time.AfterFunc(time.Until(runStart), func() { v.setFDBPhase("benchmark") })
+	for _, l := range ramp.LittleLines(&cfg) {
+		fmt.Fprintln(v.out, l)
+		v.lg.Print(l)
+	}
 	fmt.Fprintf(v.out, "benchmark starting in 1s (%s)\n", cfg.ConcurrencyLabel())
 
 	streams := make([]grpc.BidiStreamingClient[pb.RunControl, pb.PhaseEvent], n)
