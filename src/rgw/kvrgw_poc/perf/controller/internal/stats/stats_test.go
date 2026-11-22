@@ -175,4 +175,12 @@ func TestThreadUtils(t *testing.T) {
 	if s := FormatGroupUtils(gs); s != "backend 2 x 40% (max 60%), fdb-network 1 x 90%" {
 		t.Fatal(s)
 	}
+	if gs[0].PerWorker != 2 || gs[1].PerWorker != 1 {
+		t.Fatalf("per worker: %+v", gs)
+	}
+	// One backend worker in each of two processes: 2 threads in total, 1 per process.
+	two := GroupUtils([]ThreadUtil{{"backend", "w0", "kvrgw-be-0", 0.1}, {"backend", "w1", "kvrgw-be-0", 0.1}})
+	if two[0].Threads != 2 || two[0].PerWorker != 1 {
+		t.Fatalf("%+v", two)
+	}
 }

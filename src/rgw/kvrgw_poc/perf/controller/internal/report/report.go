@@ -1700,7 +1700,7 @@ func (d *data) printThreads(w io.Writer, o Options, from, to int64) {
 			hot = true
 			fmt.Fprintf(w, " [WARN] backend worker %s at %.0f%% while the average is %.0f%%: ops are pinned to one worker each, so load is uneven\n",
 				g.Busiest, 100*g.Max, 100*g.Avg)
-		case g.Avg < threadCool && g.Threads > 1:
+		case g.Avg < threadCool && g.PerWorker > 1:
 			fmt.Fprintf(w, " [INFO] backend workers mostly idle (avg %.0f%%): backend_workers could be lowered\n", 100*g.Avg)
 		}
 	}
@@ -1713,7 +1713,7 @@ func (d *data) printThreads(w io.Writer, o Options, from, to int64) {
 			hot = true
 			fmt.Fprintf(w, " [WARN] driver %s at %.0f%% while the average is %.0f%%: streams are pinned to drivers, so load is uneven\n",
 				g.Busiest, 100*g.Max, 100*g.Avg)
-		case g.Avg < threadCool && g.Threads > 1:
+		case g.Avg < threadCool && g.PerWorker > 1:
 			fmt.Fprintf(w, " [INFO] async driver threads mostly idle (avg %.0f%%): driver_threads could be lowered\n", 100*g.Avg)
 		}
 	}

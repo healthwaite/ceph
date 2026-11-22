@@ -257,10 +257,13 @@ var ThreadGroups = []string{"backend", "fdb-network", "driver"}
 
 // GroupUtil summarises one thread group's utilisation (busy = CPU time / wall time).
 type GroupUtil struct {
-	Group    string
-	Threads  int
-	Avg, Max float64 // fractions, 0..1 per thread
-	Busiest  string  // "w<worker> <thread name>"
+	Group   string
+	Threads int // across all worker processes
+	// PerWorker is the most threads of this group in any one worker process; the
+	// thread-count knobs (backend_workers, driver_threads) are per process.
+	PerWorker int
+	Avg, Max  float64 // fractions, 0..1 per thread
+	Busiest   string  // "w<worker> <thread name>"
 }
 
 // ThreadUtil is one thread's utilisation.
@@ -275,11 +278,16 @@ func GroupUtils(ts []ThreadUtil) []GroupUtil {
 	for _, g := range ThreadGroups {
 		gu := GroupUtil{Group: g}
 		var sum float64
+		perWorker := map[string]int{}
 		for _, t := range ts {
 			if t.Group != g {
 				continue
 			}
 			gu.Threads++
+			perWorker[t.Worker]++
+			if perWorker[t.Worker] > gu.PerWorker {
+				gu.PerWorker = perWorker[t.Worker]
+			}
 			sum += t.Util
 			if t.Util >= gu.Max {
 				gu.Max, gu.Busiest = t.Util, t.Worker+" "+t.Name
