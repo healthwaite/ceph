@@ -127,6 +127,15 @@ Exit codes: 0 success, 1 benchmark/verify failure or worker error, 2 usage.
   several roles counts under each, once in the total), gives total cores per 1,000 committed txn/s, and
   shows how evenly storage CPU is spread (min/median/mean/max/stddev, max/median, the hottest processes).
   Health warns when the hottest storage process is more than 1.8x the median.
+- Every put (`load`, `run-put-object`, the overwrite runs) attaches `metadata_count` user-metadata items
+  (default 6) of `metadata_size` bytes each (default 64), as `meta000`, `meta001`, ...; set
+  `metadata_count: 0` to write objects without metadata.
+- `run-list-delete-multi` is **destructive** (asks for confirmation; `--yes` skips it). Each worker owns a
+  bucket and its threads split the bucket's two-character key prefixes between them (needs
+  `padding_bytes >= 2`). A thread lists `page_size` keys with a continuation token, deletes exactly
+  those keys with `delete_multi`, and repeats until its prefixes are empty. It reports `list_objects`
+  (list only), `delete_multi` (delete only) and `list_delete_multi` (both) latencies.
+  `kvrgw-perf-suite.sh` runs it instead of `run-delete-multi`, which stays available on its own.
 - `run-put-object-overwrite` overwrites every loaded key (each thread loops over its whole slice).
   `run-put-object-overwrite-versioned` overwrites only `num_objects_to_overwrite` keys in total,
   shared evenly across all workers x threads (it must be `<= num_objects`). The limit matters

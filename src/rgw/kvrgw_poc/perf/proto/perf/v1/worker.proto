@@ -96,7 +96,7 @@ message ServerOpStats {
   uint64 disk_us = 8;
 }
 message OpStats {
-  string operation_type = 1;   // "put_object","list_objects","delete_multi",
+  string operation_type = 1;   // "put_object","list_objects","delete_multi","list_delete_multi",
                                // plus counter-style types: "keys_listed","keys_deleted"
   uint64 count = 2;            // successes; latency covers only these
   uint64 errors = 3;

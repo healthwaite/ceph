@@ -16,7 +16,7 @@ import (
 )
 
 // metricOrder gives a stable output order for op types.
-var metricOrder = []string{"put_object", "list_objects", "delete_multi", "keys_listed", "keys_deleted"}
+var metricOrder = []string{"put_object", "list_objects", "delete_multi", "list_delete_multi", "keys_listed", "keys_deleted"}
 
 func (v *invocation) runBenchmark(sigCtx, mctx context.Context, benchStarted chan struct{}) ([]*pb.RunSummary, bool) {
 	cfg := v.o.Cfg

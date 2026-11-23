@@ -33,7 +33,7 @@ func (c *Config) FdbStatusOuterLimit() time.Duration { return c.FdbStatusTimeout
 // Commands lists the valid operation commands (report is handled separately).
 var Commands = []string{
 	"load", "run-put-object", "run-list-objects", "run-put-object-overwrite",
-	"run-put-object-overwrite-versioned", "run-delete-multi",
+	"run-put-object-overwrite-versioned", "run-list-delete-multi", "run-delete-multi",
 }
 
 func IsCommand(c string) bool {
@@ -322,6 +322,9 @@ func (c *Config) Validate(command string) error {
 			return fmt.Errorf("%s requires exactly one of --ops or --duration", command)
 		}
 	}
+	if command == "run-list-delete-multi" && c.PaddingBytes < 2 {
+		return fmt.Errorf("run-list-delete-multi splits on the first 2 key characters and needs padding_bytes >= 2")
+	}
 	if c.Force && command != "load" {
 		return fmt.Errorf("--force only applies to load")
 	}
@@ -359,7 +362,7 @@ func (c *Config) VersionedOverwritePrompt() string {
 // human-readable warnings.
 func (c *Config) ApplyCommandRules(command string) (warnings []string) {
 	switch command {
-	case "run-list-objects":
+	case "run-list-objects", "run-list-delete-multi":
 		if c.SingleThreadMode {
 			c.WorkerCount, c.ThreadsPerWorker = 1, 1
 		} else if uint64(c.WorkerCount) > c.NumBuckets {

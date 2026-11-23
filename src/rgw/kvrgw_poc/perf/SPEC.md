@@ -120,7 +120,8 @@ Creates `num_buckets` buckets and loads `num_objects` objects across them.
 - Each thread gets a **disjoint contiguous index range** `index_range(...)`
   (§5.3). A thread's range may straddle bucket boundaries; the thread
   walks its range and switches bucket when `bucket_for_index` changes.
-- Operation per object: `put_object` with `object_size_bytes` of payload. A failed
+- Operation per object: `put_object` with `object_size_bytes` of payload and `metadata_count`
+  metadata items of `metadata_size` bytes (the same pairs for every put, built once at init). A failed
   `put_object` is retried (same key) up to 10 times; if it still fails the worker
   fails, which fails the invocation (controller cancels the other workers and exits
   non-zero). Each failed attempt is counted in the error metrics.
@@ -135,7 +136,8 @@ Each takes either `--ops N` (total across the cluster, split evenly over
 `total_threads`; remainder to lowest global_thread_ids) **or** `--duration D`
 (each thread runs until `D` elapsed since the synchronised start). Exactly one
 must be set. One "op" is one API call: a `put_object`, one `list_objects` page, or
-one `delete_multi` call (which deletes up to `page_size` keys).
+one `delete_multi` call (which deletes up to `page_size` keys). For `run-list-delete-multi`
+an op is one list + delete_multi iteration.
 
 Each has an optional **Verify** step that runs after *all* threads of *all*
 workers have finished the benchmark phase (controller barrier, §6).
@@ -273,6 +275,37 @@ Inserts brand-new keys never present in `load` or any earlier run.
   (as in `run-list-objects`, applied to the first bucket: one thread deletes all of
   bucket 0's ids in order, and only bucket 0 is verified).
 
+#### `run-list-delete-multi`
+- **Destructive.** The controller prompts: "run-list-delete-multi deletes objects
+  created by load and cannot be undone. Continue? [y/N]". `--yes` skips the
+  prompt. It runs before `run-delete-multi` in the file, and `kvrgw-perf-suite.sh` runs it
+  instead of `run-delete-multi`.
+- Empties buckets the way a client would. Buckets are split over workers as in
+  `run-list-objects` (bucket `b` is owned by worker `b % worker_count`; `num_buckets <
+  worker_count` caps `worker_count` the same way). The work items are the two-character
+  prefixes of each owned bucket (the 70 first-char prefixes squared = 4900 per bucket);
+  thread `t` takes items `t, t+T, ...`, which spreads the keys more evenly over threads than
+  the one-character split. Requires `padding_bytes >= 2` (init fails otherwise).
+- One iteration: `list_objects(prefix=p, max_keys=page_size, continuation_token)` for the
+  thread's current prefix, then `delete_multi` of exactly the keys returned. The
+  continuation token of the list is passed to the next list, so already-deleted keys are
+  never re-scanned; when a list is not truncated the thread moves to its next prefix. A
+  thread is done when all its prefixes are drained (the run ends once every thread is done,
+  even with `--duration` still remaining). `--ops` counts iterations. A list that returns
+  no keys is timed as `list_objects` but is not an iteration.
+- Metrics per iteration: `list_objects` (the list call only), `delete_multi` (the delete
+  call only) and `list_delete_multi` (list + delete). Counters `keys_listed` and
+  `keys_deleted`. Only successful calls are timed.
+- Errors: a failed list counts as a `list_objects` error and the rest of that prefix is
+  skipped (verify then reports the keys left behind). Any per-key error in a
+  `delete_multi` outcome, or a failed call, is a hard failure as in `run-delete-multi`.
+- Verify (§5.4): each bucket is listed and every key must be a valid load key. Which keys
+  were deleted is not an id range, so the count is checked instead: a bucket must hold
+  exactly (loaded keys - keys this run deleted from it); a difference is reported as
+  missing or unexpected keys. No per-thread progress is forwarded.
+- Config: `page_size` (default 1000, keys per list and per delete call),
+  `single_thread_mode` (as in `run-list-objects`: one worker, one thread, bucket 0).
+
 ## 5. Shared definitions
 
 ### 5.1 Configuration
@@ -296,6 +329,8 @@ parse it. Format of the input config file: YAML or JSON (pick YAML via the Go
      bucket_name_prefix: rgwkv
      padding_bytes: 16
      object_size_bytes: 8192
+     metadata_count: 6
+     metadata_size: 64
      worker_count: 4
      threads_per_worker: 8
      verify_threads: 4
@@ -309,6 +344,10 @@ parse it. Format of the input config file: YAML or JSON (pick YAML via the Go
      single_thread_mode: false
    run-put-object-overwrite-versioned:
      num_objects_to_overwrite: 100000
+   run-list-delete-multi:
+     worker_count: 10
+     threads_per_worker: 16
+     page_size: 1000
    run-delete-multi:
      page_size: 1000
    ```
@@ -342,6 +381,8 @@ and `perf_driver.cpp` (`KVRGW_*` env handling, key prefix/suffix lengths,
 | `bucket_name_prefix` | `rgwkv` | bucket name = `<prefix>-<i>` |
 | `padding_bytes` | 16 (match existing key-length default if one exists) | length of random key prefix |
 | `object_size_bytes` | 8192 | payload size |
+| `metadata_count` | 6 | user-metadata (`x-amz-meta-*`) items attached to every put; 0 disables, max 160. Keys are `meta000`, `meta001`, ...; every object gets the same values |
+| `metadata_size` | 64 | bytes per metadata value (1..2048; required when `metadata_count > 0`) |
 | `worker_count` | 1 | number of worker processes |
 | `threads_per_worker` | 1 | benchmark threads per worker |
 | `verify_threads` | 4 | threads per worker for list-based Verify scans (§5.4); independent of `threads_per_worker` |
@@ -395,7 +436,8 @@ uses the same remainder rule over `total_threads`.
 Because prefixes are random, a thread's index range is not a contiguous key range
 and cannot be listed directly. Instead verification lists **whole buckets** and
 accounts for every object via a bitset. One shared helper implements this for
-`load`, `run-list-objects`, `run-put-object-overwrite`, `run-delete-multi` (and, with
+`load`, `run-list-objects`, `run-put-object-overwrite`, `run-delete-multi`,
+`run-list-delete-multi` (a count check, see there) (and, with
 the key-id parsing described in `run-put-object`, for `run-put-object`).
 
 Each op supplies: the bucket's key-id space (for load-family ops, the bucket's
@@ -547,7 +589,7 @@ message ServerOpStats {
   uint64 disk_us = 8;
 }
 message OpStats {
-  string operation_type = 1;   // "put_object","list_objects","delete_multi",
+  string operation_type = 1;   // "put_object","list_objects","delete_multi","list_delete_multi",
                                // plus counter-style types: "keys_listed","keys_deleted"
   uint64 count = 2;            // successes; latency covers only these
   uint64 errors = 3;
@@ -653,7 +695,7 @@ read.**
 - CLI: `kvrgw-perf [--config file.yaml] [--workers N] [--threads M] [--worker-binary path] [--base-port 19090] [--cpus LIST] [--run-dir DIR] [--yes] [--no-verify] [--no-fdb-stats] [--fdb-cluster-file PATH] <command> [flags]`
   with commands `load`, `run-put-object`, `run-list-objects`,
   `run-put-object-overwrite`, `run-put-object-overwrite-versioned`,
-  `run-delete-multi`, plus `report <results-dir> [--warmup D] [--deviation N] [--per-server]` (§8.3). `--ops`/`--duration`, `--page-size`,
+  `run-list-delete-multi`, `run-delete-multi`, plus `report <results-dir> [--warmup D] [--deviation N] [--per-server]` (§8.3). `--ops`/`--duration`, `--page-size`,
   `--single-thread-mode`, `--num-objects-to-overwrite` as flags mapping to the
   config keys.
 - **Local mode** (the only mode in v1): spawn `worker_count` child processes
@@ -872,8 +914,8 @@ should be done in the build container.
      §8.1 files (FDB files only if `fdbcli` works), CSV has expected rows,
      errors == 0, and `kvrgw-perf report <dir> --warmup 2s` prints all sections.
   3. Negative: `run-put-object-overwrite` against a versioned bucket (e.g. after
-     `run-put-object-overwrite-versioned`) fails in Init; `run-put-object-overwrite-versioned`
-     and `run-delete-multi` abort without `--yes` on "n" (and `n` leaves the buckets unversioned).
+     `run-put-object-overwrite-versioned`) fails in Init; `run-put-object-overwrite-versioned`,
+     `run-list-delete-multi` and `run-delete-multi` abort without `--yes` on "n" (and `n` leaves the buckets unversioned).
   4. Default build (option OFF) still builds `libkvrgw` and `kv-rgw-backend`
      without gRPC installed.
 

@@ -17,6 +17,7 @@ enum class Metric : int {
   PutObject,
   ListObjects,
   DeleteMulti,
+  ListDeleteMulti,  // one list + delete_multi iteration (run-list-delete-multi)
   KeysListed,   // counter-style
   KeysDeleted,  // counter-style
   kCount

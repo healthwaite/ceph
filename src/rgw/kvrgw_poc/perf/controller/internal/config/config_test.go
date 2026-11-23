@@ -308,3 +308,27 @@ func TestFdbSampleIntervalMustCoverStatusCall(t *testing.T) {
 		t.Fatalf("timeout %s", got)
 	}
 }
+
+func TestListDeleteMulti(t *testing.T) {
+	c := Defaults()
+	c.NumObjects, c.NumBuckets, c.Duration = 100, 4, "1m"
+	if !IsCommand("run-list-delete-multi") {
+		t.Fatal("run-list-delete-multi must be a command")
+	}
+	if err := c.Validate("run-list-delete-multi"); err != nil {
+		t.Fatal(err)
+	}
+	c.PaddingBytes = 1
+	if err := c.Validate("run-list-delete-multi"); err == nil || !strings.Contains(err.Error(), "padding_bytes") {
+		t.Fatalf("want padding error, got %v", err)
+	}
+	c.PaddingBytes, c.WorkerCount = 16, 8
+	if w := c.ApplyCommandRules("run-list-delete-multi"); len(w) != 1 || c.WorkerCount != 4 {
+		t.Fatalf("worker cap: %v %d", w, c.WorkerCount)
+	}
+	c.SingleThreadMode = true
+	c.ApplyCommandRules("run-list-delete-multi")
+	if c.WorkerCount != 1 || c.ThreadsPerWorker != 1 {
+		t.Fatal("single thread mode")
+	}
+}

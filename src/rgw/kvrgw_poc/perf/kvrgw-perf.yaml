@@ -92,6 +92,18 @@ run-put-object-overwrite-versioned:
   duration: 12h
   num_objects_to_overwrite: 1_000_000
 
+# DESTRUCTIVE: like run-list-objects each worker owns bucket b % workers, and the bucket's
+# two-character key prefixes (70 x 70) are striped across the worker's threads. Each thread
+# pages through its prefixes with a continuation token: list page_size keys, delete_multi
+# exactly those keys, repeat. Records list, delete_multi and combined list_delete_multi
+# latencies. Needs padding_bytes >= 2. A thread stops when its prefixes are drained.
+run-list-delete-multi:
+  worker_count: 10           # purposely equal to num_buckets so each worker gets a bucket.
+  threads_per_worker: 16
+  duration: 12h              # will exit long before this hopefully
+  page_size: 1000            # keys per list call (and per delete_multi call)
+  single_thread_mode: false  # true: one worker, one thread, bucket 0 only
+
 # DESTRUCTIVE: deletes loaded objects in batches (prompts unless --yes).
 run-delete-multi:
   threads_per_worker: 16

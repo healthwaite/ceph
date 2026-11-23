@@ -107,7 +107,7 @@ func TestWarmupWindowing(t *testing.T) {
 	}
 	// Totals: sum 1100..2000 = 15500 ops from merged hist windows only.
 	// 15,500 ops over the 10s analysed window => 1,550 ops/s average; latencies in ms (3 s.f.)
-	if !strings.Contains(out, "put_object          15,500        0      1,550     1.00    0.146") {
+	if !strings.Contains(out, "put_object              15,500        0      1,550     1.00    0.146") {
 		t.Fatalf("totals:\n%s", out)
 	}
 	if !strings.Contains(out, "Verify    : PASS  (4 buckets") {

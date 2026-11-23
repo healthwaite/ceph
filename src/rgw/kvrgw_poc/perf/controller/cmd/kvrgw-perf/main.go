@@ -27,6 +27,7 @@ commands:
   run-list-objects                     page through listings
   run-put-object-overwrite             overwrite existing keys
   run-put-object-overwrite-versioned   overwrite and verify version counts
+  run-list-delete-multi                list a page then delete it, per prefix (destructive)
   run-delete-multi                     batch deletes (destructive)
   report <results-dir>                 analyse a results directory
         [--warmup D] [--window D] [--detailed] [--deviation N] [--per-server]
@@ -134,6 +135,8 @@ func run(args []string) int {
 	// Commands with irreversible effects ask for confirmation before any worker starts.
 	prompt := ""
 	switch command {
+	case "run-list-delete-multi":
+		prompt = "run-list-delete-multi deletes objects created by load and cannot be undone. Continue? [y/N] "
 	case "run-delete-multi":
 		prompt = "run-delete-multi deletes objects created by load and cannot be undone. Continue? [y/N] "
 	case "run-put-object-overwrite-versioned":

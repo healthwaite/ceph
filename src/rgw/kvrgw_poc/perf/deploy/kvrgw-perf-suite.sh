@@ -5,10 +5,11 @@
 #   ./kvrgw-perf-suite.sh [kvrgw-perf global flags...]     # e.g. --workers 4 --threads 16
 #
 # Uses kvrgw-perf-run.sh next to this script (so it runs in the container). Extra arguments are
-# passed to load and to every run-* command; --yes is always added (run-delete-multi is
+# passed to load and to every run-* command; --yes is always added (run-list-delete-multi is
 # destructive and would otherwise prompt), so don't pass --ops/--duration (not valid for load; set
 # them in the yaml, via CONFIG). Output is shown live and also saved.
 #
+# run-delete-multi is skipped: run-list-delete-multi replaces it in the suite (it stays runnable by hand).
 # run-list-objects is run twice: first with --single-thread-mode (directory NN-run-list-objects-single-thread,
 # using the yaml's other run-list-objects settings), then with the yaml settings as they are.
 #
@@ -66,6 +67,7 @@ fi
 # label (and so output directory) says so.
 steps=()
 while read -r c; do
+    [ "$c" = run-delete-multi ] && continue   # superseded by run-list-delete-multi
     [ "$c" = run-list-objects ] && steps+=("run-list-objects-single-thread|run-list-objects|--single-thread-mode")
     steps+=("$c|$c|")
 done < <(sed -n 's/^\(run-[A-Za-z0-9-]*\):.*/\1/p' "$yaml")

@@ -317,7 +317,7 @@ func rowMs(w io.Writer, label string, s stats.Summary, showDev bool) {
 }
 
 func rowF(w io.Writer, label string, s stats.Summary, showDev bool, f func(float64) string) {
-	fmt.Fprintf(w, " %-14s%9s%9s%9s%9s%9s%9s%9s", label, f(s.Min), f(s.Max), f(s.Avg), f(s.Median),
+	fmt.Fprintf(w, " %-18s%9s%9s%9s%9s%9s%9s%9s", label, f(s.Min), f(s.Max), f(s.Avg), f(s.Median),
 		f(s.P90), f(s.P95), f(s.P99))
 	if showDev {
 		fmt.Fprintf(w, "%7.1f%%", s.DevPct)
@@ -390,7 +390,7 @@ func (d *data) printClient(w io.Writer, o Options, from, to int64) {
 		runSecs = 1
 	}
 	ops := []string{}
-	for _, op := range []string{"put_object", "list_objects", "delete_multi", "keys_listed", "keys_deleted"} {
+	for _, op := range []string{"put_object", "list_objects", "delete_multi", "list_delete_multi", "keys_listed", "keys_deleted"} {
 		for _, m := range d.metrics {
 			if m.op == op {
 				ops = append(ops, op)
@@ -454,7 +454,7 @@ func (d *data) printClient(w io.Writer, o Options, from, to int64) {
 		if op != ops[0] {
 			fmt.Fprintln(pw)
 		}
-		fmt.Fprintf(pw, " %-14s%9s%9s%9s%9s%9s%9s%9s%8s\n", op, "min", "max", "avg", "median", "p90", "p95", "p99", "dev%")
+		fmt.Fprintf(pw, " %-18s%9s%9s%9s%9s%9s%9s%9s%8s\n", op, "min", "max", "avg", "median", "p90", "p95", "p99", "dev%")
 		if stats.IsCounter(op) {
 			row(pw, "keys/sec", stats.Summarize(rate, o.Deviation), true)
 			continue
@@ -493,10 +493,10 @@ func (d *data) printClient(w io.Writer, o Options, from, to int64) {
 			opsW = wide(opsW, grouped(int64(t.count)))
 			errW = wide(errW, grouped(int64(t.errs)))
 		}
-		fmt.Fprintf(w, " %-14s%*s%*s%11s%9s%9s%9s%9s%9s\n", "op", opsW, "ops", errW, "errors", "avg ops/s", "mean_ms", "p50_ms", "p90_ms", "p99_ms", "p999_ms")
+		fmt.Fprintf(w, " %-18s%*s%*s%11s%9s%9s%9s%9s%9s\n", "op", opsW, "ops", errW, "errors", "avg ops/s", "mean_ms", "p50_ms", "p90_ms", "p99_ms", "p999_ms")
 		for _, op := range latOps {
 			t := totals[op]
-			fmt.Fprintf(w, " %-14s%*s%*s%11s%9s%9s%9s%9s%9s\n", op, opsW, grouped(int64(t.count)), errW, grouped(int64(t.errs)),
+			fmt.Fprintf(w, " %-18s%*s%*s%11s%9s%9s%9s%9s%9s\n", op, opsW, grouped(int64(t.count)), errW, grouped(int64(t.errs)),
 				num(float64(t.count)/runSecs), stats.MsNum(t.meanUs), stats.MsNum(float64(t.hist.Quantile(0.5))),
 				stats.MsNum(float64(t.hist.Quantile(0.9))), stats.MsNum(float64(t.hist.Quantile(0.99))), stats.MsNum(float64(t.hist.Quantile(0.999))))
 		}
@@ -506,10 +506,10 @@ func (d *data) printClient(w io.Writer, o Options, from, to int64) {
 		for _, op := range ctrOps {
 			keyW = wide(keyW, grouped(int64(totals[op].count)))
 		}
-		fmt.Fprintf(w, "\n %-14s%*s%14s\n", "op", keyW, "keys", "avg keys/s")
+		fmt.Fprintf(w, "\n %-18s%*s%14s\n", "op", keyW, "keys", "avg keys/s")
 		for _, op := range ctrOps {
 			t := totals[op]
-			fmt.Fprintf(w, " %-14s%*s%14s\n", op, keyW, grouped(int64(t.count)), num(float64(t.count)/runSecs))
+			fmt.Fprintf(w, " %-18s%*s%14s\n", op, keyW, grouped(int64(t.count)), num(float64(t.count)/runSecs))
 		}
 	}
 	for _, op := range ops {
@@ -737,7 +737,7 @@ func (d *data) printCPU(w io.Writer, o Options, from, to int64) {
 		}
 		subHeading(w, "Per-window statistics", windowsNote(withData, len(wins), winLen)+", cores",
 			"each row is the mean of the CPU samples in each window; min/max/avg/median/pXX/dev% are taken across those windows")
-		fmt.Fprintf(w, " %-14s%9s%9s%9s%9s%9s%9s%9s%8s\n", "", "min", "max", "avg", "median", "p90", "p95", "p99", "dev%")
+		fmt.Fprintf(w, " %-18s%9s%9s%9s%9s%9s%9s%9s%8s\n", "", "min", "max", "avg", "median", "p90", "p95", "p99", "dev%")
 		perSrc := map[string][]float64{}
 		sum := make([]float64, 0, len(wins))
 		for _, win := range wins {
@@ -781,7 +781,7 @@ func (d *data) printCPU(w io.Writer, o Options, from, to int64) {
 	// Run totals.
 	subHeading(w, "Run totals", fmt.Sprintf("%s analysed, %s", time.Duration(to-from)*time.Millisecond, sampleNote(d.cpu[srcs[0]], from, to)),
 		"averages over every CPU sample in the run; \"all workers\" sums the per-worker averages")
-	fmt.Fprintf(w, " %-14s%12s\n", "source", "avg cores")
+	fmt.Fprintf(w, " %-18s%12s\n", "source", "avg cores")
 	var workerAvg float64
 	for _, s := range srcs {
 		if s == "system" {
@@ -790,12 +790,12 @@ func (d *data) printCPU(w io.Writer, o Options, from, to int64) {
 		workerAvg += stats.Summarize(inSamples(d.cpu[s], from, to), o.Deviation).Avg
 	}
 	if workers > 1 {
-		fmt.Fprintf(w, " %-14s%12s\n", "all workers", num(workerAvg))
+		fmt.Fprintf(w, " %-18s%12s\n", "all workers", num(workerAvg))
 	}
 	for _, s := range srcs {
 		if workers == 1 || s == "system" {
 			avg := stats.Summarize(inSamples(d.cpu[s], from, to), o.Deviation).Avg
-			fmt.Fprintf(w, " %-14s%12s\n", cpuLabel(s), num(avg))
+			fmt.Fprintf(w, " %-18s%12s\n", cpuLabel(s), num(avg))
 		}
 	}
 	// Client CPU cost per op, only when there is exactly one latency-bearing op.
@@ -869,7 +869,7 @@ func (d *data) printServerWindows(w io.Writer, o Options, from, to int64, opName
 		} else {
 			fmt.Fprintln(w)
 		}
-		fmt.Fprintf(w, " %-14s%9s%9s%9s%9s%9s%9s%9s%8s\n", name, "min", "max", "avg", "median", "p90", "p95", "p99", "dev%")
+		fmt.Fprintf(w, " %-18s%9s%9s%9s%9s%9s%9s%9s%8s\n", name, "min", "max", "avg", "median", "p90", "p95", "p99", "dev%")
 	}
 	// delta returns the counter's change over window i; ok is false when it is missing or went
 	// backwards (a worker restart), so the window is left out of that row.
@@ -968,9 +968,9 @@ func (d *data) printServer(w io.Writer, o Options, from, to int64) {
 		}
 	}
 	if len(rows) > 0 {
-		fmt.Fprintf(w, " %-14s%13s\n", "op", "avg_disk_ms")
+		fmt.Fprintf(w, " %-18s%13s\n", "op", "avg_disk_ms")
 		for _, r := range rows {
-			fmt.Fprintf(w, " %-14s%13s\n", r.op, stats.MsNum(r.disk))
+			fmt.Fprintf(w, " %-18s%13s\n", r.op, stats.MsNum(r.disk))
 		}
 	}
 	if commits, ok := d.serverDelta("batch.commits", from, to); ok && commits > 0 {
@@ -978,8 +978,8 @@ func (d *data) printServer(w io.Writer, o Options, from, to int64) {
 		wait, _ := d.serverDelta("batch.wait_us_total", from, to)
 		q, _ := d.serverDelta("batch.queue_size_total", from, to)
 		cp, _ := d.serverDelta("batch.conflict_pushbacks", from, to)
-		fmt.Fprintf(w, "\n %-14s%12s%12s%14s%12s%12s\n", "batches", "commits/s", "avg_size", "avg_wait_us", "avg_queue", "pushbacks")
-		fmt.Fprintf(w, " %-14s%12s%12.1f%14s%12.1f%12s\n", "", num(commits/secs), ent/commits, num(wait/commits), q/commits, grouped(int64(cp)))
+		fmt.Fprintf(w, "\n %-18s%12s%12s%14s%12s%12s\n", "batches", "commits/s", "avg_size", "avg_wait_us", "avg_queue", "pushbacks")
+		fmt.Fprintf(w, " %-18s%12s%12.1f%14s%12.1f%12s\n", "", num(commits/secs), ent/commits, num(wait/commits), q/commits, grouped(int64(cp)))
 	}
 	rt, _ := d.serverDelta("txn.retries", from, to)
 	hf, _ := d.serverDelta("txn.hard_failures", from, to)
@@ -996,8 +996,8 @@ func (d *data) printServer(w io.Writer, o Options, from, to int64) {
 			errs = append(errs, fmt.Sprintf("%s=%d", strings.TrimPrefix(n, "error."), int64(v)))
 		}
 	}
-	fmt.Fprintf(w, "\n %-14s%12s%14s\n", "txn", "retries", "hard_failures")
-	fmt.Fprintf(w, " %-14s%12s%14s\n", "", grouped(int64(rt)), grouped(int64(hf)))
+	fmt.Fprintf(w, "\n %-18s%12s%14s\n", "txn", "retries", "hard_failures")
+	fmt.Fprintf(w, " %-18s%12s%14s\n", "", grouped(int64(rt)), grouped(int64(hf)))
 	fmt.Fprintf(w, " server errors: %s\n", orNone(errs))
 }
 
