@@ -25,6 +25,8 @@ std::string parse_config(const std::string &json_text, const std::string &operat
     get(j, "bucket_name_prefix", c.bucket_name_prefix);
     get(j, "padding_bytes", c.padding_bytes);
     get(j, "object_size_bytes", c.object_size_bytes);
+    get(j, "metadata_count", c.metadata_count);
+    get(j, "metadata_size", c.metadata_size);
     get(j, "threads_per_worker", c.threads_per_worker);
     get(j, "verify_threads", c.verify_threads);
     get(j, "tenant_name", c.tenant_name);
@@ -44,6 +46,10 @@ std::string parse_config(const std::string &json_text, const std::string &operat
   if (c.num_buckets == 0) return "num_buckets must be > 0";
   if (c.num_objects == 0) return "num_objects must be > 0";
   if (c.padding_bytes < 0 || c.padding_bytes > 700) return "padding_bytes out of range";
+  if (c.metadata_count < 0 || c.metadata_count > 160) return "metadata_count must be in 0..160";
+  if (c.metadata_count > 0 && (c.metadata_size < 1 || c.metadata_size > 2048)) {
+    return "metadata_size must be in 1..2048 when metadata_count > 0";
+  }
   if (c.threads_per_worker < 1) return "threads_per_worker must be >= 1";
   if (c.verify_threads < 1) return "verify_threads must be >= 1";
   if (c.page_size < 1) return "page_size must be >= 1";

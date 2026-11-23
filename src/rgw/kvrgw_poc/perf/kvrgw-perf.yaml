@@ -28,6 +28,8 @@ base:
   bucket_name_prefix: rgwkv
   padding_bytes: 200         # random key-prefix length (key = prefix + 20-digit id)
   object_size_bytes: 8192    # payload size
+  metadata_count: 6          # user-metadata (x-amz-meta-*) items attached to every put (0 = none, max 160)
+  metadata_size: 64          # bytes per metadata value (1..2048); keys are meta000, meta001, ...
   tenant_name: kv-poc
   # parallelism
   worker_count: 32           # worker processes (local mode), one runtime each

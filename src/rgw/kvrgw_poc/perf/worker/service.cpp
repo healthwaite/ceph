@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <iostream>
 #include <mutex>
 #include <thread>
@@ -131,6 +132,26 @@ std::string WorkerService::do_init(const perf::v1::InitRequest &req)
   uint64_t st = 0x1234;
   for (size_t i = 0; i < ctx->payload.size(); ++i) {
     ctx->payload[i] = static_cast<char>(splitmix64_next(st));
+  }
+  {
+    // Same charset as perf_driver (AWS-legal characters); keys are meta000, meta001, ...
+    static constexpr std::string_view charset(
+        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_.!*()'");
+    const auto n = static_cast<size_t>(cfg.metadata_count);
+    ctx->meta_keys.reserve(n);
+    ctx->meta_vals.reserve(n);
+    ctx->meta_pairs.reserve(n);
+    uint64_t ms = 0x5678;
+    for (size_t i = 0; i < n; ++i) {
+      char kb[16];
+      std::snprintf(kb, sizeof kb, "meta%03zu", i);
+      ctx->meta_keys.emplace_back(kb);
+      std::string v(static_cast<size_t>(cfg.metadata_size), '\0');
+      for (auto &ch : v) ch = charset[splitmix64_next(ms) % charset.size()];
+      ctx->meta_vals.push_back(std::move(v));
+    }
+    // Vectors are fully built before taking views, so the views stay valid.
+    for (size_t i = 0; i < n; ++i) ctx->meta_pairs.emplace_back(ctx->meta_keys[i], ctx->meta_vals[i]);
   }
   stats_ = std::make_unique<StatsHub>(cfg.threads_per_worker);
   ctx->stats = stats_.get();

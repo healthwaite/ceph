@@ -52,6 +52,10 @@ type Config struct {
 	BucketNamePrefix string `yaml:"bucket_name_prefix" json:"bucket_name_prefix"`
 	PaddingBytes     int    `yaml:"padding_bytes" json:"padding_bytes"`
 	ObjectSizeBytes  uint64 `yaml:"object_size_bytes" json:"object_size_bytes"`
+	// MetadataCount user-metadata items (x-amz-meta-*) of MetadataSize bytes each are attached to
+	// every object written by load and the put runs. 0 disables.
+	MetadataCount    int    `yaml:"metadata_count" json:"metadata_count"`
+	MetadataSize     int    `yaml:"metadata_size" json:"metadata_size"`
 	WorkerCount      int    `yaml:"worker_count" json:"worker_count"`
 	ThreadsPerWorker int    `yaml:"threads_per_worker" json:"threads_per_worker"`
 	VerifyThreads    int    `yaml:"verify_threads" json:"verify_threads"`
@@ -125,7 +129,7 @@ func (c *Config) KvrgwEnv() []string {
 func Defaults() Config {
 	return Config{
 		NumObjects: 1000000, NumBuckets: 10, BucketNamePrefix: "rgwkv",
-		PaddingBytes: 16, ObjectSizeBytes: 8192, WorkerCount: 1, ThreadsPerWorker: 1,
+		PaddingBytes: 16, ObjectSizeBytes: 8192, MetadataCount: 6, MetadataSize: 64, WorkerCount: 1, ThreadsPerWorker: 1,
 		VerifyThreads: 4, TenantName: envOr("KVRGW_TENANT_NAME", "kv-poc"),
 		ReportIntervalMs: 1000,
 		FdbStats:         true, FdbClusterFile: os.Getenv("FDB_CLUSTER_FILE"), FdbcliPath: "/opt/foundationdb/usr/bin/fdbcli",
@@ -269,6 +273,12 @@ func (c *Config) Validate(command string) error {
 	if c.VerifyThreads < 1 {
 		return fmt.Errorf("verify_threads must be >= 1")
 	}
+	if c.MetadataCount < 0 || c.MetadataCount > 160 {
+		return fmt.Errorf("metadata_count must be in 0..160")
+	}
+	if c.MetadataCount > 0 && (c.MetadataSize < 1 || c.MetadataSize > 2048) {
+		return fmt.Errorf("metadata_size must be in 1..2048 when metadata_count > 0")
+	}
 	if c.PaddingBytes < 0 || c.PaddingBytes > 700 {
 		return fmt.Errorf("padding_bytes out of range")
 	}
@@ -373,6 +383,8 @@ type workerJSON struct {
 	BucketNamePrefix      string `json:"bucket_name_prefix"`
 	PaddingBytes          int    `json:"padding_bytes"`
 	ObjectSizeBytes       uint64 `json:"object_size_bytes"`
+	MetadataCount         int    `json:"metadata_count"`
+	MetadataSize          int    `json:"metadata_size"`
 	ThreadsPerWorker      int    `json:"threads_per_worker"`
 	VerifyThreads         int    `json:"verify_threads"`
 	TenantName            string `json:"tenant_name"`
@@ -392,7 +404,7 @@ func (c *Config) WorkerJSON() ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(workerJSON{
-		c.NumObjects, c.NumBuckets, c.BucketNamePrefix, c.PaddingBytes, c.ObjectSizeBytes,
+		c.NumObjects, c.NumBuckets, c.BucketNamePrefix, c.PaddingBytes, c.ObjectSizeBytes, c.MetadataCount, c.MetadataSize,
 		c.ThreadsPerWorker, c.VerifyThreads, c.TenantName,
 		c.ReportIntervalMs, c.Ops, d.Milliseconds(), c.PageSize,
 		c.SingleThreadMode, c.NumObjectsToOverwrite, c.Force,

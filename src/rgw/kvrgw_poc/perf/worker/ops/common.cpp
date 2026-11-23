@@ -3,6 +3,7 @@
 #include "error_codes.hpp"
 
 #include <iostream>
+#include <span>
 #include <thread>
 
 namespace perfw {
@@ -98,7 +99,8 @@ bool put_with_retry(RunContext &ctx, ThreadStats &ts, const std::string &bucket,
       res = ctx.svc->put_object(ctx.tenant, bucket, key,
                                 reinterpret_cast<const uint8_t *>(ctx.payload.data()),
                                 ctx.payload.size(), "application/octet-stream",
-                                ctx.payload.size(), nullptr, {}, {});
+                                ctx.payload.size(), nullptr, {},
+                                std::span<const kvrgw::MetaPair>(ctx.meta_pairs));
     }
     if (res.error_code == kvrgw::KVRGW_ERR_OK) {
       ts.record(Metric::PutObject, static_cast<uint64_t>(elapsed_us(t0)));

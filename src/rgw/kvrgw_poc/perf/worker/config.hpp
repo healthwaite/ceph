@@ -13,6 +13,8 @@ struct Config {
   std::string bucket_name_prefix = "rgwkv";
   int padding_bytes = 16;
   uint64_t object_size_bytes = 8192;
+  int metadata_count = 6;  // x-amz-meta-* items per put (0 = none)
+  int metadata_size = 64;  // bytes per metadata value
   int worker_count = 1;
   int threads_per_worker = 1;
   int verify_threads = 4;

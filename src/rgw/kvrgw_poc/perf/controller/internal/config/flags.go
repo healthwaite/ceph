@@ -19,7 +19,8 @@ var flagKeys = map[string]string{
 	"num-objects": "num_objects", "num-buckets": "num_buckets",
 	"bucket-name-prefix": "bucket_name_prefix", "padding-bytes": "padding_bytes",
 	"object-size-bytes": "object_size_bytes",
-	"workers":           "worker_count", "worker-count": "worker_count",
+	"metadata-count":    "metadata_count", "metadata-size": "metadata_size",
+	"workers": "worker_count", "worker-count": "worker_count",
 	"threads": "threads_per_worker", "threads-per-worker": "threads_per_worker",
 	"verify-threads": "verify_threads", "tenant-name": "tenant_name",
 	"batch-size": "batch_size", "batch-timeout-us": "batch_timeout_us",
@@ -128,6 +129,10 @@ func Set(c *Config, key, v string) error {
 		return i(&c.PaddingBytes)
 	case "object_size_bytes":
 		return u(&c.ObjectSizeBytes)
+	case "metadata_count":
+		return i(&c.MetadataCount)
+	case "metadata_size":
+		return i(&c.MetadataSize)
 	case "worker_count":
 		return i(&c.WorkerCount)
 	case "threads_per_worker":

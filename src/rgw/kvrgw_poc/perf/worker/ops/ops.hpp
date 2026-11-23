@@ -12,6 +12,7 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,9 @@ struct RunContext {
   kvrgw::KvRgwServiceImpl *svc = nullptr;
   kvrgw::tenant_id_t tenant = 0;
   std::string payload;
+  // User metadata attached to every put: storage plus views into it (built once at init).
+  std::vector<std::string> meta_keys, meta_vals;
+  std::vector<kvrgw::MetaPair> meta_pairs;
   std::vector<std::string> bucket_names;  // index = bucket id
   StatsHub *stats = nullptr;
 
