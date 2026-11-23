@@ -10,6 +10,9 @@ const char *metric_name(Metric m)
     case Metric::DeleteMulti: return "delete_multi";
     case Metric::ListDeleteMulti: return "list_delete_multi";
     case Metric::GetObject: return "get_object";
+    case Metric::PutOverwrite: return "put_object_overwrite";
+    case Metric::DeleteObject: return "delete_object";
+    case Metric::GetMisses: return "get_misses";
     case Metric::KeysListed: return "keys_listed";
     case Metric::KeysDeleted: return "keys_deleted";
     case Metric::SendLag: return "send_lag";

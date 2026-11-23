@@ -268,6 +268,25 @@ Inserts brand-new keys never present in `load` or any earlier run.
 - Objects stored in the data tier read back zeros: the perf data store keeps no bytes (see
   `sim_disk_read_us`).
 
+#### `run-mixed-ops`
+- **Destructive** (deletes and overwrites loaded objects; the controller prompts, `--yes`
+  skips). `driver_mode: sync` only (there is no async `delete_object`); no open loop, no ramp.
+- Each thread picks one op per iteration at random by weight (`get_object_weight` 0.65,
+  `put_object_new_weight` 0.25, `put_object_overwrite_weight` 0.05, `list_objects_weight`
+  0.01, `delete_object_weight` 0.04; relative, normalised by their sum, at least one > 0), then
+  a random key, and performs it:
+  - get: random id in `[0, num_objects)`; a missing key is legitimate and counted in
+    `get_misses`, not as an error.
+  - put new: the `run-put-object` key convention (`put_key(run_ts, gsid, counter)`, bucket
+    `gsid % num_buckets`), retried like `run-put-object`; metric `put_object`.
+  - overwrite: pops an id from the thread's deleted list if non-empty, else a random id in
+    `[0, num_objects)`; metric `put_object_overwrite`.
+  - list: one `list_objects` call (`page_size`) on a random bucket and key prefix.
+  - delete: `delete_object` on a random id (an already-missing key is not an error); the id
+    joins the thread's deleted list; metric `delete_object`.
+- **No verify stage**: threads share the id space, so concurrent writes make the final state
+  non-deterministic.
+
 #### `run-delete-multi`
 - **Destructive.** The controller prompts: "run-delete-multi deletes objects
   created by load and cannot be undone. Continue? [y/N]". `--yes` skips the

@@ -207,7 +207,8 @@ class ServiceVersionPager : public VersionPager {
 // version (the runtime reports a version id only for a put into a versioning-enabled bucket;
 // a put that replaced the current object in place reports none).
 bool put_with_retry(RunContext &ctx, ThreadStats &ts, const std::string &bucket,
-                    const std::string &key, bool *created_version = nullptr);
+                    const std::string &key, bool *created_version = nullptr,
+                    Metric metric = Metric::PutObject);
 
 // Async put_with_retry: same attempts, error recording and log rate limit.
 // KVRGW_ERR_QUEUE_FULL is not an attempt: the stream sleeps on its executor

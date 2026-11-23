@@ -19,6 +19,9 @@ enum class Metric : int {
   DeleteMulti,
   ListDeleteMulti,  // one list + delete_multi iteration (run-list-delete-multi)
   GetObject,
+  PutOverwrite,  // run-mixed-ops: put_object over an existing/deleted id
+  DeleteObject,
+  GetMisses,     // counter-style: run-mixed-ops gets that found no key (not errors)
   KeysListed,   // counter-style
   KeysDeleted,  // counter-style
   // Open loop only: actual send time minus scheduled send time, per op (a
@@ -32,7 +35,7 @@ enum class Metric : int {
 };
 inline constexpr int kMetricCount = static_cast<int>(Metric::kCount);
 const char *metric_name(Metric m);
-inline bool metric_is_counter(Metric m) { return m == Metric::KeysListed || m == Metric::KeysDeleted; }
+inline bool metric_is_counter(Metric m) { return m == Metric::GetMisses || m == Metric::KeysListed || m == Metric::KeysDeleted; }
 
 struct MetricStats {
   uint64_t count = 0;   // successes (or units for counter metrics)

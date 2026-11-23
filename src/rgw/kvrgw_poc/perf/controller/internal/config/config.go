@@ -33,7 +33,7 @@ func (c *Config) FdbStatusOuterLimit() time.Duration { return c.FdbStatusTimeout
 // Commands lists the valid operation commands (report is handled separately).
 var Commands = []string{
 	"load", "run-put-object", "run-list-objects", "run-put-object-overwrite",
-	"run-put-object-overwrite-versioned", "run-list-delete-multi", "run-delete-multi", "run-get-object",
+	"run-put-object-overwrite-versioned", "run-list-delete-multi", "run-delete-multi", "run-get-object", "run-mixed-ops",
 }
 
 func IsCommand(c string) bool {
@@ -108,8 +108,15 @@ type Config struct {
 	Ops      uint64 `yaml:"ops" json:"ops,omitempty"`
 	Duration string `yaml:"duration" json:"duration,omitempty"`
 
-	PageSize         int  `yaml:"page_size" json:"page_size"`
-	SingleThreadMode bool `yaml:"single_thread_mode" json:"single_thread_mode"`
+	PageSize int `yaml:"page_size" json:"page_size"`
+	// run-mixed-ops only: relative weights of the operations a thread picks at random
+	// (normalised by their sum, which must be > 0; 0 disables an operation).
+	GetObjectWeight          float64 `yaml:"get_object_weight" json:"get_object_weight"`
+	PutObjectNewWeight       float64 `yaml:"put_object_new_weight" json:"put_object_new_weight"`
+	PutObjectOverwriteWeight float64 `yaml:"put_object_overwrite_weight" json:"put_object_overwrite_weight"`
+	ListObjectsWeight        float64 `yaml:"list_objects_weight" json:"list_objects_weight"`
+	DeleteObjectWeight       float64 `yaml:"delete_object_weight" json:"delete_object_weight"`
+	SingleThreadMode         bool    `yaml:"single_thread_mode" json:"single_thread_mode"`
 	// NumObjectsToOverwrite (run-put-object-overwrite-versioned only) is the total number of
 	// keys overwritten, shared evenly across all workers * threads.
 	NumObjectsToOverwrite uint64 `yaml:"num_objects_to_overwrite" json:"num_objects_to_overwrite"`
@@ -351,7 +358,9 @@ func Defaults() Config {
 		ReportIntervalMs: 1000,
 		FdbStats:         true, FdbStatusRaw: true, FdbClusterFile: os.Getenv("FDB_CLUSTER_FILE"), FdbcliPath: "/opt/foundationdb/usr/bin/fdbcli",
 		FdbSampleIntervalMs: 5000, FdbStatusTimeoutMs: 3000, CpuSampleIntervalMs: 1000,
-		PageSize: 1000,
+		PageSize:        1000,
+		GetObjectWeight: 0.65, PutObjectNewWeight: 0.25, PutObjectOverwriteWeight: 0.05,
+		ListObjectsWeight: 0.01, DeleteObjectWeight: 0.04,
 		Kvrgw: KvrgwConfig{MaxInline: 256, MaxKvStore: 4096, BatchSize: 5, BatchTimeoutUs: 1000,
 			BackendWorkers: 4, MaxInflightOps: 4096, TxnMaxAttempts: 3, BatchTxnMaxAttempts: 10},
 	}
@@ -535,6 +544,19 @@ func (c *Config) Validate(command string) error {
 	if c.PageSize < 1 {
 		return fmt.Errorf("page_size must be >= 1")
 	}
+	if command == "run-mixed-ops" {
+		if c.GetObjectWeight < 0 || c.PutObjectNewWeight < 0 || c.PutObjectOverwriteWeight < 0 ||
+			c.ListObjectsWeight < 0 || c.DeleteObjectWeight < 0 {
+			return fmt.Errorf("run-mixed-ops weights must be >= 0")
+		}
+		if c.GetObjectWeight+c.PutObjectNewWeight+c.PutObjectOverwriteWeight+
+			c.ListObjectsWeight+c.DeleteObjectWeight <= 0 {
+			return fmt.Errorf("run-mixed-ops needs at least one weight > 0")
+		}
+		if c.DriverMode != "sync" {
+			return fmt.Errorf("run-mixed-ops supports driver_mode sync only (there is no async delete_object)")
+		}
+	}
 	if c.ReportIntervalMs < 0 {
 		return fmt.Errorf("report_interval_ms must be >= 0")
 	}
@@ -646,29 +668,34 @@ func (c *Config) ApplyCommandRules(command string) (warnings []string) {
 
 // workerJSON is what workers receive (no collector keys).
 type workerJSON struct {
-	NumObjects            uint64  `json:"num_objects"`
-	NumBuckets            uint64  `json:"num_buckets"`
-	BucketNamePrefix      string  `json:"bucket_name_prefix"`
-	PaddingBytes          int     `json:"padding_bytes"`
-	ObjectSizeBytes       uint64  `json:"object_size_bytes"`
-	MetadataCount         int     `json:"metadata_count"`
-	MetadataSize          int     `json:"metadata_size"`
-	ThreadsPerWorker      int     `json:"threads_per_worker"`
-	DriverMode            string  `json:"driver_mode"`
-	StreamsPerWorker      int     `json:"streams_per_worker"`
-	DriverThreads         int     `json:"driver_threads"`
-	RateOpsPerSec         float64 `json:"rate_ops_per_sec"`
-	Arrival               string  `json:"arrival"`
-	Ramp                  bool    `json:"ramp,omitempty"`
-	VerifyThreads         int     `json:"verify_threads"`
-	TenantName            string  `json:"tenant_name"`
-	ReportIntervalMs      int64   `json:"report_interval_ms"`
-	Ops                   uint64  `json:"ops,omitempty"`
-	DurationMs            int64   `json:"duration_ms,omitempty"`
-	PageSize              int     `json:"page_size"`
-	SingleThreadMode      bool    `json:"single_thread_mode"`
-	NumObjectsToOverwrite uint64  `json:"num_objects_to_overwrite"`
-	Force                 bool    `json:"force"`
+	NumObjects               uint64  `json:"num_objects"`
+	NumBuckets               uint64  `json:"num_buckets"`
+	BucketNamePrefix         string  `json:"bucket_name_prefix"`
+	PaddingBytes             int     `json:"padding_bytes"`
+	ObjectSizeBytes          uint64  `json:"object_size_bytes"`
+	MetadataCount            int     `json:"metadata_count"`
+	MetadataSize             int     `json:"metadata_size"`
+	ThreadsPerWorker         int     `json:"threads_per_worker"`
+	DriverMode               string  `json:"driver_mode"`
+	StreamsPerWorker         int     `json:"streams_per_worker"`
+	DriverThreads            int     `json:"driver_threads"`
+	RateOpsPerSec            float64 `json:"rate_ops_per_sec"`
+	Arrival                  string  `json:"arrival"`
+	Ramp                     bool    `json:"ramp,omitempty"`
+	VerifyThreads            int     `json:"verify_threads"`
+	TenantName               string  `json:"tenant_name"`
+	ReportIntervalMs         int64   `json:"report_interval_ms"`
+	Ops                      uint64  `json:"ops,omitempty"`
+	DurationMs               int64   `json:"duration_ms,omitempty"`
+	PageSize                 int     `json:"page_size"`
+	SingleThreadMode         bool    `json:"single_thread_mode"`
+	NumObjectsToOverwrite    uint64  `json:"num_objects_to_overwrite"`
+	Force                    bool    `json:"force"`
+	GetObjectWeight          float64 `json:"get_object_weight"`
+	PutObjectNewWeight       float64 `json:"put_object_new_weight"`
+	PutObjectOverwriteWeight float64 `json:"put_object_overwrite_weight"`
+	ListObjectsWeight        float64 `json:"list_objects_weight"`
+	DeleteObjectWeight       float64 `json:"delete_object_weight"`
 }
 
 // WorkerJSON renders the config sent in InitRequest.config_json.
@@ -683,6 +710,8 @@ func (c *Config) WorkerJSON() ([]byte, error) {
 		c.VerifyThreads, c.TenantName,
 		c.ReportIntervalMs, c.Ops, d.Milliseconds(), c.PageSize,
 		c.SingleThreadMode, c.NumObjectsToOverwrite, c.Force,
+		c.GetObjectWeight, c.PutObjectNewWeight, c.PutObjectOverwriteWeight, c.ListObjectsWeight,
+		c.DeleteObjectWeight,
 	})
 }
 

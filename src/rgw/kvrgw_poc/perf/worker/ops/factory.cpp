@@ -9,6 +9,7 @@ std::unique_ptr<Operation> make_overwrite_op(bool versioned);
 std::unique_ptr<Operation> make_delete_multi_op();
 std::unique_ptr<Operation> make_list_delete_multi_op();
 std::unique_ptr<Operation> make_get_object_op();
+std::unique_ptr<Operation> make_mixed_ops_op();
 
 std::unique_ptr<Operation> make_operation(const std::string &name)
 {
@@ -20,6 +21,7 @@ std::unique_ptr<Operation> make_operation(const std::string &name)
   if (name == "run-list-delete-multi") return make_list_delete_multi_op();
   if (name == "run-delete-multi") return make_delete_multi_op();
   if (name == "run-get-object") return make_get_object_op();
+  if (name == "run-mixed-ops") return make_mixed_ops_op();
   return nullptr;
 }
 

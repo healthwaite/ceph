@@ -144,6 +144,7 @@ Then, in that shell (from `src/rgw/kvrgw_poc`):
     build/kvrgw-perf run-put-object --duration 60s
     build/kvrgw-perf run-list-objects --duration 30s
     build/kvrgw-perf run-get-object --duration 30s       # random reads, no verify
+    build/kvrgw-perf run-mixed-ops --duration 30s        # weighted get/put/overwrite/list/delete, no verify
     build/kvrgw-perf report perf-results/<dir> --warmup 10s              # run totals only
     build/kvrgw-perf report perf-results/<dir> --warmup 10s --detailed   # plus per-window statistics
     build/kvrgw-perf report perf-results/<dir> --warmup 10s --window 30s   # widen the windows

@@ -64,7 +64,9 @@ func (m *Metric) Empty() bool {
 }
 
 // IsCounter reports counter-style op types (no latency).
-func IsCounter(op string) bool { return op == "keys_listed" || op == "keys_deleted" }
+func IsCounter(op string) bool {
+	return op == "keys_listed" || op == "keys_deleted" || op == "get_misses"
+}
 
 // IsLag reports the open-loop latency histograms that are not op types: send_lag
 // (send time minus scheduled time per op) and service_time (send to completion).

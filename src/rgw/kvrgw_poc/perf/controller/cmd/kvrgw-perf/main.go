@@ -30,6 +30,7 @@ commands:
   run-list-delete-multi                list a page then delete it, per prefix (destructive)
   run-delete-multi                     batch deletes (destructive)
   run-get-object                       read random loaded keys (no verify)
+  run-mixed-ops                        weighted random get/put/overwrite/list/delete (no verify)
   report <results-dir>                 analyse a results directory
         [--warmup D] [--window D] [--detailed] [--deviation N] [--per-server]
 
@@ -142,6 +143,8 @@ func run(args []string) int {
 		prompt = "run-list-delete-multi deletes objects created by load and cannot be undone. Continue? [y/N] "
 	case "run-delete-multi":
 		prompt = "run-delete-multi deletes objects created by load and cannot be undone. Continue? [y/N] "
+	case "run-mixed-ops":
+		prompt = "run-mixed-ops deletes and overwrites objects created by load (no verify) and cannot be undone. Continue? [y/N] "
 	case "run-put-object-overwrite-versioned":
 		prompt = cfg.VersionedOverwritePrompt()
 	}

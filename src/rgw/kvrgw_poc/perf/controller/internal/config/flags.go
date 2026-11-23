@@ -45,6 +45,9 @@ var flagKeys = map[string]string{
 	"single-thread-mode":       "single_thread_mode",
 	"num-objects-to-overwrite": "num_objects_to_overwrite",
 	"force":                    "force",
+	"get-object-weight":        "get_object_weight", "put-object-new-weight": "put_object_new_weight",
+	"put-object-overwrite-weight": "put_object_overwrite_weight",
+	"list-objects-weight":         "list_objects_weight", "delete-object-weight": "delete_object_weight",
 }
 
 // Register adds a string flag for every config key to fs (bool-like flags accept
@@ -135,6 +138,13 @@ func Set(c *Config, key, v string) error {
 	f := func(dst *float64) error {
 		x, err := strconv.ParseFloat(v, 64)
 		*dst = x
+		return err
+	}
+	fl := func(dst *float64) error {
+		x, err := strconv.ParseFloat(v, 64)
+		if err == nil {
+			*dst = x
+		}
 		return err
 	}
 	b := func(dst *bool) error {
@@ -249,6 +259,16 @@ func Set(c *Config, key, v string) error {
 		c.Duration = v
 	case "page_size":
 		return i(&c.PageSize)
+	case "get_object_weight":
+		return fl(&c.GetObjectWeight)
+	case "put_object_new_weight":
+		return fl(&c.PutObjectNewWeight)
+	case "put_object_overwrite_weight":
+		return fl(&c.PutObjectOverwriteWeight)
+	case "list_objects_weight":
+		return fl(&c.ListObjectsWeight)
+	case "delete_object_weight":
+		return fl(&c.DeleteObjectWeight)
 	case "single_thread_mode":
 		return b(&c.SingleThreadMode)
 	case "num_objects_to_overwrite":

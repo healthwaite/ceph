@@ -40,6 +40,11 @@ std::string parse_config(const std::string &json_text, const std::string &operat
     get(j, "ops", c.ops);
     get(j, "duration_ms", c.duration_ms);
     get(j, "page_size", c.page_size);
+    get(j, "get_object_weight", c.get_object_weight);
+    get(j, "put_object_new_weight", c.put_object_new_weight);
+    get(j, "put_object_overwrite_weight", c.put_object_overwrite_weight);
+    get(j, "list_objects_weight", c.list_objects_weight);
+    get(j, "delete_object_weight", c.delete_object_weight);
     get(j, "single_thread_mode", c.single_thread_mode);
     get(j, "num_objects_to_overwrite", c.num_objects_to_overwrite);
     get(j, "force", c.force);
@@ -73,6 +78,16 @@ std::string parse_config(const std::string &json_text, const std::string &operat
   }
   if (c.verify_threads < 1) return "verify_threads must be >= 1";
   if (c.page_size < 1) return "page_size must be >= 1";
+  if (operation == "run-mixed-ops") {
+    const double w[] = {c.get_object_weight, c.put_object_new_weight, c.put_object_overwrite_weight,
+                        c.list_objects_weight, c.delete_object_weight};
+    double sum = 0;
+    for (double x : w) {
+      if (!(x >= 0)) return "run-mixed-ops weights must be >= 0";
+      sum += x;
+    }
+    if (!(sum > 0)) return "run-mixed-ops needs at least one weight > 0";
+  }
   if (c.report_interval_ms < 0) return "report_interval_ms must be >= 0";
   if (static_cast<uint64_t>(c.worker_count) * static_cast<uint64_t>(c.streams()) > 65536) {
     return "worker_count * streams_per_worker must be <= 65536";

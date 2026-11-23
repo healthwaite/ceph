@@ -37,6 +37,9 @@ struct Config {
   uint64_t ops = 0;
   int64_t duration_ms = 0;
   int page_size = 1000;
+  // run-mixed-ops relative weights.
+  double get_object_weight = 0.65, put_object_new_weight = 0.25, put_object_overwrite_weight = 0.05,
+         list_objects_weight = 0.01, delete_object_weight = 0.04;
   bool single_thread_mode = false;
   uint64_t num_objects_to_overwrite = 0;
   bool force = false;  // load: tolerate pre-existing buckets

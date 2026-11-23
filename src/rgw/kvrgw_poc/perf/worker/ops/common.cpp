@@ -86,7 +86,7 @@ std::string ServiceVersionPager::page(const std::string &prefix, uint32_t max_ke
 }
 
 bool put_with_retry(RunContext &ctx, ThreadStats &ts, const std::string &bucket,
-                    const std::string &key, bool *created_version)
+                    const std::string &key, bool *created_version, Metric metric)
 {
   constexpr int kAttempts = 10;
   kvrgw::KvrgwErrorCode last = kvrgw::KVRGW_ERR_OK;
@@ -100,14 +100,14 @@ bool put_with_retry(RunContext &ctx, ThreadStats &ts, const std::string &bucket,
                             ctx.payload.size(), nullptr, {},
                             std::span<const kvrgw::MetaPair>(ctx.meta_pairs));
     if (res.error_code == kvrgw::KVRGW_ERR_OK) {
-      ts.record(Metric::PutObject, static_cast<uint64_t>(elapsed_us(t0)));
+      ts.record(metric, static_cast<uint64_t>(elapsed_us(t0)));
       if (created_version) {
         *created_version = res.version_id.is_valid() && !res.version_id.is_null();
       }
       return true;
     }
     last = res.error_code;
-    record_op_error(ts, Metric::PutObject, last);
+    record_op_error(ts, metric, last);
     log_op_error("put_object " + bucket + "/" + short_key(key) + " (attempt " + std::to_string(a + 1) + ")",
                  describe_error(last));
   }

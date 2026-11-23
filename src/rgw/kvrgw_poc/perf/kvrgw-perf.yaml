@@ -155,6 +155,22 @@ run-list-delete-multi:
 run-get-object:
   duration: 10m
 
+# Each thread picks an operation at random by weight, then a random key, and performs it:
+# get_object (a missing key is fine: counted in get_misses), put_object of a new key (as in
+# run-put-object), put_object over an existing id (ids this thread deleted are re-put first),
+# one list_objects page (page_size), delete_object (the id joins the thread's deleted list).
+# DESTRUCTIVE (deletes/overwrites loaded objects; prompts unless --yes), driver_mode sync only,
+# and there is no verify stage: threads share the id space, so the final state is not
+# deterministic. Weights are relative (normalised by their sum).
+run-mixed-ops:
+  duration: 10m
+  get_object_weight: 0.65
+  put_object_new_weight: 0.25
+  put_object_overwrite_weight: 0.05
+  list_objects_weight: 0.01
+  delete_object_weight: 0.04
+  page_size: 1000
+
 # DESTRUCTIVE: deletes loaded objects in batches (prompts unless --yes).
 run-delete-multi:
   threads_per_worker: 16

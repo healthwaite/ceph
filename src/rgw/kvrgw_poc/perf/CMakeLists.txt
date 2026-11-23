@@ -40,7 +40,7 @@ add_executable(kvrgw-perf-worker
   worker/main.cpp worker/service.cpp
   worker/ops/common.cpp worker/ops/factory.cpp worker/ops/load.cpp
   worker/ops/put_object.cpp worker/ops/list_objects.cpp worker/ops/overwrite.cpp
-  worker/ops/delete_multi.cpp worker/ops/list_delete_multi.cpp worker/ops/get_object.cpp)
+  worker/ops/delete_multi.cpp worker/ops/list_delete_multi.cpp worker/ops/get_object.cpp worker/ops/mixed_ops.cpp)
 target_include_directories(kvrgw-perf-worker PRIVATE
   "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/include" "${PERF_DIR}/worker")
 target_link_libraries(kvrgw-perf-worker PRIVATE kvrgw perf_core perf_proto)

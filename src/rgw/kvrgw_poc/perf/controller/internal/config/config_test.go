@@ -172,7 +172,7 @@ func TestShippedConfigIsComplete(t *testing.T) {
 	for i := 0; i < rt.NumField(); i++ {
 		key := strings.Split(rt.Field(i).Tag.Get("yaml"), ",")[0]
 		if key == "-" || key == "" || key == "ops" || key == "duration" ||
-			key == "page_size" || key == "single_thread_mode" || key == "num_objects_to_overwrite" || key == "force" {
+			key == "page_size" || strings.HasSuffix(key, "_weight") || key == "single_thread_mode" || key == "num_objects_to_overwrite" || key == "force" {
 			continue // command-specific keys live in the command sections
 		}
 		if _, ok := base[key]; !ok {
@@ -498,5 +498,38 @@ func TestGetObjectCommand(t *testing.T) {
 	c.DriverMode, c.RateOpsPerSec = "async", 100
 	if err := c.Validate("run-get-object"); err == nil {
 		t.Fatal("open loop is not supported for run-get-object")
+	}
+}
+
+func TestMixedOpsConfig(t *testing.T) {
+	c := Defaults()
+	c.Duration = "1m"
+	if err := c.Validate("run-mixed-ops"); err != nil {
+		t.Fatal(err)
+	}
+	c.GetObjectWeight = -1
+	if err := c.Validate("run-mixed-ops"); err == nil {
+		t.Fatal("negative weight")
+	}
+	c = Defaults()
+	c.GetObjectWeight, c.PutObjectNewWeight, c.PutObjectOverwriteWeight = 0, 0, 0
+	c.ListObjectsWeight, c.DeleteObjectWeight = 0, 0
+	if err := c.Validate("run-mixed-ops"); err == nil {
+		t.Fatal("all-zero weights")
+	}
+	c = Defaults()
+	c.DriverMode = "async"
+	if err := c.Validate("run-mixed-ops"); err == nil {
+		t.Fatal("async not supported")
+	}
+	ov := NewOverrides()
+	ov.vals["delete_object_weight"] = "0.5"
+	c = Defaults()
+	if err := ov.Apply(&c); err != nil || c.DeleteObjectWeight != 0.5 {
+		t.Fatalf("%v %+v", err, c)
+	}
+	b, _ := c.WorkerJSON()
+	if !contains(string(b), `"delete_object_weight":0.5`) || !contains(string(b), `"get_object_weight":0.65`) {
+		t.Fatalf("%s", b)
 	}
 }

@@ -345,8 +345,11 @@ func (v *invocation) execute(sigCtx, mctx, cctx context.Context, wg *sync.WaitGr
 	return exit
 }
 
-// opHasVerify: run-get-object changes nothing, so it has no verify stage.
-func (v *invocation) opHasVerify() bool { return v.o.Command != "run-get-object" }
+// opHasVerify: run-get-object changes nothing, and run-mixed-ops's random concurrent
+// writes have no deterministic final state, so neither has a verify stage.
+func (v *invocation) opHasVerify() bool {
+	return v.o.Command != "run-get-object" && v.o.Command != "run-mixed-ops"
+}
 
 func (v *invocation) cleanup(mctx context.Context) {
 	cctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
