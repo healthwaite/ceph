@@ -2048,6 +2048,7 @@ bool KvRgwServiceImpl::delete_multi_try_commit(
   }
 
   for (size_t i = 0; i < keys.size(); ++i) {
+    ctxs[i].resolved.reset();
     delete_prepare_key(*tr, batch->bucket_id, keys[i], ctxs[i]);
   }
 
