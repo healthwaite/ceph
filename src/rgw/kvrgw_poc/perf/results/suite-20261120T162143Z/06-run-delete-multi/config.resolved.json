@@ -1,0 +1,30 @@
+{
+  "num_objects": 1000000000,
+  "num_buckets": 10,
+  "bucket_name_prefix": "rgwkv",
+  "padding_bytes": 200,
+  "object_size_bytes": 8192,
+  "worker_count": 32,
+  "threads_per_worker": 16,
+  "verify_threads": 16,
+  "tenant_name": "kv-poc",
+  "report_interval_ms": 10000,
+  "fdb_stats": true,
+  "fdb_cluster_file": "/etc/foundationdb/fdb.cluster",
+  "fdbcli_path": "/opt/kvrgw/fdbcli",
+  "fdb_sample_interval_ms": 5000,
+  "cpu_sample_interval_ms": 5000,
+  "duration": "12h",
+  "page_size": 1000,
+  "single_thread_mode": false,
+  "num_objects_to_overwrite": 0,
+  "force": false,
+  "kvrgw": {
+    "max_inline": 256,
+    "max_kv_store": 4096,
+    "kv_store_coalescing": false,
+    "batch_size": 10,
+    "batch_timeout_us": 1000,
+    "batch_threads": 8
+  }
+}

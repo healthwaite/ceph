@@ -1,0 +1,177 @@
+==========================================================================
+ kvrgw-perf report: 01-run-put-object
+==========================================================================
+ Operation : run-put-object      Workers: 32 x 128 threads   Buckets: 10
+ Benchmark : 18:11:00Z -> 06:11:00Z (43200s)   Warmup skipped: first 1h0m0s
+ Analysed  : 19:11:00Z -> 06:11:00Z (66 windows of 10m0s)
+ Verify    : PASS  (10 buckets, 0 missing, 0 duplicates, took 5m17.68s)
+ Errors    : 0
+
+==========================================================================
+ CLIENT OPS
+==========================================================================
+
+ Per-window statistics   66 windows of 10m0s, merged across workers
+ ------------------------------------------------------------------------
+ (each row is measured once per window; min/max/avg/median/pXX/dev% are taken across those windows)
+
+ put_object          min      max      avg   median      p90      p95      p99    dev%
+ ops/sec         126,920  131,956  130,680  130,716  131,693  131,841  131,940    0.0%
+ mean_ms            31.0     32.3     31.3     31.3     31.5     31.5     32.1    0.0%
+ p50_ms             22.8     26.4     23.6     23.3     24.3     24.8     26.4    4.5%
+ p99_ms             85.0     93.2     87.3     87.0     89.1     89.1     91.9    0.0%
+ errors/win            0        0        0        0        0        0        0    0.0%
+
+ Run totals   11h0m0.07s analysed, all windows merged
+ ------------------------------------------------------------------------
+ (percentiles come from the merged latency histogram; mean is count-weighted)
+
+ op                        ops   errors  avg ops/s  mean_ms   p50_ms   p90_ms   p99_ms  p999_ms
+ put_object      5,174,917,234        0    130,679     31.3     23.8     62.0     87.0      112
+
+==========================================================================
+ WORKER CPU
+==========================================================================
+
+ Per-window statistics   66 windows of 10m0s, cores
+ ------------------------------------------------------------------------
+ (each row is the mean of the CPU samples in each window; min/max/avg/median/pXX/dev% are taken across those windows)
+
+                     min      max      avg   median      p90      p95      p99    dev%
+ worker 0           0.74     0.78     0.77     0.78     0.78     0.78     0.78    0.0%
+ worker 1           0.74     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 2           0.75     0.78     0.77     0.78     0.78     0.78     0.78    0.0%
+ worker 3           0.74     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 4           0.75     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 5           0.74     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 6           0.75     0.79     0.78     0.78     0.78     0.78     0.78    0.0%
+ worker 7           0.75     0.78     0.77     0.78     0.78     0.78     0.78    0.0%
+ worker 8           0.75     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 9           0.75     0.78     0.77     0.78     0.78     0.78     0.78    0.0%
+ worker 10          0.75     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 11          0.75     0.78     0.78     0.78     0.78     0.78     0.78    0.0%
+ worker 12          0.75     0.79     0.78     0.78     0.78     0.78     0.78    0.0%
+ worker 13          0.75     0.78     0.77     0.78     0.78     0.78     0.78    0.0%
+ worker 14          0.74     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 15          0.75     0.79     0.78     0.78     0.78     0.78     0.78    0.0%
+ worker 16          0.75     0.78     0.77     0.78     0.78     0.78     0.78    0.0%
+ worker 17          0.75     0.78     0.77     0.78     0.78     0.78     0.78    0.0%
+ worker 18          0.75     0.78     0.77     0.78     0.78     0.78     0.78    0.0%
+ worker 19          0.75     0.78     0.77     0.78     0.78     0.78     0.78    0.0%
+ worker 20          0.74     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 21          0.75     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 22          0.75     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 23          0.75     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 24          0.75     0.78     0.77     0.78     0.78     0.78     0.78    0.0%
+ worker 25          0.75     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 26          0.75     0.79     0.78     0.78     0.78     0.78     0.79    0.0%
+ worker 27          0.75     0.78     0.77     0.78     0.78     0.78     0.78    0.0%
+ worker 28          0.75     0.79     0.78     0.78     0.78     0.78     0.78    0.0%
+ worker 29          0.74     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ worker 30          0.75     0.78     0.78     0.78     0.78     0.78     0.78    0.0%
+ worker 31          0.75     0.78     0.77     0.77     0.78     0.78     0.78    0.0%
+ system (host)      25.3     26.3     26.0     26.1     26.2     26.2     26.3    0.0%
+ all workers        23.9     25.0     24.8     24.8     25.0     25.0     25.0    0.0%
+
+ Run totals   11h0m0.07s analysed, 7920 samples at ~5s
+ ------------------------------------------------------------------------
+ (averages over every CPU sample in the run; "all workers" sums the per-worker averages)
+
+ source           avg cores
+ all workers           24.8
+ system (host)         26.0
+
+ client CPU efficiency: 5,278 ops/s per core   (130,679 ops/s / 24.8 cores, put_object)
+
+==========================================================================
+ SERVER-SIDE KVRGW
+==========================================================================
+
+ Per-window statistics   66 windows of 10m0s, summed over workers
+ ------------------------------------------------------------------------
+ (each row is measured once per window; min/max/avg/median/pXX/dev% are taken across those windows)
+ (latency and size rows are per-window means; the library exposes sums and counts, not histograms)
+
+ batches             min      max      avg   median      p90      p95      p99    dev%
+ commits/s        12,878   13,388   13,258   13,262   13,361   13,376   13,386    0.0%
+ avg_size           9.86     9.86     9.86     9.86     9.86     9.86     9.86    0.0%
+ avg_wait_us         197      203      199      199      201      202      202    0.0%
+ avg_queue          10.4     10.5     10.4     10.4     10.5     10.5     10.5    0.0%
+ pushbacks/win         0        0        0        0        0        0        0    0.0%
+
+ txn                 min      max      avg   median      p90      p95      p99    dev%
+ retries/win           0        0        0        0        0        0        0    0.0%
+ hard_fails/win        0        0        0        0        0        0        0    0.0%
+
+ Run totals   11h0m0.07s analysed, summed over workers
+ ------------------------------------------------------------------------
+ (op counts and latencies are in CLIENT OPS (the harness's own measurements); this section only has what the library alone knows)
+
+
+ batches          commits/s    avg_size   avg_wait_us   avg_queue   pushbacks
+                     13,258         9.9           199        10.4           0
+
+ txn                retries hard_failures
+                          0             0
+ server errors: none
+
+==========================================================================
+ FDB CLUSTER
+==========================================================================
+
+ Per-window statistics   not shown
+ ------------------------------------------------------------------------
+
+ [WARN] FDB cluster: too few samples in the analysed range to compute per-window statistics.
+
+ Run totals   11h0m0.07s analysed, 0 samples
+ ------------------------------------------------------------------------
+ (each row summarises every FDB status sample in the run)
+
+                             min      max      avg   median
+ txn/s                         0        0        0        0
+ reads/s                       0        0        0        0
+ writes/s                      0        0        0        0
+ conflicts/s                   0        0        0        0
+ worst SS queue (MB)           0        0        0        0
+ durability lag (s)            0        0        0        0
+
+ Disk space used
+ ------------------------------------------------------------------------
+ (total_disk_used_bytes from FDB status, summed over the cluster, including replicas)
+
+ start 1703.1GB   end 10596.5GB   change +8893.4GB
+
+ Cluster configuration   at start of run
+ ------------------------------------------------------------------------
+ (cores is the CPU in use at the start; a process holding several roles counts under each)
+
+ role                   cores  procs
+ storage                12.49     90
+ log                     1.38      8
+ coordinator             1.06      5
+ grv_proxy               0.87      1
+ master                  0.16      1
+ data_distributor        0.08      1
+ ratekeeper              0.08      1
+ commit_proxy            0.03      3
+ cluster_controller      0.01      1
+ resolver                0.01      2
+ consistency_scan        0.01      1
+ none                    0.00      2
+
+==========================================================================
+ FDB BY ROLE
+==========================================================================
+
+
+ CPU per-window statistics   not shown
+ ------------------------------------------------------------------------
+
+ [WARN] FDB CPU: too few samples in the analysed range to compute per-window statistics.
+
+==========================================================================
+ HEALTH
+==========================================================================
+
+ [OK] durability kept up with input on all storage servers

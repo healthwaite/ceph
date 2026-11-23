@@ -1,0 +1,16 @@
+16:21:45 suite suite-20261120T162143Z: load, run-put-object run-list-objects-single-thread run-list-objects run-put-object-overwrite run-put-object-overwrite-versioned run-delete-multi
+16:21:45 extra args:  ; report args: <none>
+16:21:45 === 00-load: kvrgw-perf   --yes --run-dir /work/perf-results/suite-20261120T162143Z/00-load load
+18:10:58 00-load exit status 0
+18:10:58 === 01-run-put-object: kvrgw-perf   --yes --run-dir /work/perf-results/suite-20261120T162143Z/01-run-put-object run-put-object
+06:16:18 01-run-put-object exit status 0
+06:16:19 === 02-run-list-objects-single-thread: kvrgw-perf  --single-thread-mode --yes --run-dir /work/perf-results/suite-20261120T162143Z/02-run-list-objects-single-thread run-list-objects
+06:40:07 02-run-list-objects-single-thread exit status 0
+06:40:07 === 03-run-list-objects: kvrgw-perf   --yes --run-dir /work/perf-results/suite-20261120T162143Z/03-run-list-objects run-list-objects
+07:05:13 03-run-list-objects exit status 0
+07:05:13 === 04-run-put-object-overwrite: kvrgw-perf   --yes --run-dir /work/perf-results/suite-20261120T162143Z/04-run-put-object-overwrite run-put-object-overwrite
+19:10:46 04-run-put-object-overwrite exit status 0
+19:10:47 === 05-run-put-object-overwrite-versioned: kvrgw-perf   --yes --run-dir /work/perf-results/suite-20261120T162143Z/05-run-put-object-overwrite-versioned run-put-object-overwrite-versioned
+07:13:10 05-run-put-object-overwrite-versioned exit status 0
+07:13:11 === 06-run-delete-multi: kvrgw-perf   --yes --run-dir /work/perf-results/suite-20261120T162143Z/06-run-delete-multi run-delete-multi
+09:16:13 06-run-delete-multi exit status 0

@@ -1,0 +1,8 @@
+unix_ts_ms,event
+1795331591632,invocation_start
+1795331592883,init_done
+1795331593883,benchmark_start
+1795338535938,benchmark_end
+1795338535938,verify_start
+1795338973245,verify_end
+1795338973602,invocation_end

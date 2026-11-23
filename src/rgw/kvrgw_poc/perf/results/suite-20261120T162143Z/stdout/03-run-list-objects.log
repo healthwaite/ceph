@@ -1,0 +1,177 @@
+kvrgw-perf run-list-objects -> /work/perf-results/suite-20261120T162143Z/03-run-list-objects
+FDB cluster configuration (CPU at start):
+  role                   cores  procs
+  storage                 2.84     90
+  log                     0.33      8
+  coordinator             0.25      5
+  grv_proxy               0.19      1
+  data_distributor        0.06      1
+  ratekeeper              0.06      1
+  master                  0.03      1
+  commit_proxy            0.03      3
+  cluster_controller      0.02      1
+  resolver                0.01      2
+  consistency_scan        0.01      1
+  none                    0.00      2
+FDB disk used at start: 10.60TB
+initialising 10 worker(s) x 16 thread(s)...
+benchmark starting in 1s (10 workers x 16 threads)
+[t=0s] list_objects 29,296 ops/s total=292,958 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,295,800/s total=292,958,000
+[t=10s] list_objects 28,940 ops/s total=582,354 p50=4.93ms p99=13.2ms err=0 | keys_listed 28,939,600/s total=582,354,000
+[t=20s] list_objects 28,936 ops/s total=871,714 p50=4.93ms p99=13.2ms err=0 | keys_listed 28,936,000/s total=871,714,000
+[t=30s] list_objects 29,708 ops/s total=1,168,790 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,707,600/s total=1,168,790,000
+[t=40s] list_objects 30,574 ops/s total=1,474,530 p50=4.54ms p99=12.7ms err=0 | keys_listed 30,573,253/s total=1,474,522,528
+[t=50s] list_objects 30,940 ops/s total=1,783,929 p50=4.54ms p99=12.7ms err=0 | keys_listed 30,932,407/s total=1,783,846,594
+[t=60s] list_objects 30,606 ops/s total=2,089,988 p50=4.54ms p99=12.9ms err=0 | keys_listed 30,605,900/s total=2,089,905,594
+[t=70s] list_objects 30,608 ops/s total=2,396,072 p50=4.54ms p99=12.7ms err=0 | keys_listed 30,608,400/s total=2,395,989,594
+[t=80s] list_objects 30,308 ops/s total=2,699,148 p50=4.67ms p99=12.9ms err=0 | keys_listed 30,307,600/s total=2,699,065,594
+[t=90s] list_objects 30,237 ops/s total=3,001,517 p50=4.67ms p99=12.9ms err=0 | keys_listed 30,234,371/s total=3,001,409,305
+[t=100s] list_objects 30,292 ops/s total=3,304,436 p50=4.67ms p99=12.9ms err=0 | keys_listed 30,286,630/s total=3,304,275,605
+[t=110s] list_objects 30,161 ops/s total=3,606,046 p50=4.67ms p99=12.9ms err=0 | keys_listed 30,161,000/s total=3,605,885,605
+[t=120s] list_objects 30,105 ops/s total=3,907,093 p50=4.67ms p99=12.9ms err=0 | keys_listed 30,104,700/s total=3,906,932,605
+[t=130s] list_objects 30,044 ops/s total=4,207,533 p50=4.67ms p99=12.9ms err=0 | keys_listed 30,044,000/s total=4,207,372,605
+[t=140s] list_objects 29,603 ops/s total=4,503,558 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,599,518/s total=4,503,367,783
+[t=150s] list_objects 29,759 ops/s total=4,801,144 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,753,521/s total=4,800,902,992
+[t=160s] list_objects 29,478 ops/s total=5,095,923 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,477,900/s total=5,095,681,992
+[t=170s] list_objects 29,343 ops/s total=5,389,355 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,343,200/s total=5,389,113,992
+[t=180s] list_objects 28,806 ops/s total=5,677,414 p50=5.06ms p99=13.2ms err=0 | keys_listed 28,805,900/s total=5,677,172,992
+[t=190s] list_objects 29,690 ops/s total=5,974,317 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,687,965/s total=5,974,052,641
+[t=200s] list_objects 29,812 ops/s total=6,272,433 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,806,118/s total=6,272,113,821
+[t=210s] list_objects 29,940 ops/s total=6,571,835 p50=4.67ms p99=12.9ms err=0 | keys_listed 29,940,113/s total=6,571,514,948
+[t=220s] list_objects 29,670 ops/s total=6,868,535 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,670,000/s total=6,868,214,948
+[t=230s] list_objects 29,580 ops/s total=7,164,330 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,579,500/s total=7,164,009,948
+[t=240s] list_objects 29,517 ops/s total=7,459,497 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,514,744/s total=7,459,157,387
+[t=250s] list_objects 29,750 ops/s total=7,756,993 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,745,269/s total=7,756,610,076
+[t=260s] list_objects 29,604 ops/s total=8,053,036 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,602,682/s total=8,052,636,897
+[t=270s] list_objects 29,701 ops/s total=8,350,044 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,700,800/s total=8,349,644,897
+[t=280s] list_objects 29,617 ops/s total=8,646,211 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,616,700/s total=8,645,811,897
+[t=290s] list_objects 29,308 ops/s total=8,939,291 p50=4.93ms p99=12.9ms err=0 | keys_listed 29,306,710/s total=8,938,878,997
+[t=300s] list_objects 29,342 ops/s total=9,232,712 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,337,649/s total=9,232,255,484
+[t=310s] list_objects 29,477 ops/s total=9,527,484 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,474,692/s total=9,527,002,408
+[t=320s] list_objects 29,512 ops/s total=9,822,608 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,512,400/s total=9,822,126,408
+[t=330s] list_objects 29,504 ops/s total=10,117,652 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,504,400/s total=10,117,170,408
+[t=340s] list_objects 29,414 ops/s total=10,411,790 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,412,501/s total=10,411,295,413
+[t=350s] list_objects 29,577 ops/s total=10,707,557 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,572,643/s total=10,707,021,845
+[t=360s] list_objects 29,484 ops/s total=11,002,393 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,481,696/s total=11,001,838,804
+[t=370s] list_objects 29,537 ops/s total=11,297,759 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,536,080/s total=11,297,199,599
+[t=380s] list_objects 29,626 ops/s total=11,594,019 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,626,000/s total=11,593,459,599
+[t=390s] list_objects 29,639 ops/s total=11,890,410 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,637,434/s total=11,889,833,939
+[t=400s] list_objects 29,698 ops/s total=12,187,390 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,694,212/s total=12,186,776,058
+[t=410s] list_objects 29,690 ops/s total=12,484,290 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,688,455/s total=12,483,660,605
+[t=420s] list_objects 29,564 ops/s total=12,779,931 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,562,951/s total=12,779,290,112
+[t=430s] list_objects 29,466 ops/s total=13,074,587 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,465,600/s total=13,073,946,112
+[t=440s] list_objects 29,711 ops/s total=13,371,699 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,709,978/s total=13,371,045,887
+[t=450s] list_objects 29,738 ops/s total=13,669,079 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,735,270/s total=13,668,398,590
+[t=460s] list_objects 29,759 ops/s total=13,966,666 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,756,793/s total=13,965,966,520
+[t=470s] list_objects 29,601 ops/s total=14,262,677 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,599,133/s total=14,261,957,845
+[t=480s] list_objects 29,534 ops/s total=14,558,018 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,533,991/s total=14,557,297,753
+[t=490s] list_objects 29,590 ops/s total=14,853,921 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,588,881/s total=14,853,186,562
+[t=500s] list_objects 29,746 ops/s total=15,151,379 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,743,421/s total=15,150,620,774
+[t=510s] list_objects 29,771 ops/s total=15,449,088 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,769,322/s total=15,448,313,991
+[t=520s] list_objects 29,864 ops/s total=15,747,725 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,861,913/s total=15,746,933,124
+[t=530s] list_objects 29,619 ops/s total=16,043,916 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,618,367/s total=16,043,116,797
+[t=540s] list_objects 29,404 ops/s total=16,337,955 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,402,605/s total=16,337,142,851
+[t=550s] list_objects 29,603 ops/s total=16,633,989 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,600,917/s total=16,633,152,016
+[t=560s] list_objects 29,679 ops/s total=16,930,775 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,677,309/s total=16,929,925,105
+[t=570s] list_objects 29,697 ops/s total=17,227,743 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,695,253/s total=17,226,877,638
+[t=580s] list_objects 29,564 ops/s total=17,523,381 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,561,507/s total=17,522,492,707
+[t=590s] list_objects 29,635 ops/s total=17,819,726 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,633,528/s total=17,818,827,989
+[t=600s] list_objects 29,625 ops/s total=18,115,974 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,622,957/s total=18,115,057,557
+[t=610s] list_objects 29,596 ops/s total=18,411,935 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,594,627/s total=18,411,003,824
+[t=620s] list_objects 29,550 ops/s total=18,707,435 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,548,812/s total=18,706,491,942
+[t=630s] list_objects 29,536 ops/s total=19,002,792 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,533,437/s total=19,001,826,310
+[t=640s] list_objects 29,657 ops/s total=19,299,357 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,655,663/s total=19,298,382,942
+[t=650s] list_objects 29,665 ops/s total=19,596,004 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,663,006/s total=19,595,013,001
+[t=660s] list_objects 29,593 ops/s total=19,891,935 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,591,987/s total=19,890,932,871
+[t=670s] list_objects 29,411 ops/s total=20,186,044 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,409,450/s total=20,185,027,366
+[t=680s] list_objects 29,440 ops/s total=20,480,446 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,437,822/s total=20,479,405,583
+[t=690s] list_objects 29,509 ops/s total=20,775,531 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,506,850/s total=20,774,474,082
+[t=700s] list_objects 29,450 ops/s total=21,070,030 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,448,272/s total=21,068,956,803
+[t=710s] list_objects 29,514 ops/s total=21,365,173 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,513,264/s total=21,364,089,439
+[t=720s] list_objects 29,499 ops/s total=21,660,161 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,498,106/s total=21,659,070,503
+[t=730s] list_objects 29,772 ops/s total=21,957,880 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,769,751/s total=21,956,768,012
+[t=740s] list_objects 29,736 ops/s total=22,255,241 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,734,019/s total=22,254,108,203
+[t=750s] list_objects 29,524 ops/s total=22,550,478 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,522,136/s total=22,549,329,564
+[t=760s] list_objects 29,525 ops/s total=22,845,731 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,524,369/s total=22,844,573,257
+[t=770s] list_objects 29,480 ops/s total=23,140,535 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,479,127/s total=23,139,364,531
+[t=780s] list_objects 29,368 ops/s total=23,434,212 p50=4.93ms p99=13.2ms err=0 | keys_listed 29,365,995/s total=23,433,024,480
+[t=790s] list_objects 29,415 ops/s total=23,728,360 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,412,325/s total=23,727,147,731
+[t=800s] list_objects 29,443 ops/s total=24,022,791 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,440,844/s total=24,021,556,168
+[t=810s] list_objects 29,545 ops/s total=24,318,243 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,544,647/s total=24,317,002,633
+[t=820s] list_objects 29,535 ops/s total=24,613,593 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,533,423/s total=24,612,336,867
+[t=830s] list_objects 29,638 ops/s total=24,909,970 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,636,457/s total=24,908,701,433
+[t=840s] list_objects 29,627 ops/s total=25,206,239 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,625,151/s total=25,204,952,943
+[t=850s] list_objects 29,580 ops/s total=25,502,038 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,577,655/s total=25,500,729,493
+[t=860s] list_objects 29,410 ops/s total=25,796,138 p50=4.93ms p99=12.9ms err=0 | keys_listed 29,409,018/s total=25,794,819,677
+[t=870s] list_objects 29,382 ops/s total=26,089,962 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,381,480/s total=26,088,634,480
+[t=880s] list_objects 29,477 ops/s total=26,384,736 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,475,763/s total=26,383,392,111
+[t=890s] list_objects 29,632 ops/s total=26,681,057 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,630,209/s total=26,679,694,198
+[t=900s] list_objects 29,425 ops/s total=26,975,304 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,422,237/s total=26,973,916,568
+[t=910s] list_objects 29,445 ops/s total=27,269,750 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,443,580/s total=27,268,352,365
+[t=920s] list_objects 29,602 ops/s total=27,565,768 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,600,790/s total=27,564,360,261
+[t=930s] list_objects 29,644 ops/s total=27,862,209 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,642,564/s total=27,860,785,905
+[t=940s] list_objects 29,569 ops/s total=28,157,902 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,567,815/s total=28,156,464,058
+[t=950s] list_objects 29,638 ops/s total=28,454,286 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,636,031/s total=28,452,824,367
+[t=960s] list_objects 29,559 ops/s total=28,749,879 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,557,882/s total=28,748,403,185
+[t=970s] list_objects 29,563 ops/s total=29,045,506 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,561,645/s total=29,044,019,636
+[t=980s] list_objects 29,518 ops/s total=29,340,689 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,517,134/s total=29,339,190,972
+[t=990s] list_objects 29,491 ops/s total=29,635,594 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,488,806/s total=29,634,079,029
+[t=1000s] list_objects 29,345 ops/s total=29,929,039 p50=4.93ms p99=13.2ms err=0 | keys_listed 29,342,378/s total=29,927,502,813
+[t=1010s] list_objects 29,589 ops/s total=30,224,933 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,587,642/s total=30,223,379,237
+[t=1020s] list_objects 29,589 ops/s total=30,520,818 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,587,160/s total=30,519,250,835
+[t=1030s] list_objects 29,501 ops/s total=30,815,823 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,499,460/s total=30,814,245,436
+[t=1040s] list_objects 29,294 ops/s total=31,108,762 p50=4.93ms p99=12.9ms err=0 | keys_listed 29,292,462/s total=31,107,170,058
+[t=1050s] list_objects 29,274 ops/s total=31,401,505 p50=4.93ms p99=13.2ms err=0 | keys_listed 29,272,419/s total=31,399,894,249
+[t=1060s] list_objects 29,540 ops/s total=31,696,904 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,537,927/s total=31,695,273,514
+[t=1070s] list_objects 29,743 ops/s total=31,994,330 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,740,884/s total=31,992,682,354
+[t=1080s] list_objects 29,573 ops/s total=32,290,061 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,572,373/s total=32,288,406,085
+[t=1090s] list_objects 29,602 ops/s total=32,586,083 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,600,906/s total=32,584,415,140
+[t=1100s] list_objects 29,720 ops/s total=32,883,283 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,718,248/s total=32,881,597,623
+[t=1110s] list_objects 29,706 ops/s total=33,180,343 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,703,618/s total=33,178,633,807
+[t=1120s] list_objects 29,680 ops/s total=33,477,145 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,678,416/s total=33,475,417,965
+[t=1130s] list_objects 29,784 ops/s total=33,774,981 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,782,634/s total=33,773,244,303
+[t=1140s] list_objects 29,537 ops/s total=34,070,348 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,535,558/s total=34,068,599,887
+[t=1150s] list_objects 29,411 ops/s total=34,364,456 p50=4.80ms p99=13.2ms err=0 | keys_listed 29,409,321/s total=34,362,693,096
+[t=1160s] list_objects 29,438 ops/s total=34,658,836 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,435,826/s total=34,657,051,355
+[t=1170s] list_objects 29,756 ops/s total=34,956,397 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,754,133/s total=34,954,592,683
+[t=1180s] list_objects 29,633 ops/s total=35,252,727 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,631,805/s total=35,250,910,736
+[t=1190s] list_objects 29,570 ops/s total=35,548,430 p50=4.80ms p99=12.9ms err=0 | keys_listed 29,569,188/s total=35,546,602,618
+[t=1200s] list_objects 15,715 ops/s total=35,548,584 p50=5.18ms p99=13.7ms err=0 | keys_listed 15,715,429/s total=35,546,756,618
+verifying...
+[verify 10s] 0 keys checked 0 keys/s
+[verify 20s] 243,016,432 / 1,000,000,000 keys (24.3%) ETA 1m2s 12,150,458 keys/s
+[verify 30s] 486,938,813 / 1,000,000,000 keys (48.7%) ETA 32s 16,230,586 keys/s
+[verify 40s] 729,777,575 / 1,000,000,000 keys (73.0%) ETA 15s 18,243,763 keys/s
+[verify 50s] 972,380,342 / 1,000,000,000 keys (97.2%) ETA 1s 19,447,018 keys/s
+[verify 1m0s] 1,214,842,327 / 1,000,000,000 keys (121.5%) 20,246,863 keys/s
+[verify 1m10s] 1,457,885,293 / 1,000,000,000 keys (145.8%) 20,826,767 keys/s
+[verify 1m20s] 1,699,697,555 / 1,000,000,000 keys (170.0%) 21,245,663 keys/s
+[verify 1m30s] 1,942,922,258 / 1,000,000,000 keys (194.3%) 21,587,653 keys/s
+[verify 1m40s] 2,185,955,434 / 1,000,000,000 keys (218.6%) 21,859,225 keys/s
+[verify 1m50s] 2,428,873,038 / 1,000,000,000 keys (242.9%) 22,080,299 keys/s
+[verify 2m0s] 2,671,994,677 / 1,000,000,000 keys (267.2%) 22,266,385 keys/s
+[verify 2m10s] 2,914,443,569 / 1,000,000,000 keys (291.4%) 22,418,669 keys/s
+[verify 2m20s] 3,157,691,828 / 1,000,000,000 keys (315.8%) 22,554,735 keys/s
+[verify 2m30s] 3,400,012,167 / 1,000,000,000 keys (340.0%) 22,666,520 keys/s
+[verify 2m40s] 3,643,784,908 / 1,000,000,000 keys (364.4%) 22,773,432 keys/s
+[verify 2m50s] 3,886,417,271 / 1,000,000,000 keys (388.6%) 22,861,068 keys/s
+[verify 3m0s] 4,129,265,139 / 1,000,000,000 keys (412.9%) 22,940,231 keys/s
+[verify 3m10s] 4,371,855,877 / 1,000,000,000 keys (437.2%) 23,009,627 keys/s
+[verify 3m20s] 4,614,035,762 / 1,000,000,000 keys (461.4%) 23,070,005 keys/s
+[verify 3m30s] 4,857,042,737 / 1,000,000,000 keys (485.7%) 23,128,515 keys/s
+[verify 3m40s] 5,100,940,435 / 1,000,000,000 keys (510.1%) 23,185,928 keys/s
+[verify 3m50s] 5,344,059,493 / 1,000,000,000 keys (534.4%) 23,234,885 keys/s
+[verify 4m0s] 5,587,030,210 / 1,000,000,000 keys (558.7%) 23,279,143 keys/s
+[verify 4m10s] 5,828,745,697 / 1,000,000,000 keys (582.9%) 23,314,904 keys/s
+[verify 4m20s] 6,039,961,666 / 1,000,000,000 keys (604.0%) 23,230,486 keys/s
+[verify 4m30s] 6,215,922,097 / 1,000,000,000 keys (621.6%) 23,021,800 keys/s
+[verify 4m40s] 6,346,251,878 / 1,000,000,000 keys (634.6%) 22,665,056 keys/s
+[verify 4m50s] 6,474,956,359 / 1,000,000,000 keys (647.5%) 22,327,318 keys/s
+[verify 5m0s] 6,568,772,179 / 1,000,000,000 keys (656.9%) 21,895,857 keys/s
+
+=== run-list-objects summary ===
+  list_objects  ops=35,548,584  29,624 ops/s  mean=5.34ms p50=4.80ms p90=8.58ms p99=12.9ms p999=16.0ms max=72.7ms  errors=0
+  keys_listed   total=35,546,756,618  29,622,050/s
+  fdb disk used: start=10.60TB  end=10.60TB  (+655.36MB)
+  verify: PASS (10 buckets, 6645794262 keys checked, 0 missing, 0 duplicates, took 5m2.446s)
+  RESULT: OK

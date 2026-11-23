@@ -1,0 +1,94 @@
+Loaded image: kvrgw-perf:30f6b4dcaac
+# kvrgw-perf configuration: the single file that configures a perf invocation.
+#
+# Resolution order for every key:  built-in default <- base <- <command> section <- CLI flag.
+# Keys are snake_case and identical to the CLI flag names (--page-size <=> page_size).
+# Unknown keys, wrong types, and both `ops` and `duration` being set are errors.
+# The values below are the soak-test settings (long durations, 1B objects); built-in defaults differ.
+#
+# Located by --config, else ./kvrgw-perf.yaml, else next to the kvrgw-perf binary
+# (the build copies this file there), else /opt/kvrgw/kvrgw-perf.yaml (run image).
+
+# ---- kvrgw runtime config (replaces backend/kvrgw.yaml for perf runs) ----------------
+# The controller synthesizes <run-dir>/kvrgw.yaml from this section and points every
+# worker at it (KVRGW_CONFIG_FILE). The runtime's yaml loader only reads the first three
+# keys; the controller also exports batch_* as KVRGW_BATCH_* so they take effect.
+kvrgw:
+  max_inline: 256            # objects <= this many bytes are stored inline in the metadata value
+  max_kv_store: 4096         # objects <= this are stored as FDB KV entries; larger go to the data store
+  kv_store_coalescing: false
+  batch_size: 10             # PutObject batch queue: max entries per commit
+  batch_timeout_us: 1000     # ... or flush after this long
+  batch_threads: 8           # batch-commit threads per worker
+
+# ---- common settings ------------------------------------------------------------------
+base:
+  # data set
+  num_objects: 1_000_000_000 # total objects loaded
+  num_buckets: 10            # bucket names are <bucket_name_prefix>-<i>
+  bucket_name_prefix: rgwkv
+  padding_bytes: 200         # random key-prefix length (key = prefix + 20-digit id)
+  object_size_bytes: 8192    # payload size
+  tenant_name: kv-poc
+  # parallelism
+  worker_count: 32           # worker processes (local mode), one runtime each
+  threads_per_worker: 128
+  verify_threads: 16         # scan threads per worker during Verify
+  # reporting and collectors
+  report_interval_ms: 10000  # progress-window length (0 = one report for the whole run)
+  fdb_stats: true            # sample `fdbcli status json` (--no-fdb-stats to disable)
+  fdb_cluster_file: ""       # "" => $FDB_CLUSTER_FILE
+  fdbcli_path: /opt/foundationdb/usr/bin/fdbcli   # falls back to PATH, next to the binary, /opt/kvrgw
+  fdb_sample_interval_ms: 5000
+  cpu_sample_interval_ms: 5000
+
+# ---- per-command sections (each lists what is tunable for that command) ---------------
+# Fixed op count; no ops/duration. Creates the buckets (left UNVERSIONED) and loads
+# num_objects objects. Fails if a bucket already exists, unless `force` (--force) is set:
+# then existing buckets and objects are kept and load puts its keys into them.
+load:
+  force: false
+
+# For the run-* commands exactly one of `ops` (total across the cluster) / `duration`
+# must be set. The files below use `duration`; `--ops N` on the CLI replaces it, and
+# `ops: 0` means unset.
+
+# Inserts brand-new keys (never present from load or earlier runs).
+run-put-object:
+  duration: 12h
+
+# Pages through listings; buckets are split across workers (bucket b => worker b % workers).
+run-list-objects:
+  worker_count: 10           # purposely equal to num_buckets so each worker gets a bucket.
+  threads_per_worker: 16
+  duration: 20m
+  page_size: 1000            # keys per list call
+  single_thread_mode: false  # true: one worker, one thread, bucket 0 only
+
+# Repeatedly overwrites every loaded key (each thread loops over its whole slice of the keys).
+# Needs never-versioned buckets, as `load` creates them, so every put replaces the object in
+# place. Init fails if versioning is enabled or suspended; a run aborts if a put creates a
+# version; verify fails if any key has version history (a non-null version or a delete marker).
+run-put-object-overwrite:
+  duration: 12h
+
+# Overwrites a limited set of keys and verifies the number of versions written per key.
+# Asks for confirmation (--yes skips it) and then ENABLES versioning on the buckets, which cannot
+# be switched back off; old versions are not reclaimed, and run-put-object-overwrite can no longer
+# be used on these buckets (use a new bucket_name_prefix and load). num_objects_to_overwrite is the TOTAL number of keys overwritten,
+# shared evenly across all workers * threads (e.g. 1000000 over 8 x 32 threads = ~3906 keys per
+# thread); it must be <= num_objects. The limit matters for two reasons: the version-count check
+# only means something if each key is overwritten repeatedly, so keep the set small enough that
+# the run loops over it several times (a set much larger than the number of puts leaves most keys
+# with 0 or 1 versions and checks little); and verification does one list_object_versions call
+# per overwritten key, so the size of the set bounds how long verification takes.
+run-put-object-overwrite-versioned:
+  duration: 12h
+  num_objects_to_overwrite: 1_000_000
+
+# DESTRUCTIVE: deletes loaded objects in batches (prompts unless --yes).
+run-delete-multi:
+  threads_per_worker: 16
+  duration: 12h              # will exit long before this hopefully
+  page_size: 1000            # max keys per delete_multi call
+  single_thread_mode: false  # true: one worker, one thread, bucket 0 only

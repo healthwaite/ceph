@@ -3,7 +3,7 @@
 # Resolution order for every key:  built-in default <- base <- <command> section <- CLI flag.
 # Keys are snake_case and identical to the CLI flag names (--page-size <=> page_size).
 # Unknown keys, wrong types, and both `ops` and `duration` being set are errors.
-# The values below are the soak-test settings (long durations, 1B objects); built-in defaults differ.
+# The values below are the soak-test settings (long durations, 1 billion objects); built-in defaults differ.
 #
 # Located by --config, else ./kvrgw-perf.yaml, else next to the kvrgw-perf binary
 # (the build copies this file there), else /opt/kvrgw/kvrgw-perf.yaml (run image).

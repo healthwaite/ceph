@@ -1,0 +1,179 @@
+==========================================================================
+ kvrgw-perf report: 02-run-list-objects-single-thread
+==========================================================================
+ Operation : run-list-objects      Workers: 1 x 1 threads   Buckets: 10
+ Benchmark : 06:16:21Z -> 06:36:21Z (1200s)   Warmup skipped: first 2m0s
+ Analysed  : 06:18:21Z -> 06:36:21Z (9 windows of 2m0s)
+ Verify    : PASS  (1 buckets, 0 missing, 0 duplicates, took 3m45.33s)
+ Errors    : 0
+
+==========================================================================
+ CLIENT OPS
+==========================================================================
+
+ Per-window statistics   9 windows of 2m0s, merged across workers
+ ------------------------------------------------------------------------
+ (each row is measured once per window; min/max/avg/median/pXX/dev% are taken across those windows)
+
+ list_objects        min      max      avg   median      p90      p95      p99    dev%
+ ops/sec             304      315      310      310      315      315      315    0.0%
+ mean_ms            3.11     3.23     3.17     3.17     3.21     3.22     3.23    0.0%
+ p50_ms             2.46     2.66     2.56     2.59     2.60     2.63     2.65    0.0%
+ p99_ms             9.09     9.34     9.14     9.09     9.34     9.34     9.34    0.0%
+ errors/win            0        0        0        0        0        0        0    0.0%
+
+ keys_listed         min      max      avg   median      p90      p95      p99    dev%
+ keys/sec        303,810  315,316  309,502  309,774  314,758  315,037  315,260    0.0%
+
+ Run totals   18m0.002s analysed, all windows merged
+ ------------------------------------------------------------------------
+ (percentiles come from the merged latency histogram; mean is count-weighted)
+
+ op                     ops   errors  avg ops/s  mean_ms   p50_ms   p90_ms   p99_ms  p999_ms
+ list_objects       334,282        0        310     3.17     2.59     5.57     9.09     10.6
+
+ op                     keys    avg keys/s
+ keys_listed     334,263,050       309,502
+
+==========================================================================
+ WORKER CPU
+==========================================================================
+
+ Per-window statistics   9 windows of 2m0s, cores
+ ------------------------------------------------------------------------
+ (each row is the mean of the CPU samples in each window; min/max/avg/median/pXX/dev% are taken across those windows)
+
+                     min      max      avg   median      p90      p95      p99    dev%
+ worker 0           0.21     0.22     0.22     0.22     0.22     0.22     0.22    0.0%
+ system (host)      0.22     0.25     0.23     0.23     0.25     0.25     0.25    0.0%
+
+ Run totals   18m0.002s analysed, 216 samples at ~5s
+ ------------------------------------------------------------------------
+ (averages over every CPU sample in the run; "all workers" sums the per-worker averages)
+
+ source           avg cores
+ worker 0              0.22
+ system (host)         0.23
+
+ client CPU efficiency: 1,432 ops/s per core   (310 ops/s / 0.22 cores, list_objects)
+
+==========================================================================
+ SERVER-SIDE KVRGW
+==========================================================================
+
+ Per-window statistics   9 windows of 2m0s, summed over workers
+ ------------------------------------------------------------------------
+ (each row is measured once per window; min/max/avg/median/pXX/dev% are taken across those windows)
+ (latency and size rows are per-window means; the library exposes sums and counts, not histograms)
+
+ txn                 min      max      avg   median      p90      p95      p99    dev%
+ retries/win           0        0        0        0        0        0        0    0.0%
+ hard_fails/win        0        0        0        0        0        0        0    0.0%
+
+ Run totals   18m0.002s analysed, summed over workers
+ ------------------------------------------------------------------------
+ (op counts and latencies are in CLIENT OPS (the harness's own measurements); this section only has what the library alone knows)
+
+
+ txn                retries hard_failures
+                          0             0
+ server errors: none
+
+==========================================================================
+ FDB CLUSTER
+==========================================================================
+
+ Per-window statistics   9 windows of 2m0s
+ ------------------------------------------------------------------------
+ (each row is the mean of the FDB status samples in each window; min/max/avg/median/pXX/dev% are taken across those windows)
+
+                             min      max      avg   median      p90      p95      p99    dev%
+ txn/s                      0.30     0.32     0.31     0.30     0.32     0.32     0.32    0.0%
+ reads/s                     642      716      668      658      713      715      716    0.0%
+ writes/s                   0.20     0.58     0.35     0.20     0.58     0.58     0.58   44.4%
+ conflicts/s                   0        0        0        0        0        0        0    0.0%
+ worst SS queue (MB)        0.00     0.00     0.00     0.00     0.00     0.00     0.00   77.8%
+ durability lag (s)         5.08     5.12     5.10     5.10     5.11     5.12     5.12    0.0%
+
+ Run totals   18m0.002s analysed, 216 samples at ~5s
+ ------------------------------------------------------------------------
+ (each row summarises every FDB status sample in the run)
+
+                             min      max      avg   median
+ txn/s                      0.20     0.60     0.31     0.40
+ reads/s                     484    1,919      668      654
+ writes/s                      0     6.60     0.35     0.40
+ conflicts/s                   0        0        0        0
+ worst SS queue (MB)        0.00     0.03     0.00     0.00
+ durability lag (s)         5.02     5.33     5.10     5.10
+
+ Disk space used
+ ------------------------------------------------------------------------
+ (total_disk_used_bytes from FDB status, summed over the cluster, including replicas)
+
+ start 10596.5GB   end 10596.9GB   change +328MB
+
+ Cluster configuration   at start of run
+ ------------------------------------------------------------------------
+ (cores is the CPU in use at the start; a process holding several roles counts under each)
+
+ role                   cores  procs
+ storage                 3.24     90
+ log                     0.71      8
+ coordinator             0.56      5
+ grv_proxy               0.45      1
+ data_distributor        0.17      1
+ ratekeeper              0.17      1
+ master                  0.08      1
+ commit_proxy            0.03      3
+ cluster_controller      0.02      1
+ resolver                0.01      2
+ consistency_scan        0.01      1
+ none                    0.00      2
+
+==========================================================================
+ FDB BY ROLE
+==========================================================================
+
+ SS  (90)   in/dur=1.0-1.0x   lag=0.3-0.6s   cpu=0.01-0.01   mem=10.8GB-12.9GB
+ LOG (8)   input=0B-63B/s   q_disk=736MB-2.1GB   cpu=0.02-0.02
+
+ CPU by role   18m0.002s analysed, 216 samples at ~5s
+ ------------------------------------------------------------------------
+ (mean cores per process over the run; a process holding several roles counts under each role and once in the total)
+
+ role                   cores  procs  avg/proc
+ storage                 1.32     90     0.015
+ log                     0.16      8     0.020
+ coordinator             0.10      5     0.021
+ data_distributor        0.07      1     0.068
+ ratekeeper              0.07      1     0.068
+ grv_proxy               0.06      1     0.061
+ commit_proxy            0.03      3     0.009
+ cluster_controller      0.01      1     0.014
+ master                  0.01      1     0.013
+ resolver                0.01      2     0.004
+ consistency_scan        0.01      1     0.008
+ none                    0.00      2     0.002
+ total                   1.68    110     0.015   5477.70 cores per 1,000 committed txn/s
+
+ Storage CPU spread (cores/process): min=0.012 median=0.014 mean=0.015 max=0.020 stddev=0.001
+   max/median 1.4x   hottest: 192.0.2.1:4518 0.02, 192.0.2.5:4519 0.02, 192.0.2.2:4521 0.02
+
+ CPU per-window statistics   9 windows of 2m0s
+ ------------------------------------------------------------------------
+ (each row is the mean of the FDB CPU samples in each window; min/max/avg/median/pXX/dev% are taken across those windows)
+
+                               min      max      avg   median      p90      p95      p99    dev%
+ total (cores)                1.66     1.72     1.68     1.68     1.70     1.71     1.72    0.0%
+ storage (cores)              1.30     1.34     1.32     1.31     1.34     1.34     1.34    0.0%
+ log (cores)                  0.16     0.16     0.16     0.16     0.16     0.16     0.16    0.0%
+ storage max/median           1.40     1.77     1.61     1.55     1.76     1.76     1.77   33.3%
+ hottest storage (cores)      0.02     0.03     0.02     0.02     0.03     0.03     0.03   33.3%
+
+==========================================================================
+ HEALTH
+==========================================================================
+
+ [OK] durability kept up with input on all storage servers
+ [OK] TLog queue stable (first half 1.3GB, second half 1.3GB)

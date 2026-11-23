@@ -1,0 +1,192 @@
+{
+  "command": "run-list-objects",
+  "benchmark_id": "run-list-objects-1795243207901782302",
+  "parameters": {
+    "num_objects": 1000000000,
+    "num_buckets": 10,
+    "bucket_name_prefix": "rgwkv",
+    "padding_bytes": 200,
+    "object_size_bytes": 8192,
+    "worker_count": 10,
+    "threads_per_worker": 16,
+    "verify_threads": 16,
+    "tenant_name": "kv-poc",
+    "report_interval_ms": 10000,
+    "fdb_stats": true,
+    "fdb_cluster_file": "/etc/foundationdb/fdb.cluster",
+    "fdbcli_path": "/opt/kvrgw/fdbcli",
+    "fdb_sample_interval_ms": 5000,
+    "cpu_sample_interval_ms": 5000,
+    "duration": "20m",
+    "page_size": 1000,
+    "single_thread_mode": false,
+    "num_objects_to_overwrite": 0,
+    "force": false,
+    "kvrgw": {
+      "max_inline": 256,
+      "max_kv_store": 4096,
+      "kv_store_coalescing": false,
+      "batch_size": 10,
+      "batch_timeout_us": 1000,
+      "batch_threads": 8
+    }
+  },
+  "run_start_unix_s": 1795243207,
+  "workers": [
+    {
+      "worker_index": 0
+    },
+    {
+      "worker_index": 1
+    },
+    {
+      "worker_index": 2
+    },
+    {
+      "worker_index": 3
+    },
+    {
+      "worker_index": 4
+    },
+    {
+      "worker_index": 5
+    },
+    {
+      "worker_index": 6
+    },
+    {
+      "worker_index": 7
+    },
+    {
+      "worker_index": 8
+    },
+    {
+      "worker_index": 9
+    }
+  ],
+  "totals": {
+    "keys_listed": {
+      "count": 35546756618,
+      "errors": 0,
+      "ops_per_sec": 29622050.33124724
+    },
+    "list_objects": {
+      "count": 35548584,
+      "errors": 0,
+      "ops_per_sec": 29623.573136890525,
+      "mean_us": 5336.907355578495,
+      "p50_us": 4800,
+      "p90_us": 8576,
+      "p99_us": 12928,
+      "p999_us": 16000,
+      "max_us": 72704
+    }
+  },
+  "server_stats_final": {
+    "BucketExists.count": 10,
+    "BucketExists.disk_us": 0,
+    "BucketExists.fdb_commit_us": 0,
+    "BucketExists.fdb_get_us": 0,
+    "BucketExists.fdb_scan_us": 0,
+    "BucketExists.fdb_us": 0,
+    "BucketExists.total_us": 7475,
+    "ListObjects.count": 71097168,
+    "ListObjects.disk_us": 0,
+    "ListObjects.fdb_commit_us": 0,
+    "ListObjects.fdb_get_us": 0,
+    "ListObjects.fdb_scan_us": 0,
+    "ListObjects.fdb_us": 0,
+    "ListObjects.total_us": 379418834163,
+    "Other.count": 10,
+    "Other.disk_us": 0,
+    "Other.fdb_commit_us": 0,
+    "Other.fdb_get_us": 0,
+    "Other.fdb_scan_us": 0,
+    "Other.fdb_us": 0,
+    "Other.total_us": 14719,
+    "batch.commits": 0,
+    "batch.conflict_pushbacks": 0,
+    "batch.entries": 0,
+    "batch.queue_size_total": 0,
+    "batch.wait_us_total": 0,
+    "txn.hard_failures": 0,
+    "txn.retries": 0
+  },
+  "verify": {
+    "ran": true,
+    "pass": true,
+    "duration_ms": 302446,
+    "buckets": [
+      {
+        "bucket": "rgwkv-0",
+        "expected": 100000000,
+        "found": 100000000,
+        "missing": 0
+      },
+      {
+        "bucket": "rgwkv-1",
+        "expected": 100000000,
+        "found": 100000000,
+        "missing": 0
+      },
+      {
+        "bucket": "rgwkv-2",
+        "expected": 100000000,
+        "found": 100000000,
+        "missing": 0
+      },
+      {
+        "bucket": "rgwkv-3",
+        "expected": 100000000,
+        "found": 100000000,
+        "missing": 0
+      },
+      {
+        "bucket": "rgwkv-4",
+        "expected": 100000000,
+        "found": 100000000,
+        "missing": 0
+      },
+      {
+        "bucket": "rgwkv-5",
+        "expected": 100000000,
+        "found": 100000000,
+        "missing": 0
+      },
+      {
+        "bucket": "rgwkv-6",
+        "expected": 100000000,
+        "found": 100000000,
+        "missing": 0
+      },
+      {
+        "bucket": "rgwkv-7",
+        "expected": 100000000,
+        "found": 100000000,
+        "missing": 0
+      },
+      {
+        "bucket": "rgwkv-8",
+        "expected": 100000000,
+        "found": 100000000,
+        "missing": 0
+      },
+      {
+        "bucket": "rgwkv-9",
+        "expected": 100000000,
+        "found": 100000000,
+        "missing": 0
+      }
+    ],
+    "keys_checked": 6645794262,
+    "missing": 0,
+    "bad_key": 0,
+    "out_of_range": 0,
+    "unexpected": 0,
+    "duplicate": 0,
+    "other_failures": 0
+  },
+  "op_errors": 0,
+  "failed": false,
+  "exit_status": 0
+}
