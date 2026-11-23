@@ -345,7 +345,8 @@ func (v *invocation) execute(sigCtx, mctx, cctx context.Context, wg *sync.WaitGr
 	return exit
 }
 
-func (v *invocation) opHasVerify() bool { return true }
+// opHasVerify: run-get-object changes nothing, so it has no verify stage.
+func (v *invocation) opHasVerify() bool { return v.o.Command != "run-get-object" }
 
 func (v *invocation) cleanup(mctx context.Context) {
 	cctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

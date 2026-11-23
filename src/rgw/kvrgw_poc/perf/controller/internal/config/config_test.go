@@ -485,3 +485,18 @@ func TestSimDiskEnv(t *testing.T) {
 		t.Fatalf("%s", env)
 	}
 }
+
+func TestGetObjectCommand(t *testing.T) {
+	if !IsCommand("run-get-object") {
+		t.Fatal("run-get-object must be a command")
+	}
+	c := Defaults()
+	c.Duration = "1m"
+	if err := c.Validate("run-get-object"); err != nil {
+		t.Fatal(err)
+	}
+	c.DriverMode, c.RateOpsPerSec = "async", 100
+	if err := c.Validate("run-get-object"); err == nil {
+		t.Fatal("open loop is not supported for run-get-object")
+	}
+}

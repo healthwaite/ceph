@@ -18,6 +18,7 @@ enum class Metric : int {
   ListObjects,
   DeleteMulti,
   ListDeleteMulti,  // one list + delete_multi iteration (run-list-delete-multi)
+  GetObject,
   KeysListed,   // counter-style
   KeysDeleted,  // counter-style
   // Open loop only: actual send time minus scheduled send time, per op (a

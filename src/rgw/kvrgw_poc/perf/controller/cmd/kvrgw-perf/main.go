@@ -29,6 +29,7 @@ commands:
   run-put-object-overwrite-versioned   overwrite and verify version counts
   run-list-delete-multi                list a page then delete it, per prefix (destructive)
   run-delete-multi                     batch deletes (destructive)
+  run-get-object                       read random loaded keys (no verify)
   report <results-dir>                 analyse a results directory
         [--warmup D] [--window D] [--detailed] [--deviation N] [--per-server]
 

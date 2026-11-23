@@ -417,7 +417,7 @@ func (d *data) printClient(w io.Writer, o Options, from, to int64) {
 		runSecs = 1
 	}
 	ops := []string{}
-	for _, op := range []string{"put_object", "list_objects", "delete_multi", "list_delete_multi", "keys_listed", "keys_deleted"} {
+	for _, op := range []string{"put_object", "list_objects", "delete_multi", "list_delete_multi", "get_object", "keys_listed", "keys_deleted"} {
 		for _, m := range d.metrics {
 			if m.op == op {
 				ops = append(ops, op)

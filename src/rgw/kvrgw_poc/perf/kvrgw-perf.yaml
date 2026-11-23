@@ -149,6 +149,12 @@ run-list-delete-multi:
   page_size: 1000            # keys per list call (and per delete_multi call)
   single_thread_mode: false  # true: one worker, one thread, bucket 0 only
 
+# Reads keys picked uniformly at random from [0, num_objects) with get_object; every thread
+# (or async stream) picks its own. A key that does not exist is an error (counted, not
+# retried). Read-only, so there is no verify stage.
+run-get-object:
+  duration: 10m
+
 # DESTRUCTIVE: deletes loaded objects in batches (prompts unless --yes).
 run-delete-multi:
   threads_per_worker: 16

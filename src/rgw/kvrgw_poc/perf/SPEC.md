@@ -255,6 +255,19 @@ Inserts brand-new keys never present in `load` or any earlier run.
   expected/actual.
 - Config: `num_objects_to_overwrite`.
 
+#### `run-get-object`
+- Read-only. Every stream (sync thread or async coroutine) repeatedly picks a key id
+  uniformly at random from `[0, num_objects)` (per-stream splitmix64 generator seeded from
+  the run start and the global stream id) and calls `get_object` / `get_object_a` for it
+  (whole object, no range). Needs the buckets created by `load`.
+- A key that does not exist, or any other failure, is counted as an error against the
+  `get_object` metric (by code, e.g. `KVRGW_ERR_NO_SUCH_KEY`); it is not retried and the run
+  continues. QUEUE_FULL is backed off and counted as `queue_full`, not an error.
+- Closed loop only (no `rate_ops_per_sec`, no `--ramp`). `ops` or `duration` as for the other
+  run-* commands. **No verify stage.**
+- Objects stored in the data tier read back zeros: the perf data store keeps no bytes (see
+  `sim_disk_read_us`).
+
 #### `run-delete-multi`
 - **Destructive.** The controller prompts: "run-delete-multi deletes objects
   created by load and cannot be undone. Continue? [y/N]". `--yes` skips the

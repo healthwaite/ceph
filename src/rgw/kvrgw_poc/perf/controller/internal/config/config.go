@@ -33,7 +33,7 @@ func (c *Config) FdbStatusOuterLimit() time.Duration { return c.FdbStatusTimeout
 // Commands lists the valid operation commands (report is handled separately).
 var Commands = []string{
 	"load", "run-put-object", "run-list-objects", "run-put-object-overwrite",
-	"run-put-object-overwrite-versioned", "run-list-delete-multi", "run-delete-multi",
+	"run-put-object-overwrite-versioned", "run-list-delete-multi", "run-delete-multi", "run-get-object",
 }
 
 func IsCommand(c string) bool {
