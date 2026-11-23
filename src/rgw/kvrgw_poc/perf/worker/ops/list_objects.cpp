@@ -40,11 +40,9 @@ class ListObjectsOp : public Operation {
       kvrgw::KvRgwServiceImpl::ListObjectsResult res;
       auto t0 = SteadyClock::now();
       kvrgw::KvrgwErrorCode ec;
-      {
-        kvrgw::ScopedRequestLatency lat(ctx.svc->latency_stats(), kvrgw::OpType::kListObjects);
-        ec = ctx.svc->list_objects(ctx.tenant, ctx.bucket(b), *prefix, "",
-                                   static_cast<uint32_t>(ctx.cfg.page_size), token, "", &res);
-      }
+      // The service records its own ListObjects stats; no second timer here.
+      ec = ctx.svc->list_objects(ctx.tenant, ctx.bucket(b), *prefix, "",
+                                 static_cast<uint32_t>(ctx.cfg.page_size), token, "", &res);
       ++done;
       if (ec != kvrgw::KVRGW_ERR_OK) {
         record_op_error(ts, Metric::ListObjects, ec);

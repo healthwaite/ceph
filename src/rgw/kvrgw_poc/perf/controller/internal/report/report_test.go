@@ -113,10 +113,12 @@ func TestWarmupWindowing(t *testing.T) {
 	if !strings.Contains(out, "Verify    : PASS  (4 buckets") {
 		t.Fatalf("verify line:\n%s", out)
 	}
-	// server stats diffed over the window: 100 ops per window x 10 windows... count delta = 2000-1000.
-	if !strings.Contains(out, "avg_total_ms") || !hasRow(out, "PutObject", "1,000", "100", "0.500") ||
-		strings.Contains(out, "avg_fdb") || strings.Contains(out, "commit=") {
-		t.Fatalf("server avg:\n%s", out)
+	// The server section no longer repeats op counts/latencies (the client tables are the source
+	// of truth); it still has the txn counters.
+	if !strings.Contains(out, "SERVER-SIDE KVRGW") || strings.Contains(out, "avg_total_ms") ||
+		hasRow(out, "PutObject", "1,000", "100", "0.500") ||
+		strings.Contains(out, "avg_fdb") || strings.Contains(out, "commit=") || !strings.Contains(out, "hard_failures") {
+		t.Fatalf("server section:\n%s", out)
 	}
 	// worker CPU and system CPU present
 	if !strings.Contains(out, "worker 0") || !strings.Contains(out, "system (host)") {
@@ -278,7 +280,7 @@ func TestWorkerCPUWindowsAndTotals(t *testing.T) {
 
 func TestServerWindowsAndTotals(t *testing.T) {
 	out, _ := render(t, fixture(t, false), Options{Detailed: true, Warmup: 10 * time.Second})
-	for _, want := range []string{"SERVER-SIDE KVRGW", "Per-window statistics   10 windows of 1s, summed over workers", "Run totals   10s analysed", "avg ops/s"} {
+	for _, want := range []string{"SERVER-SIDE KVRGW", "Per-window statistics   10 windows of 1s, summed over workers", "Run totals   10s analysed", "hard_failures"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q:\n%s", want, out)
 		}

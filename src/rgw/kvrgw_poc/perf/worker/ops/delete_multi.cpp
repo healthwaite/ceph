@@ -78,10 +78,8 @@ class DeleteMultiOp : public Operation {
       outcomes.clear();
       auto t0 = SteadyClock::now();
       kvrgw::KvrgwErrorCode ec;
-      {
-        kvrgw::ScopedRequestLatency lat(ctx.svc->latency_stats(), kvrgw::OpType::kDeleteMulti);
-        ec = ctx.svc->delete_multi(ctx.tenant, ctx.bucket(bucket), keys, {}, &outcomes);
-      }
+      // The service records its own DeleteMulti stats; no second timer here.
+      ec = ctx.svc->delete_multi(ctx.tenant, ctx.bucket(bucket), keys, {}, &outcomes);
       const auto us = static_cast<uint64_t>(elapsed_us(t0));
       ++calls;
       std::string bad;

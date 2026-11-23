@@ -913,10 +913,10 @@ func (d *data) printServerWindows(w io.Writer, o Options, from, to int64, opName
 		if c, _ := d.serverDelta(op+".count", from, to); c <= 0 {
 			continue
 		}
-		hdr(op)
-		row(w, "ops/sec", sm(perSec(op+".count")), true)
-		rowMs(w, "avg_total_ms", sm(ratio(op+".total_us", op+".count", 1)), true)
+		// Counts and latencies come from the client tables (the harness's own measurements);
+		// the only per-op figure only the library has is the data-store (disk) time.
 		if disk, _ := d.serverDelta(op+".disk_us", from, to); disk > 0 {
+			hdr(op)
 			rowMs(w, "avg_disk_ms", sm(ratio(op+".disk_us", op+".count", 1)), true)
 		}
 	}
@@ -949,36 +949,28 @@ func (d *data) printServer(w io.Writer, o Options, from, to int64) {
 	if o.Detailed {
 		d.printServerWindows(w, o, from, to, opNames)
 	}
-	subHeading(w, "Run totals", fmt.Sprintf("%s analysed, summed over workers", time.Duration(to-from)*time.Millisecond))
-	// The library does not instrument FDB get/commit/scan time (the hooks are never
-	// called), so only count, avg_total and, if any is non-zero, avg_disk are reported.
+	subHeading(w, "Run totals", fmt.Sprintf("%s analysed, summed over workers", time.Duration(to-from)*time.Millisecond),
+		"op counts and latencies are in CLIENT OPS (the harness's own measurements); this section only has what the library alone knows")
+	// The library does not instrument FDB get/commit/scan time (the hooks are never called), so
+	// the only per-op figure is the data-store (disk) time, shown only if any op has some.
 	type opRow struct {
-		op                 string
-		count, total, disk float64
+		op   string
+		disk float64
 	}
 	var rows []opRow
-	showDisk := false
 	for _, op := range opNames {
 		c, _ := d.serverDelta(op+".count", from, to)
 		if c <= 0 {
 			continue
 		}
-		r := opRow{op, c, d.opDelta(op, "total_us", from, to) / c, d.opDelta(op, "disk_us", from, to) / c}
-		showDisk = showDisk || r.disk > 0
-		rows = append(rows, r)
+		if disk := d.opDelta(op, "disk_us", from, to) / c; disk > 0 {
+			rows = append(rows, opRow{op, disk})
+		}
 	}
 	if len(rows) > 0 {
-		fmt.Fprintf(w, " %-14s%12s%12s%14s", "op", "count", "avg ops/s", "avg_total_ms")
-		if showDisk {
-			fmt.Fprintf(w, "%13s", "avg_disk_ms")
-		}
-		fmt.Fprintln(w)
+		fmt.Fprintf(w, " %-14s%13s\n", "op", "avg_disk_ms")
 		for _, r := range rows {
-			fmt.Fprintf(w, " %-14s%12s%12s%14s", r.op, grouped(int64(r.count)), num(r.count/secs), stats.MsNum(r.total))
-			if showDisk {
-				fmt.Fprintf(w, "%13s", stats.MsNum(r.disk))
-			}
-			fmt.Fprintln(w)
+			fmt.Fprintf(w, " %-14s%13s\n", r.op, stats.MsNum(r.disk))
 		}
 	}
 	if commits, ok := d.serverDelta("batch.commits", from, to); ok && commits > 0 {
