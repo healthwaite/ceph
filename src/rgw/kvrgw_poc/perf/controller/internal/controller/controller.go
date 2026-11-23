@@ -175,12 +175,26 @@ func (v *invocation) startFDB(cctx context.Context, wg *sync.WaitGroup) {
 		return
 	}
 	s := &collect.FDBSampler{Path: cfg.FdbcliPath, ClusterFile: cfg.FdbClusterFile,
-		Interval: time.Duration(cfg.FdbSampleIntervalMs) * time.Millisecond, Logf: v.lg.Printf}
-	raw, err := s.Status(cctx)
+		Interval: time.Duration(cfg.FdbSampleIntervalMs) * time.Millisecond,
+		Timeout:  cfg.FdbStatusTimeout(), OuterLimit: cfg.FdbStatusOuterLimit(), Logf: v.lg.Printf}
+	// The first status call decides whether FDB stats run at all, so retry it: a busy cluster can
+	// fail one call.
+	var raw []byte
+	var err error
 	var startCS collect.ClusterSample
 	var startCPU []collect.CPURow
-	if err == nil {
-		startCS, _, startCPU, err = collect.ParseStatusFull(raw)
+	for attempt := 1; attempt <= 3; attempt++ {
+		if raw, err = s.Status(cctx); err == nil {
+			startCS, _, startCPU, err = collect.ParseStatusFull(raw)
+		}
+		if err == nil || cctx.Err() != nil {
+			break
+		}
+		v.warn("FDB status attempt %d/3 failed: %v", attempt, err)
+		select {
+		case <-time.After(2 * time.Second):
+		case <-cctx.Done():
+		}
 	}
 	if err != nil {
 		v.warn("FDB stats disabled: fdbcli status failed: %v", err)

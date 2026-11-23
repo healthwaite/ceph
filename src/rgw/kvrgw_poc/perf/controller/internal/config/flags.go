@@ -26,7 +26,7 @@ var flagKeys = map[string]string{
 	"batch-threads": "batch_threads", "max-inline": "max_inline", "max-kv-store": "max_kv_store",
 	"kv-store-coalescing": "kv_store_coalescing", "report-interval-ms": "report_interval_ms",
 	"fdb-cluster-file": "fdb_cluster_file", "fdbcli-path": "fdbcli_path",
-	"fdb-sample-interval-ms": "fdb_sample_interval_ms",
+	"fdb-sample-interval-ms": "fdb_sample_interval_ms", "fdb-status-timeout-ms": "fdb_status_timeout_ms",
 	"cpu-sample-interval-ms": "cpu_sample_interval_ms",
 	"ops":                    "ops", "duration": "duration", "page-size": "page_size",
 	"single-thread-mode":       "single_thread_mode",
@@ -158,6 +158,8 @@ func Set(c *Config, key, v string) error {
 		c.FdbcliPath = v
 	case "fdb_sample_interval_ms":
 		return i64(&c.FdbSampleIntervalMs)
+	case "fdb_status_timeout_ms":
+		return i64(&c.FdbStatusTimeoutMs)
 	case "cpu_sample_interval_ms":
 		return i64(&c.CpuSampleIntervalMs)
 	case "ops":

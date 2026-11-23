@@ -13,6 +13,23 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// FdbStatusMargin is added to the fdbcli timeout to get the outer limit after which the fdbcli
+// process is killed. It lets fdbcli time out and report by itself first.
+const FdbStatusMargin = 2 * time.Second
+
+// FdbStatusTimeout is the `--timeout` given to fdbcli: fdb_status_timeout_ms rounded up to whole
+// seconds (fdbcli takes whole seconds).
+func (c *Config) FdbStatusTimeout() time.Duration {
+	secs := (c.FdbStatusTimeoutMs + 999) / 1000
+	if secs < 1 {
+		secs = 1
+	}
+	return time.Duration(secs) * time.Second
+}
+
+// FdbStatusOuterLimit is the longest a status call can take before the process is killed.
+func (c *Config) FdbStatusOuterLimit() time.Duration { return c.FdbStatusTimeout() + FdbStatusMargin }
+
 // Commands lists the valid operation commands (report is handled separately).
 var Commands = []string{
 	"load", "run-put-object", "run-list-objects", "run-put-object-overwrite",
@@ -45,7 +62,10 @@ type Config struct {
 	FdbClusterFile      string `yaml:"fdb_cluster_file" json:"fdb_cluster_file"`
 	FdbcliPath          string `yaml:"fdbcli_path" json:"fdbcli_path"`
 	FdbSampleIntervalMs int64  `yaml:"fdb_sample_interval_ms" json:"fdb_sample_interval_ms"`
-	CpuSampleIntervalMs int64  `yaml:"cpu_sample_interval_ms" json:"cpu_sample_interval_ms"`
+	// FdbStatusTimeoutMs is the timeout given to `fdbcli --exec "status json"` (rounded up to
+	// whole seconds); on a heavily loaded cluster the call can take many seconds.
+	FdbStatusTimeoutMs  int64 `yaml:"fdb_status_timeout_ms" json:"fdb_status_timeout_ms"`
+	CpuSampleIntervalMs int64 `yaml:"cpu_sample_interval_ms" json:"cpu_sample_interval_ms"`
 
 	// run-* only
 	Ops      uint64 `yaml:"ops" json:"ops,omitempty"`
@@ -109,7 +129,7 @@ func Defaults() Config {
 		VerifyThreads: 4, TenantName: envOr("KVRGW_TENANT_NAME", "kv-poc"),
 		ReportIntervalMs: 1000,
 		FdbStats:         true, FdbClusterFile: os.Getenv("FDB_CLUSTER_FILE"), FdbcliPath: "/opt/foundationdb/usr/bin/fdbcli",
-		FdbSampleIntervalMs: 5000, CpuSampleIntervalMs: 1000,
+		FdbSampleIntervalMs: 5000, FdbStatusTimeoutMs: 3000, CpuSampleIntervalMs: 1000,
 		PageSize: 1000,
 		Kvrgw:    KvrgwConfig{MaxInline: 256, MaxKvStore: 4096, BatchSize: 5, BatchTimeoutUs: 1000, BatchThreads: 8},
 	}
@@ -257,6 +277,24 @@ func (c *Config) Validate(command string) error {
 	}
 	if c.ReportIntervalMs < 0 {
 		return fmt.Errorf("report_interval_ms must be >= 0")
+	}
+	if c.CpuSampleIntervalMs < 1 {
+		return fmt.Errorf("cpu_sample_interval_ms must be >= 1")
+	}
+	if c.FdbStats {
+		if c.FdbStatusTimeoutMs < 1 {
+			return fmt.Errorf("fdb_status_timeout_ms must be >= 1")
+		}
+		if c.FdbSampleIntervalMs < 1 {
+			return fmt.Errorf("fdb_sample_interval_ms must be >= 1")
+		}
+		// Sampling is sequential: an interval shorter than the longest a status call may take
+		// would make the sampler call back to back.
+		if iv, lim := time.Duration(c.FdbSampleIntervalMs)*time.Millisecond, c.FdbStatusOuterLimit(); iv < lim {
+			return fmt.Errorf("fdb_sample_interval_ms (%s) must be >= the longest a status call may take, %s "+
+				"(fdb_status_timeout_ms %d rounded up to whole seconds, plus %s); raise the interval or lower the timeout",
+				iv, lim, c.FdbStatusTimeoutMs, FdbStatusMargin)
+		}
 	}
 	d, err := c.DurationValue()
 	if err != nil {

@@ -38,7 +38,12 @@ base:
   fdb_stats: true            # sample `fdbcli status json` (--no-fdb-stats to disable)
   fdb_cluster_file: ""       # "" => $FDB_CLUSTER_FILE
   fdbcli_path: /opt/foundationdb/usr/bin/fdbcli   # falls back to PATH, next to the binary, /opt/kvrgw
-  fdb_sample_interval_ms: 5000
+  # `fdbcli status json` can take many seconds on a loaded cluster. The call gets --timeout
+  # fdb_status_timeout_ms (rounded up to whole seconds) and the process is killed 2s later. Sampling
+  # is sequential, so fdb_sample_interval_ms must be >= that outer limit (checked at start-up).
+  # report --window must be >= the sample interval for the per-window FDB tables to show.
+  fdb_sample_interval_ms: 30000
+  fdb_status_timeout_ms: 20000
   cpu_sample_interval_ms: 5000
 
 # ---- per-command sections (each lists what is tunable for that command) ---------------

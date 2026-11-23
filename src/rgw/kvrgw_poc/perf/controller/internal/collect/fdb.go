@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -261,6 +262,8 @@ type FDBSampler struct {
 	Path        string // fdbcli binary
 	ClusterFile string
 	Interval    time.Duration
+	Timeout     time.Duration // fdbcli --timeout (whole seconds)
+	OuterLimit  time.Duration // kill the fdbcli process after this long (> Timeout)
 	Cluster     *results.CSV
 	Process     *results.CSV
 	CPU         *results.CSV // optional: per-process CPU for every process
@@ -280,18 +283,46 @@ func (s *FDBSampler) Last() (ClusterSample, bool) {
 	return s.last, s.hasLs
 }
 
-// Status runs `fdbcli status json` with a 5s outer timeout.
+// Status runs `fdbcli status json`: fdbcli gets --timeout (default 3s) and the process is killed
+// after OuterLimit (default 5s). A failure carries fdbcli's stderr and how long the call took.
 func (s *FDBSampler) Status(ctx context.Context) ([]byte, error) {
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	timeout, outer := s.Timeout, s.OuterLimit
+	if timeout <= 0 {
+		timeout = 3 * time.Second
+	}
+	if outer <= timeout {
+		outer = timeout + 2*time.Second
+	}
+	cctx, cancel := context.WithTimeout(ctx, outer)
 	defer cancel()
 	args := []string{}
 	if s.ClusterFile != "" {
 		args = append(args, "-C", s.ClusterFile)
 	}
-	args = append(args, "--exec", "status json", "--timeout", "3")
-	out, err := exec.CommandContext(cctx, s.Path, args...).Output()
+	args = append(args, "--exec", "status json", "--timeout", fmt.Sprint(int((timeout+time.Second-1)/time.Second)))
+	t0 := time.Now()
+	cmd := exec.CommandContext(cctx, s.Path, args...)
+	cmd.WaitDelay = time.Second // return soon after the kill even if a child still holds the pipe
+	out, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		took := time.Since(t0).Round(100 * time.Millisecond)
+		switch {
+		case cctx.Err() == context.DeadlineExceeded:
+			return nil, fmt.Errorf("fdbcli killed after the %s outer limit (its own --timeout was %s)", outer, timeout)
+		default:
+			var ee *exec.ExitError
+			if errors.As(err, &ee) {
+				msg := strings.TrimSpace(string(ee.Stderr))
+				if msg == "" {
+					msg = "no stderr"
+				}
+				if len(msg) > 300 {
+					msg = msg[:300] + "..."
+				}
+				return nil, fmt.Errorf("fdbcli failed after %s (--timeout %s): %v: %s", took, timeout, err, msg)
+			}
+			return nil, err
+		}
 	}
 	if len(bytes.TrimSpace(out)) == 0 {
 		return nil, fmt.Errorf("empty output")
@@ -299,11 +330,19 @@ func (s *FDBSampler) Status(ctx context.Context) ([]byte, error) {
 	return out, nil
 }
 
+// failureLogEvery limits how often sample failures are logged during a run.
+const failureLogEvery = 5 * time.Minute
+
 // Run polls until ctx is cancelled.
 func (s *FDBSampler) Run(ctx context.Context) {
+	if s.Interval <= 0 {
+		s.Logf("WARN fdb sampling not started: interval must be > 0")
+		return
+	}
 	tk := time.NewTicker(s.Interval)
 	defer tk.Stop()
-	warned := false
+	var lastLog time.Time
+	var suppressed int64
 	for {
 		select {
 		case <-ctx.Done():
@@ -321,9 +360,17 @@ func (s *FDBSampler) Run(ctx context.Context) {
 					return
 				}
 				s.Failures.Add(1)
-				if !warned {
-					warned = true
-					s.Logf("WARN fdb status sample failed (further failures counted silently): %v", err)
+				// Log the reason, but at most once per failureLogEvery (the first one always).
+				if lastLog.IsZero() || time.Since(lastLog) >= failureLogEvery {
+					extra := ""
+					if suppressed > 0 {
+						extra = fmt.Sprintf(" (%d more failures since the last message)", suppressed)
+					}
+					s.Logf("WARN fdb status sample failed (%d failed, %d ok so far)%s: %v",
+						s.Failures.Load(), s.Samples.Load(), extra, err)
+					lastLog, suppressed = time.Now(), 0
+				} else {
+					suppressed++
 				}
 				continue
 			}

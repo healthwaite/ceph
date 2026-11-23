@@ -1,8 +1,11 @@
 package collect
 
 import (
+	"context"
 	"os"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseStatusFixture(t *testing.T) {
@@ -109,5 +112,41 @@ func TestParseStatusFullCPURows(t *testing.T) {
 	}
 	if r := byAddr["10.0.0.4:4504"]; len(r.Roles) != 1 || r.Roles[0] != "none" || r.Cores != 0.01 {
 		t.Fatalf("no roles => none: %+v", r)
+	}
+}
+
+func fakeFdbcli(t *testing.T, body string) string {
+	t.Helper()
+	p := t.TempDir() + "/fdbcli"
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestStatusFailureCarriesStderrAndTimeouts(t *testing.T) {
+	s := &FDBSampler{Path: fakeFdbcli(t, `echo "ERROR: Timed out" >&2; exit 1`), Timeout: 3 * time.Second, OuterLimit: 5 * time.Second}
+	_, err := s.Status(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "ERROR: Timed out") || !strings.Contains(err.Error(), "--timeout 3s") {
+		t.Fatalf("want stderr and timeout in error, got %v", err)
+	}
+	// The process is killed at the outer limit; the error says so.
+	s = &FDBSampler{Path: fakeFdbcli(t, `sleep 10`), Timeout: time.Second, OuterLimit: 1500 * time.Millisecond}
+	start := time.Now()
+	_, err = s.Status(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "outer limit") || time.Since(start) > 5*time.Second {
+		t.Fatalf("want outer-limit kill, got %v after %s", err, time.Since(start))
+	}
+}
+
+func TestStatusPassesWholeSecondTimeout(t *testing.T) {
+	out := t.TempDir() + "/args"
+	s := &FDBSampler{Path: fakeFdbcli(t, `echo "$@" > `+out+`; echo '{"cluster":{}}'`), Timeout: 20 * time.Second, OuterLimit: 22 * time.Second}
+	if _, err := s.Status(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(out)
+	if !strings.Contains(string(b), "--timeout 20") {
+		t.Fatalf("args: %s", b)
 	}
 }

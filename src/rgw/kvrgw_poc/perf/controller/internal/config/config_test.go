@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -271,5 +272,39 @@ func TestBucketRangeAndVersionedPrompt(t *testing.T) {
 		"Continue? [y/N] "
 	if got := c.VersionedOverwritePrompt(); got != want {
 		t.Fatalf("prompt:\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func TestFdbSampleIntervalMustCoverStatusCall(t *testing.T) {
+	c := Defaults()
+	c.NumObjects, c.NumBuckets = 1, 1
+	if err := c.Validate("load"); err != nil {
+		t.Fatalf("defaults must be valid: %v", err)
+	}
+	// 20s timeout => 22s outer limit: a 5s interval is rejected, 30s is fine.
+	c.FdbStatusTimeoutMs = 20000
+	if got := c.FdbStatusOuterLimit(); got != 22*time.Second {
+		t.Fatalf("outer limit %s", got)
+	}
+	if err := c.Validate("load"); err == nil || !strings.Contains(err.Error(), "fdb_sample_interval_ms") {
+		t.Fatalf("want interval error, got %v", err)
+	}
+	c.FdbSampleIntervalMs = 30000
+	if err := c.Validate("load"); err != nil {
+		t.Fatal(err)
+	}
+	// Not enforced when FDB stats are off; non-positive values are always rejected when on.
+	c.FdbSampleIntervalMs = 0
+	if err := c.Validate("load"); err == nil {
+		t.Fatal("zero interval must be rejected")
+	}
+	c.FdbStats = false
+	if err := c.Validate("load"); err != nil {
+		t.Fatalf("fdb_stats off: %v", err)
+	}
+	// Sub-second timeouts round up to a whole second (fdbcli takes whole seconds).
+	c.FdbStatusTimeoutMs = 1500
+	if got := c.FdbStatusTimeout(); got != 2*time.Second {
+		t.Fatalf("timeout %s", got)
 	}
 }
