@@ -288,20 +288,20 @@ set_target_properties(d_write_test PROPERTIES
   INSTALL_RPATH "${FDB_LIB_DIR};$ORIGIN"
 )
 
-add_executable(create_bucket_test
-  tests/create_bucket_test.cpp
-)
-target_include_directories(create_bucket_test PRIVATE
-  "${CMAKE_SOURCE_DIR}/src"
-  "${FDB_INCLUDE_DIR}"
-  ${YAML_CPP_INCLUDE_DIRS}
-)
-target_link_directories(create_bucket_test PRIVATE "${FDB_LIB_DIR}")
-target_link_libraries(create_bucket_test PRIVATE kvrgw)
-set_target_properties(create_bucket_test PROPERTIES
-  BUILD_RPATH "${FDB_LIB_DIR};$ORIGIN"
-  INSTALL_RPATH "${FDB_LIB_DIR};$ORIGIN"
-)
+#add_executable(create_bucket_test
+#  tests/create_bucket_test.cpp
+#)
+#target_include_directories(create_bucket_test PRIVATE
+#  "${CMAKE_SOURCE_DIR}/src"
+#  "${FDB_INCLUDE_DIR}"
+#  ${YAML_CPP_INCLUDE_DIRS}
+#)
+#target_link_directories(create_bucket_test PRIVATE "${FDB_LIB_DIR}")
+#target_link_libraries(create_bucket_test PRIVATE kvrgw)
+#set_target_properties(create_bucket_test PROPERTIES
+#  BUILD_RPATH "${FDB_LIB_DIR};$ORIGIN"
+#  INSTALL_RPATH "${FDB_LIB_DIR};$ORIGIN"
+#)
 
 add_executable(put_condition_test
   tests/put_condition_test.cpp
@@ -474,4 +474,3 @@ option(KVRGW_BUILD_PERF_HARNESS "Build gRPC perf controller/worker" OFF)
 if(KVRGW_BUILD_PERF_HARNESS)
   add_subdirectory(${CMAKE_SOURCE_DIR}/../perf ${CMAKE_BINARY_DIR}/perf)
 endif()
->>>>>>> e037f4d490a (rgw/kvrgw: add gRPC perf harness (kvrgw-perf controller + worker))
