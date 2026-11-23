@@ -26,6 +26,7 @@ var flagKeys = map[string]string{
 	"streams-per-worker": "streams_per_worker", "driver-threads": "driver_threads",
 	"rate": "rate_ops_per_sec", "rate-ops-per-sec": "rate_ops_per_sec",
 	"backend-workers": "backend_workers", "max-inflight-ops": "max_inflight_ops",
+	"sim-disk-write-us": "sim_disk_write_us", "sim-disk-read-us": "sim_disk_read_us",
 	"txn-max-attempts": "txn_max_attempts", "batch-txn-max-attempts": "batch_txn_max_attempts",
 	"txn-timeout-ms": "txn_timeout_ms",
 	"arrival":        "arrival", "ramp-mode": "ramp_mode", "ramp-start-rate": "ramp_start_rate", "ramp-step-rate": "ramp_step_rate",
@@ -180,6 +181,10 @@ func Set(c *Config, key, v string) error {
 		return i(&c.Kvrgw.BatchTxnMaxAttempts)
 	case "txn_timeout_ms":
 		return i64(&c.Kvrgw.TxnTimeoutMs)
+	case "sim_disk_write_us":
+		return i64(&c.Kvrgw.SimDiskWriteUs)
+	case "sim_disk_read_us":
+		return i64(&c.Kvrgw.SimDiskReadUs)
 	case "arrival":
 		c.Arrival = v
 	case "ramp":

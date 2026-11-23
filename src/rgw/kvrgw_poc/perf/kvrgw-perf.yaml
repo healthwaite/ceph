@@ -26,6 +26,11 @@ kvrgw:
   txn_max_attempts: 3        # FDB attempts for ordinary ops (retries back off via on_error)
   batch_txn_max_attempts: 10 # FDB commit attempts for a PUT batch's final transaction
   txn_timeout_ms: 0          # FDB transaction timeout for the async ops (0 = off)
+  # Simulated data-tier latency. The perf worker keeps no object bytes: data-store writes are
+  # discarded and reads return zeros, so these sleeps (microseconds per call) are the only
+  # cost of objects larger than max_kv_store. 0 = no delay.
+  sim_disk_write_us: 0
+  sim_disk_read_us: 0
 
 # ---- common settings ------------------------------------------------------------------
 base:

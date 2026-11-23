@@ -468,3 +468,20 @@ func TestRampConfig(t *testing.T) {
 		t.Fatalf("%v %+v", err, c2)
 	}
 }
+
+func TestSimDiskEnv(t *testing.T) {
+	c := Defaults()
+	if contains(strings.Join(c.KvrgwEnv(), " "), "KVRGW_SIM_DISK") {
+		t.Fatal("sim disk must be off by default")
+	}
+	ov := NewOverrides()
+	ov.vals["sim_disk_write_us"] = "250"
+	ov.vals["sim_disk_read_us"] = "100"
+	if err := ov.Apply(&c); err != nil {
+		t.Fatal(err)
+	}
+	env := strings.Join(c.KvrgwEnv(), " ")
+	if !contains(env, "KVRGW_SIM_DISK_WRITE_US=250") || !contains(env, "KVRGW_SIM_DISK_READ_US=100") {
+		t.Fatalf("%s", env)
+	}
+}

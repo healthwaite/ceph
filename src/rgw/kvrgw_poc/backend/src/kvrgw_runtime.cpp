@@ -231,6 +231,10 @@ bool KvRgwRuntime::start(const KvRgwStartOptions &opts)
 
   ref_tags_.emplace(*rgw_id);
   perf_data_store_.emplace();
+  // Simulated data-tier latency for perf mode (the perf store discards writes and
+  // returns zeros for reads, so these are the only data-tier cost).
+  perf_data_store_->set_sim_write_us(env_int("KVRGW_SIM_DISK_WRITE_US", 0));
+  perf_data_store_->set_sim_read_us(env_int("KVRGW_SIM_DISK_READ_US", 0));
   file_data_store_.emplace(data_root);
   DataStore &data_store = perf_mode_
                               ? static_cast<DataStore &>(*perf_data_store_)

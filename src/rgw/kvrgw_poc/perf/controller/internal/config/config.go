@@ -140,6 +140,10 @@ type KvrgwConfig struct {
 	TxnMaxAttempts      int   `yaml:"txn_max_attempts" json:"txn_max_attempts"`
 	BatchTxnMaxAttempts int   `yaml:"batch_txn_max_attempts" json:"batch_txn_max_attempts"`
 	TxnTimeoutMs        int64 `yaml:"txn_timeout_ms" json:"txn_timeout_ms"`
+	// Simulated data-tier latency (microseconds per data-store write / read). The perf
+	// worker's data store keeps no bytes; these sleeps are its only cost. 0 = none.
+	SimDiskWriteUs int64 `yaml:"sim_disk_write_us" json:"sim_disk_write_us"`
+	SimDiskReadUs  int64 `yaml:"sim_disk_read_us" json:"sim_disk_read_us"`
 }
 
 // WriteKvrgwYAML synthesizes the runtime config file the workers read via
@@ -180,6 +184,12 @@ func (c *Config) KvrgwEnv() []string {
 		env = append(env, fmt.Sprintf("KVRGW_BATCH_TXN_MAX_ATTEMPTS=%d", k.BatchTxnMaxAttempts))
 	}
 	env = append(env, fmt.Sprintf("KVRGW_TXN_TIMEOUT_MS=%d", k.TxnTimeoutMs))
+	if k.SimDiskWriteUs > 0 {
+		env = append(env, fmt.Sprintf("KVRGW_SIM_DISK_WRITE_US=%d", k.SimDiskWriteUs))
+	}
+	if k.SimDiskReadUs > 0 {
+		env = append(env, fmt.Sprintf("KVRGW_SIM_DISK_READ_US=%d", k.SimDiskReadUs))
+	}
 	return env
 }
 
