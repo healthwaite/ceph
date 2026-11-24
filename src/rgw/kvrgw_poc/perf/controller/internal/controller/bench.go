@@ -54,6 +54,7 @@ func (v *invocation) runBenchmark(sigCtx, mctx context.Context, benchStarted cha
 	v.runStartMs = runStart.UnixMilli()
 	v.intervalMs = cfg.ReportIntervalMs
 	v.ev.At(v.runStartMs, "benchmark_start")
+	time.AfterFunc(time.Until(runStart), func() { v.setFDBPhase("benchmark") })
 	fmt.Fprintf(v.out, "benchmark starting in 1s (%d workers x %d threads)\n", cfg.WorkerCount, cfg.ThreadsPerWorker)
 
 	streams := make([]grpc.BidiStreamingClient[pb.RunControl, pb.PhaseEvent], n)
@@ -153,6 +154,7 @@ func (v *invocation) runBenchmark(sigCtx, mctx context.Context, benchStarted cha
 	aggMu.Unlock()
 	v.benchEndMs = time.Now().UnixMilli()
 	v.ev.At(v.benchEndMs, "benchmark_end")
+	v.setFDBPhase("post")
 
 	ok := true
 	for _, e := range workerErr {
@@ -229,8 +231,17 @@ func (v *invocation) handleWindows(wins []*stats.Window) {
 		}
 		v.lastServer = w.Server
 		v.windows++
-		fmt.Fprintf(v.out, "[t=%s] %s\n", fmtOffset(w.Index*v.intervalMs), strings.Join(parts, " | "))
+		fmt.Fprintln(v.out, progressLine(v.o.Command, fmtOffset(w.Index*v.intervalMs), parts))
 	}
+}
+
+// progressLine formats one progress report. run-list-delete-multi reports five metrics, so each
+// goes on its own indented line; the other commands keep one " | "-separated line.
+func progressLine(command, offset string, parts []string) string {
+	if command == "run-list-delete-multi" {
+		return "[t=" + offset + "]\n\t" + strings.Join(parts, "\n\t")
+	}
+	return "[t=" + offset + "] " + strings.Join(parts, " | ")
 }
 
 // fmtOffset renders a millisecond offset from run start as e.g. "0s", "10s", "1.5s".

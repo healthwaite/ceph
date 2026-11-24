@@ -18,8 +18,8 @@ func NewOverrides() *Overrides { return &Overrides{vals: map[string]string{}} }
 var flagKeys = map[string]string{
 	"num-objects": "num_objects", "num-buckets": "num_buckets",
 	"bucket-name-prefix": "bucket_name_prefix", "padding-bytes": "padding_bytes",
-	"object-size-bytes": "object_size_bytes",
-	"metadata-count":    "metadata_count", "metadata-size": "metadata_size",
+	"object-size-bytes": "object_size_bytes", "fdb-status-raw": "fdb_status_raw",
+	"metadata-count": "metadata_count", "metadata-size": "metadata_size",
 	"workers": "worker_count", "worker-count": "worker_count",
 	"threads": "threads_per_worker", "threads-per-worker": "threads_per_worker",
 	"verify-threads": "verify_threads", "tenant-name": "tenant_name",
@@ -157,6 +157,8 @@ func Set(c *Config, key, v string) error {
 		return i64(&c.ReportIntervalMs)
 	case "fdb_stats":
 		return b(&c.FdbStats)
+	case "fdb_status_raw":
+		return b(&c.FdbStatusRaw)
 	case "fdb_cluster_file":
 		c.FdbClusterFile = v
 	case "fdbcli_path":

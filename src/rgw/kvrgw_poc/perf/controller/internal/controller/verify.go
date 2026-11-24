@@ -34,6 +34,7 @@ func (v *invocation) verify(mctx context.Context, sums []*pb.RunSummary) bool {
 	counts := v.buildThreadCounts(sums)
 	fmt.Fprintln(v.out, "verifying...")
 	v.ev.Now("verify_start")
+	v.setFDBPhase("verify")
 	t0 := time.Now()
 	res := make([]*pb.PhaseEvent, len(v.workers))
 	prog := newVerifyProgress(len(v.workers), t0)
@@ -70,6 +71,7 @@ func (v *invocation) verify(mctx context.Context, sums []*pb.RunSummary) bool {
 	close(stop)
 	<-printed
 	v.ev.Now("verify_end")
+	v.setFDBPhase("post")
 	vs := &results.VerifySummary{Ran: true, DurationMs: time.Since(t0).Milliseconds()}
 	v.verifySum = vs
 	pass := true

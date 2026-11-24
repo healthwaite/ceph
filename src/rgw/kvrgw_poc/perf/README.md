@@ -113,8 +113,13 @@ Local mode (the only mode in v1) spawns `worker_count` workers on `127.0.0.1:<ba
 `--cpus 0-15` splits a CPU pool across them with `taskset`.
 
 Results directory: `config.resolved.json kvrgw.yaml events.csv metrics.csv errors.csv hist.csv server_stats.csv
-cpu.csv fdb_cluster.csv fdb_process.csv fdb_cpu.csv fdb_status_start.json summary.json controller.log
+cpu.csv fdb_cluster.csv fdb_process.csv fdb_cpu.csv fdb_status_start.json fdb_status.jsonl summary.json controller.log
 worker-<i>.log` (spec section 8.1). FDB files are present only if `fdbcli` works.
+`fdb_status.jsonl` holds every raw `status json` sample, compacted and uncompressed, one JSON object per
+line tagged with the run phase (`init`, `benchmark`, `post`, `verify`); failed or timed-out calls get an
+`error` line. It is about 330 KB per sample on a 115-process cluster (~0.45 GiB per 12 h at the 30 s
+interval). Turn it off with `fdb_status_raw: false` (`--fdb-status-raw=false`). For example,
+`jq -c 'select(.phase=="verify") | .status' fdb_status.jsonl`.
 
 Exit codes: 0 success, 1 benchmark/verify failure or worker error, 2 usage.
 
@@ -180,6 +185,12 @@ Exit codes: 0 success, 1 benchmark/verify failure or worker error, 2 usage.
   `report` lists them under each op. Fatal errors name the bucket, an abbreviated key, the code
   and its text; failed `list_objects` calls are logged (first 20 per worker) as well as counted.
   A run whose only problems are counted, non-fatal errors (e.g. `list_objects`) still exits 0.
+- `report --detailed` also prints an "FDB per-role statistics" table (from `fdb_process.csv`): for storage,
+  log, grv_proxy, commit_proxy and resolver, one row each for CPU cores and, for storage and log, disk busy %.
+  Each process's mean in each window is one value, and the row summarises the pool of processes x windows
+  (`n` column), so a single hot process shows in the tail. Storage also gets `hottest/median` rows: in each
+  window the busiest storage process over the median one, summarised across windows (`n` = windows). A
+  process holding several roles (e.g. coordinator + grv_proxy) counts under each of them.
 - `report --window D` (implies `--detailed`) widens the per-window tables to windows of D (a
   whole multiple of the recorded `report_interval_ms`; it cannot narrow windows). Counts,
   errors and rates are summed over the group, and p50/p99 come from the merged per-window

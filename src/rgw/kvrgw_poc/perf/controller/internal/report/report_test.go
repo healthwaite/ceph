@@ -508,3 +508,53 @@ func TestFDBCPUPerWindowNeedsFastEnoughSampling(t *testing.T) {
 		t.Fatalf("the run-totals table does not depend on the window:\n%s", out)
 	}
 }
+
+func TestFDBPerRoleWindows(t *testing.T) {
+	dir := fixture(t, false)
+	out, code := render(t, dir, Options{Detailed: true, Warmup: 2 * time.Second})
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	i := strings.Index(out, "FDB per-role statistics")
+	if i < 0 {
+		t.Fatalf("no per-role table\n%s", out)
+	}
+	tbl := out[i:]
+	// row finds a table row by its label (whitespace-insensitive) and returns its fields after it.
+	row := func(label string) []string {
+		want := strings.Fields(label)
+		for _, l := range strings.Split(tbl, "\n") {
+			f := strings.Fields(l)
+			if len(f) >= len(want)+8 && strings.Join(f[:len(want)], " ") == strings.Join(want, " ") {
+				return f[len(want):] // n min max avg median p90 p95 p99
+			}
+		}
+		t.Fatalf("no row %q in\n%s", label, tbl)
+		return nil
+	}
+	eq := func(got []string, want ...string) {
+		t.Helper()
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Fatalf("got %v want %v\n%s", got, want, tbl)
+		}
+	}
+	// 3 storage servers with cpu 0.5/0.6/0.97 in each of 17 windows: n=51, min, max, avg, median, p90, p95, p99.
+	eq(row("storage (3) cpu (cores)"), "51", "0.50", "0.97", "0.69", "0.60", "0.97", "0.97", "0.97")
+	// hottest/median is 0.97/0.6 in every window: n = windows.
+	eq(row("storage (3) cpu hottest/median"), "17", "1.62", "1.62", "1.62", "1.62", "1.62", "1.62", "1.62")
+	// disk busy is 0.1 => 10.0%, ratio 1.00.
+	eq(row("storage (3) disk busy (%)"), "51", "10.0", "10.0", "10.0", "10.0", "10.0", "10.0", "10.0")
+	eq(row("storage (3) disk busy hottest/median"), "17", "1.00", "1.00", "1.00", "1.00", "1.00", "1.00", "1.00")
+	eq(row("log (1) disk busy (%)"), "17", "10.0", "10.0", "10.0", "10.0", "10.0", "10.0", "10.0")
+	// The combined "commit_proxy,resolver" process counts under each role; no disk rows for them.
+	eq(row("commit_proxy (1) cpu (cores)"), "17", "0.20", "0.20", "0.20", "0.20", "0.20", "0.20", "0.20")
+	eq(row("resolver (1) cpu (cores)"), "17", "0.20", "0.20", "0.20", "0.20", "0.20", "0.20", "0.20")
+	if strings.Contains(tbl, "resolver     (1)  disk") || strings.Contains(tbl, "commit_proxy (1)  disk") {
+		t.Fatalf("stateless roles must not have disk rows:\n%s", tbl)
+	}
+	// Not shown without --detailed.
+	out, _ = render(t, dir, Options{Warmup: 2 * time.Second})
+	if strings.Contains(out, "FDB per-role statistics") {
+		t.Fatal("per-role table must be --detailed only")
+	}
+}

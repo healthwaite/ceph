@@ -79,6 +79,14 @@ type invocation struct {
 	benchEndMs                     int64
 	fdbStart, fdbEnd               *collect.ClusterSample
 	fdbConfig                      []collect.RoleRow
+	fdbSampler                     *collect.FDBSampler // nil when FDB stats are off
+}
+
+// setFDBPhase tags the raw FDB status samples that start from now on.
+func (v *invocation) setFDBPhase(p string) {
+	if v.fdbSampler != nil {
+		v.fdbSampler.SetPhase(p)
+	}
 }
 
 func (v *invocation) fail(format string, a ...any) {
@@ -219,10 +227,22 @@ func (v *invocation) startFDB(cctx context.Context, wg *sync.WaitGroup) {
 	} else {
 		s.CPU = cpu
 	}
+	if cfg.FdbStatusRaw {
+		if raw, e := v.dir.OpenLines("fdb_status.jsonl"); e != nil {
+			v.warn("cannot create fdb_status.jsonl: %v", e)
+		} else {
+			s.Raw = raw // closed by the sampler goroutine below once it stops
+		}
+	}
+	s.SetPhase("init")
+	v.fdbSampler = s
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		s.Run(cctx)
+		if s.Raw != nil {
+			s.Raw.Close()
+		}
 		if l, ok := s.Last(); ok {
 			v.fdbEnd = &l
 		}

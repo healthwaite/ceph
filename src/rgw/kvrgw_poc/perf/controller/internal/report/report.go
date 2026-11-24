@@ -1223,6 +1223,7 @@ func (d *data) printFDB(w io.Writer, o Options, from, to int64) {
 	d.printFDBCPU(w, from, to)
 	if o.Detailed {
 		d.printFDBCPUWindows(w, o, from, to)
+		d.printFDBRoleWindows(w, o, from, to)
 	}
 
 	banner(w, "Health")

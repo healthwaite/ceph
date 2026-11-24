@@ -62,7 +62,10 @@ type Config struct {
 	TenantName       string `yaml:"tenant_name" json:"tenant_name"`
 	ReportIntervalMs int64  `yaml:"report_interval_ms" json:"report_interval_ms"`
 
-	FdbStats            bool   `yaml:"fdb_stats" json:"fdb_stats"`
+	FdbStats bool `yaml:"fdb_stats" json:"fdb_stats"`
+	// FdbStatusRaw also saves every `status json` sample, compacted, to fdb_status.jsonl
+	// (tagged with the run phase). Only applies when fdb_stats is on.
+	FdbStatusRaw        bool   `yaml:"fdb_status_raw" json:"fdb_status_raw"`
 	FdbClusterFile      string `yaml:"fdb_cluster_file" json:"fdb_cluster_file"`
 	FdbcliPath          string `yaml:"fdbcli_path" json:"fdbcli_path"`
 	FdbSampleIntervalMs int64  `yaml:"fdb_sample_interval_ms" json:"fdb_sample_interval_ms"`
@@ -132,7 +135,7 @@ func Defaults() Config {
 		PaddingBytes: 16, ObjectSizeBytes: 8192, MetadataCount: 6, MetadataSize: 64, WorkerCount: 1, ThreadsPerWorker: 1,
 		VerifyThreads: 4, TenantName: envOr("KVRGW_TENANT_NAME", "kv-poc"),
 		ReportIntervalMs: 1000,
-		FdbStats:         true, FdbClusterFile: os.Getenv("FDB_CLUSTER_FILE"), FdbcliPath: "/opt/foundationdb/usr/bin/fdbcli",
+		FdbStats:         true, FdbStatusRaw: true, FdbClusterFile: os.Getenv("FDB_CLUSTER_FILE"), FdbcliPath: "/opt/foundationdb/usr/bin/fdbcli",
 		FdbSampleIntervalMs: 5000, FdbStatusTimeoutMs: 3000, CpuSampleIntervalMs: 1000,
 		PageSize: 1000,
 		Kvrgw:    KvrgwConfig{MaxInline: 256, MaxKvStore: 4096, BatchSize: 5, BatchTimeoutUs: 1000, BatchThreads: 8},

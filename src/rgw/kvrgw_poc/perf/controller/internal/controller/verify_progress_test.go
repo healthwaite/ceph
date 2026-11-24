@@ -26,3 +26,13 @@ func TestVerifyProgressLine(t *testing.T) {
 		t.Errorf("unknown total: got %q", got)
 	}
 }
+
+func TestProgressLine(t *testing.T) {
+	parts := []string{"list_objects 5 ops/s", "delete_multi 4 ops/s"}
+	if got := progressLine("run-put-object", "10s", parts); got != "[t=10s] list_objects 5 ops/s | delete_multi 4 ops/s" {
+		t.Fatalf("single line: %q", got)
+	}
+	if got := progressLine("run-list-delete-multi", "130s", parts); got != "[t=130s]\n\tlist_objects 5 ops/s\n\tdelete_multi 4 ops/s" {
+		t.Fatalf("multi line: %q", got)
+	}
+}

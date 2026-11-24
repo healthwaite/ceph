@@ -266,14 +266,62 @@ type FDBSampler struct {
 	OuterLimit  time.Duration // kill the fdbcli process after this long (> Timeout)
 	Cluster     *results.CSV
 	Process     *results.CSV
-	CPU         *results.CSV // optional: per-process CPU for every process
+	CPU         *results.CSV   // optional: per-process CPU for every process
+	Raw         *results.Lines // optional: every status sample (or failure), one JSON object per line
 	Logf        func(format string, args ...any)
 
 	Samples, Failures atomic.Int64
 
+	phase atomic.Pointer[string]
+
 	mu    sync.Mutex
 	last  ClusterSample
 	hasLs bool
+}
+
+// SetPhase names the run phase recorded with each raw sample ("init", "benchmark", ...).
+func (s *FDBSampler) SetPhase(p string) { s.phase.Store(&p) }
+
+func (s *FDBSampler) currentPhase() string {
+	if p := s.phase.Load(); p != nil {
+		return *p
+	}
+	return ""
+}
+
+// writeRaw appends one record to Raw: the compacted status document, or the error. ts and phase
+// are those of the moment the call started; a call that straddles a phase change keeps the
+// phase it started in (took_ms shows how long it ran).
+func (s *FDBSampler) writeRaw(ts time.Time, phase string, took time.Duration, out []byte, err error) {
+	if s.Raw == nil {
+		return
+	}
+	var b bytes.Buffer
+	ph, _ := json.Marshal(phase)
+	fmt.Fprintf(&b, `{"ts_ms":%d,"phase":%s,"took_ms":%d,`, ts.UnixMilli(), ph, took.Milliseconds())
+	if err == nil {
+		var doc bytes.Buffer
+		// fdbcli may print warnings before the JSON document (ParseStatusFull skips them too).
+		if i := bytes.IndexByte(out, '{'); i > 0 {
+			out = out[i:]
+		}
+		if err = json.Compact(&doc, out); err == nil {
+			b.WriteString(`"status":`)
+			b.Write(doc.Bytes())
+			b.WriteByte('}')
+			err = nil
+		} else {
+			err = fmt.Errorf("status output is not valid JSON: %w", err)
+		}
+	}
+	if err != nil {
+		b.Reset()
+		msg, _ := json.Marshal(err.Error())
+		fmt.Fprintf(&b, `{"ts_ms":%d,"phase":%s,"took_ms":%d,"error":%s}`, ts.UnixMilli(), ph, took.Milliseconds(), msg)
+	}
+	if werr := s.Raw.Write(b.Bytes()); werr != nil {
+		s.Logf("WARN writing fdb_status.jsonl: %v", werr)
+	}
 }
 
 // Last returns the most recent successful cluster sample.
@@ -348,7 +396,11 @@ func (s *FDBSampler) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-tk.C:
+			phase, callStart := s.currentPhase(), time.Now()
 			out, err := s.Status(ctx)
+			if ctx.Err() == nil {
+				s.writeRaw(now, phase, time.Since(callStart), out, err)
+			}
 			var cs ClusterSample
 			var rows []ProcessRow
 			var cpuRows []CPURow

@@ -65,6 +65,39 @@ func (c *CSV) Close() error {
 	return c.f.Close()
 }
 
+// Lines is a flushed, concurrency-safe writer of newline-terminated records (JSON lines).
+type Lines struct {
+	mu sync.Mutex
+	f  *os.File
+	w  *bufio.Writer
+}
+
+// OpenLines creates the file.
+func (d *Dir) OpenLines(name string) (*Lines, error) {
+	f, err := os.Create(d.File(name))
+	if err != nil {
+		return nil, err
+	}
+	return &Lines{f: f, w: bufio.NewWriterSize(f, 1<<20)}, nil
+}
+
+// Write appends one record (b must not contain a newline) and flushes, so a crash loses at most
+// the record being written.
+func (l *Lines) Write(b []byte) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.w.Write(b)
+	l.w.WriteByte('\n')
+	return l.w.Flush()
+}
+
+func (l *Lines) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.w.Flush()
+	return l.f.Close()
+}
+
 // Helpers for number formatting.
 func U(v uint64) string  { return strconv.FormatUint(v, 10) }
 func I(v int64) string   { return strconv.FormatInt(v, 10) }

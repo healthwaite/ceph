@@ -2,10 +2,15 @@ package collect
 
 import (
 	"context"
+	"encoding/json"
 	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"kvrgw-perf/internal/results"
 )
 
 func TestParseStatusFixture(t *testing.T) {
@@ -148,5 +153,84 @@ func TestStatusPassesWholeSecondTimeout(t *testing.T) {
 	b, _ := os.ReadFile(out)
 	if !strings.Contains(string(b), "--timeout 20") {
 		t.Fatalf("args: %s", b)
+	}
+}
+
+func TestSamplerWritesRawJSONLines(t *testing.T) {
+	fixture, err := filepath.Abs("testdata/status.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := results.NewRunDir(t.TempDir()+"/run", "load", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl, _ := dir.OpenCSV("fdb_cluster.csv", results.FDBClusterHeader...)
+	pr, _ := dir.OpenCSV("fdb_process.csv", results.FDBProcessHeader...)
+	raw, err := dir.OpenLines("fdb_status.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Succeeds twice, then fails (so an error line is written too).
+	counter := t.TempDir() + "/n"
+	s := &FDBSampler{
+		Path: fakeFdbcli(t, `n=$(cat `+counter+` 2>/dev/null || echo 0); echo $((n+1)) > `+counter+
+			`; if [ $n -lt 2 ]; then echo "warning: ignore me"; cat `+fixture+`; else echo "ERROR: Timed out" >&2; exit 1; fi`),
+		Interval: 50 * time.Millisecond, Timeout: 3 * time.Second, OuterLimit: 5 * time.Second,
+		Cluster: cl, Process: pr, Raw: raw, Logf: func(string, ...any) {},
+	}
+	s.SetPhase("benchmark")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { s.Run(ctx); close(done) }()
+	time.Sleep(120 * time.Millisecond)
+	s.SetPhase("verify")
+	for s.Failures.Load() == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	raw.Close()
+
+	data, err := os.ReadFile(dir.File("fdb_status.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want map[string]any
+	orig, _ := os.ReadFile(fixture)
+	if err := json.Unmarshal(orig, &want); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("want >= 3 lines, got %d", len(lines))
+	}
+	sawVerify, sawErr := false, false
+	for i, l := range lines {
+		var rec struct {
+			TsMs   int64          `json:"ts_ms"`
+			Phase  string         `json:"phase"`
+			TookMs *int64         `json:"took_ms"`
+			Status map[string]any `json:"status"`
+			Error  string         `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(l), &rec); err != nil {
+			t.Fatalf("line %d is not JSON: %v", i, err)
+		}
+		if rec.TsMs == 0 || rec.TookMs == nil || (rec.Phase != "benchmark" && rec.Phase != "verify") {
+			t.Fatalf("line %d: bad header %+v", i, rec)
+		}
+		sawVerify = sawVerify || rec.Phase == "verify"
+		if rec.Error != "" {
+			sawErr = true
+			if rec.Status != nil || !strings.Contains(rec.Error, "Timed out") {
+				t.Fatalf("line %d: error record %+v", i, rec)
+			}
+		} else if !reflect.DeepEqual(rec.Status, want) {
+			t.Fatalf("line %d: status differs from the fdbcli output", i)
+		}
+	}
+	if !sawVerify || !sawErr {
+		t.Fatalf("verify phase seen=%v, error line seen=%v", sawVerify, sawErr)
 	}
 }

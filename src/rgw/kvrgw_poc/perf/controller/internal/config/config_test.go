@@ -332,3 +332,22 @@ func TestListDeleteMulti(t *testing.T) {
 		t.Fatal("single thread mode")
 	}
 }
+
+func TestFdbStatusRawDefaultsOnAndCanBeDisabled(t *testing.T) {
+	c := Defaults()
+	if !c.FdbStatusRaw {
+		t.Fatal("fdb_status_raw must default to true")
+	}
+	if err := Set(&c, "fdb_status_raw", "false"); err != nil || c.FdbStatusRaw {
+		t.Fatalf("set false: %v %v", err, c.FdbStatusRaw)
+	}
+	o := NewOverrides()
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	o.Register(fs)
+	if err := fs.Parse([]string{"--fdb-status-raw=true"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Apply(&c); err != nil || !c.FdbStatusRaw {
+		t.Fatalf("flag: %v %v", err, c.FdbStatusRaw)
+	}
+}

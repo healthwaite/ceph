@@ -38,6 +38,11 @@ base:
   # reporting and collectors
   report_interval_ms: 10000  # progress-window length (0 = one report for the whole run)
   fdb_stats: true            # sample `fdbcli status json` (--no-fdb-stats to disable)
+  # Also keep every raw sample, compacted, in fdb_status.jsonl: one JSON object per line,
+  # {"ts_ms","phase","took_ms","status":{...}} (or "error" instead of "status" when the call
+  # failed). phase is init, benchmark, post (between benchmark end and verify) or verify.
+  # About 330KB per sample uncompressed (~0.45GiB per 12h at 30s). Needs fdb_stats.
+  fdb_status_raw: true
   fdb_cluster_file: ""       # "" => $FDB_CLUSTER_FILE
   fdbcli_path: /opt/foundationdb/usr/bin/fdbcli   # falls back to PATH, next to the binary, /opt/kvrgw
   # `fdbcli status json` can take many seconds on a loaded cluster. The call gets --timeout
