@@ -946,8 +946,9 @@ async::Task<void> BatchCommitQueue::run_batch(std::span<BatchCommitEntry *> es)
     uint16_t name_bytes{0};
     auto flush_as_group_po = [&]() {
       const auto ref_view = accumulator.entries[0].gc.chunk.ref_tag_view();
+      const auto bid = accumulator.entries[0].gc.chunk.get_bucket_id();
       KeyBuf &key = sc->p1_keys[n_p1];
-      make_group_po_key(ref_view, key);
+      make_group_po_key(bid, ref_view, key);
       GroupPoValueBuf val_buf;
       make_group_po_value(val_buf, accumulator);
       p1.kv_put(key.view(), val_buf.view());

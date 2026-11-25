@@ -136,7 +136,8 @@ kvrgw::async::Task<bool> put_with_retry_a(RunContext &ctx, Stream &s, const std:
     const auto t0 = SteadyClock::now();
     auto res = co_await ctx.svc->put_object_a(
         ctx.tenant, bucket, key, reinterpret_cast<const uint8_t *>(ctx.payload.data()),
-        ctx.payload.size(), "application/octet-stream", ctx.payload.size(), nullptr, {}, {});
+        ctx.payload.size(), "application/octet-stream", ctx.payload.size(), nullptr, {},
+        std::span<const kvrgw::MetaPair>(ctx.meta_pairs));
     if (res.error_code == kvrgw::KVRGW_ERR_OK) {
       s.ts->record(Metric::PutObject, static_cast<uint64_t>(elapsed_us(sched ? *sched : t0)));
       if (created_version) {
